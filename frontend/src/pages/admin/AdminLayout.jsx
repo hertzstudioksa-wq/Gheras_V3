@@ -35,9 +35,11 @@ export default function AdminLayout() {
       <aside className="w-72 bg-white border-l border-[#E2D8C9] h-screen sticky top-0 overflow-y-auto hidden md:block">
         <div className="p-6 border-b border-[#E2D8C9]">
           <Link to="/" className="flex items-center gap-3">
-            <img src={LOGO_URL} alt="غِراس" className="h-12 w-12 object-contain" />
+            <div className="logo-badge h-12 w-12 shrink-0 overflow-hidden">
+              <img src={LOGO_URL} alt="غِراس" />
+            </div>
             <div>
-              <div className="font-heading text-xl font-bold text-[#729352]">غِراس</div>
+              <div className="font-heading text-xl font-bold text-[#729352] leading-tight">غِراس</div>
               <div className="font-body text-xs text-[#8A9AB0]">لوحة الإدارة</div>
             </div>
           </Link>
@@ -86,7 +88,9 @@ export default function AdminLayout() {
         {/* Mobile top bar */}
         <div className="md:hidden bg-white border-b border-[#E2D8C9] px-4 py-3 flex items-center justify-between sticky top-0 z-10">
           <Link to="/" className="flex items-center gap-2">
-            <img src={LOGO_URL} alt="غِراس" className="h-10 w-10" />
+            <div className="logo-badge h-10 w-10 shrink-0 overflow-hidden">
+              <img src={LOGO_URL} alt="غِراس" />
+            </div>
             <span className="font-heading font-bold text-[#729352]">غِراس • الإدارة</span>
           </Link>
           <button onClick={doLogout} className="text-[#8B5A2B]"><LogOut className="w-5 h-5" /></button>

@@ -41,7 +41,9 @@ export default function Signup() {
     <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center py-16 px-4" data-testid="signup-page">
       <div className="max-w-md w-full">
         <Link to="/" className="flex items-center justify-center gap-3 mb-8">
-          <img src={LOGO_URL} alt="غِراس" className="h-16 w-16" />
+          <div className="logo-badge h-20 w-20 shrink-0 overflow-hidden">
+            <img src={LOGO_URL} alt="غِراس" />
+          </div>
           <span className="font-heading text-3xl font-bold text-[#729352]">غِراس</span>
         </Link>
 

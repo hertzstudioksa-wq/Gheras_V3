@@ -24,10 +24,12 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 bg-[#FDFBF7]/85 backdrop-blur-md border-b border-[#E2D8C9]/60" data-testid="main-navbar">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-3" data-testid="nav-logo">
-          <img src={LOGO_URL} alt="غِراس" className="h-14 w-14 object-contain" />
-          <span className="font-heading text-2xl font-bold text-[#729352] hidden sm:block">غِراس</span>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-24 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-2" data-testid="nav-logo">
+          <div className="logo-badge h-14 w-14 md:h-16 md:w-16 shrink-0 overflow-hidden">
+            <img src={LOGO_URL} alt="غِراس" />
+          </div>
+          <span className="font-heading text-2xl md:text-3xl font-bold text-[#729352] hidden sm:block">غِراس</span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-10">

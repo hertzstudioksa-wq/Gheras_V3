@@ -19,7 +19,9 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-10">
           <div className="md:col-span-2">
             <div className="flex items-center gap-3 mb-4">
-              <img src={LOGO_URL} alt="غِراس" className="h-14 w-14 object-contain" />
+              <div className="logo-badge h-16 w-16 shrink-0 overflow-hidden">
+                <img src={LOGO_URL} alt="غِراس" />
+              </div>
               <span className="font-heading text-3xl font-bold text-[#729352]">غِراس</span>
             </div>
             <p className="text-[#5A677D] font-body text-base leading-relaxed max-w-md">

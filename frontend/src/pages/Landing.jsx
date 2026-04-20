@@ -82,8 +82,10 @@ export default function Landing() {
             <div className="absolute -inset-4 bg-[#E8F0E1] blob-shape opacity-50 -z-10" />
             <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl border-8 border-white">
               <img src={HERO_IMG} alt="أهل وأطفال" className="w-full h-[460px] object-cover" />
-              <div className="absolute bottom-5 right-5 bg-white/95 backdrop-blur rounded-2xl p-4 shadow-lg flex items-center gap-3 animate-float">
-                <img src={LOGO_URL} alt="غِراس" className="h-10 w-10" />
+              <div className="absolute bottom-5 right-5 bg-white/95 backdrop-blur rounded-2xl p-3 shadow-lg flex items-center gap-3 animate-float">
+                <div className="logo-badge h-12 w-12 shrink-0 overflow-hidden">
+                  <img src={LOGO_URL} alt="غِراس" />
+                </div>
                 <div>
                   <p className="font-heading font-bold text-[#2D3748] text-sm">قصة مصمّمة لطفلك</p>
                   <p className="font-body text-xs text-[#5A677D]">بطلها اسمه ومواصفاته</p>
@@ -211,7 +213,9 @@ export default function Landing() {
           <div className="relative bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[3rem] p-12 md:p-16 border border-[#E2D8C9] overflow-hidden">
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#D4A373]/20 blob-shape" />
             <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-[#87A96B]/20 blob-shape" />
-            <img src={LOGO_URL} alt="غِراس" className="h-24 w-24 mx-auto mb-6" />
+            <div className="logo-badge h-28 w-28 mx-auto mb-4 overflow-hidden">
+              <img src={LOGO_URL} alt="غِراس" />
+            </div>
             <h2 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-4">
               جاهز لغرس قيمة في قلب طفلك؟
             </h2>
