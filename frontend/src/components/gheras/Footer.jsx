@@ -3,8 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Sprout, Instagram, Twitter } from "lucide-react";
 
-const LOGO_URL =
-  "https://customer-assets.emergentagent.com/job_63d63889-ac7b-41d8-b7a7-55c098ae2162/artifacts/47jyw57s_Gheras_3-Final.png";
+const LOGO_URL = "/gheras-logo.png";
 
 export default function Footer() {
   const [content, setContent] = useState({});
@@ -19,7 +18,7 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-10">
           <div className="md:col-span-2">
             <div className="flex items-center gap-3 mb-4">
-              <div className="logo-badge h-16 w-16 shrink-0 overflow-hidden">
+              <div className="logo-icon h-16 w-16 shrink-0">
                 <img src={LOGO_URL} alt="غِراس" />
               </div>
               <span className="font-heading text-3xl font-bold text-[#729352]">غِراس</span>

@@ -4,8 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Sprout, UserPlus, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
-const LOGO_URL =
-  "https://customer-assets.emergentagent.com/job_63d63889-ac7b-41d8-b7a7-55c098ae2162/artifacts/47jyw57s_Gheras_3-Final.png";
+const LOGO_URL = "/gheras-logo.png";
 
 export default function Signup() {
   const { register } = useAuth();
@@ -40,11 +39,8 @@ export default function Signup() {
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center py-16 px-4" data-testid="signup-page">
       <div className="max-w-md w-full">
-        <Link to="/" className="flex items-center justify-center gap-3 mb-8">
-          <div className="logo-badge h-20 w-20 shrink-0 overflow-hidden">
-            <img src={LOGO_URL} alt="غِراس" />
-          </div>
-          <span className="font-heading text-3xl font-bold text-[#729352]">غِراس</span>
+        <Link to="/" className="flex flex-col items-center gap-1 mb-4">
+          <img src={LOGO_URL} alt="غِراس" className="logo-img h-40 w-40 shrink-0 hover:scale-105 transition-transform duration-500" />
         </Link>
 
         <div className="bg-white rounded-[2rem] p-8 md:p-10 border border-[#E2D8C9] shadow-sm animate-grow">

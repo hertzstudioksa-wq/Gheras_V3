@@ -3,8 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { Menu, X, Sprout, LogOut, LayoutDashboard, Shield } from "lucide-react";
 
-const LOGO_URL =
-  "https://customer-assets.emergentagent.com/job_63d63889-ac7b-41d8-b7a7-55c098ae2162/artifacts/47jyw57s_Gheras_3-Final.png";
+const LOGO_URL = "/gheras-logo.png";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -26,7 +25,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 bg-[#FDFBF7]/85 backdrop-blur-md border-b border-[#E2D8C9]/60" data-testid="main-navbar">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-24 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2" data-testid="nav-logo">
-          <div className="logo-badge h-14 w-14 md:h-16 md:w-16 shrink-0 overflow-hidden">
+          <div className="logo-icon h-14 w-14 md:h-16 md:w-16 shrink-0">
             <img src={LOGO_URL} alt="غِراس" />
           </div>
           <span className="font-heading text-2xl md:text-3xl font-bold text-[#729352] hidden sm:block">غِراس</span>

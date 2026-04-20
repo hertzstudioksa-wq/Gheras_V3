@@ -14,8 +14,7 @@ const ICON_MAP = {
   shield: Shield, sprout: Sprout, star: Star,
 };
 
-const LOGO_URL =
-  "https://customer-assets.emergentagent.com/job_63d63889-ac7b-41d8-b7a7-55c098ae2162/artifacts/47jyw57s_Gheras_3-Final.png";
+const LOGO_URL = "/gheras-logo.png";
 
 const HERO_IMG =
   "https://images.unsplash.com/photo-1758598737999-e5b659b3d65c?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
@@ -83,7 +82,7 @@ export default function Landing() {
             <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl border-8 border-white">
               <img src={HERO_IMG} alt="أهل وأطفال" className="w-full h-[460px] object-cover" />
               <div className="absolute bottom-5 right-5 bg-white/95 backdrop-blur rounded-2xl p-3 shadow-lg flex items-center gap-3 animate-float">
-                <div className="logo-badge h-12 w-12 shrink-0 overflow-hidden">
+                <div className="logo-icon h-12 w-12 shrink-0">
                   <img src={LOGO_URL} alt="غِراس" />
                 </div>
                 <div>
@@ -213,9 +212,7 @@ export default function Landing() {
           <div className="relative bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[3rem] p-12 md:p-16 border border-[#E2D8C9] overflow-hidden">
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#D4A373]/20 blob-shape" />
             <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-[#87A96B]/20 blob-shape" />
-            <div className="logo-badge h-28 w-28 mx-auto mb-4 overflow-hidden">
-              <img src={LOGO_URL} alt="غِراس" />
-            </div>
+            <img src={LOGO_URL} alt="غِراس" className="logo-img h-44 w-44 mx-auto mb-2 drop-shadow-lg" />
             <h2 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-4">
               جاهز لغرس قيمة في قلب طفلك؟
             </h2>

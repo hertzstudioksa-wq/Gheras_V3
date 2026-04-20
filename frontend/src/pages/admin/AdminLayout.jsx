@@ -6,8 +6,7 @@ import {
   CreditCard, Settings, LogOut, Palette,
 } from "lucide-react";
 
-const LOGO_URL =
-  "https://customer-assets.emergentagent.com/job_63d63889-ac7b-41d8-b7a7-55c098ae2162/artifacts/47jyw57s_Gheras_3-Final.png";
+const LOGO_URL = "/gheras-logo.png";
 
 const items = [
   { to: "/admin", label: "نظرة عامة", icon: LayoutDashboard, end: true, tid: "admin-nav-overview" },
@@ -34,8 +33,8 @@ export default function AdminLayout() {
     <div className="min-h-screen bg-[#FDFBF7] flex" data-testid="admin-layout">
       <aside className="w-72 bg-white border-l border-[#E2D8C9] h-screen sticky top-0 overflow-y-auto hidden md:block">
         <div className="p-6 border-b border-[#E2D8C9]">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="logo-badge h-12 w-12 shrink-0 overflow-hidden">
+          <Link to="/" className="flex items-center gap-2">
+            <div className="logo-icon h-14 w-14 shrink-0">
               <img src={LOGO_URL} alt="غِراس" />
             </div>
             <div>
@@ -88,7 +87,7 @@ export default function AdminLayout() {
         {/* Mobile top bar */}
         <div className="md:hidden bg-white border-b border-[#E2D8C9] px-4 py-3 flex items-center justify-between sticky top-0 z-10">
           <Link to="/" className="flex items-center gap-2">
-            <div className="logo-badge h-10 w-10 shrink-0 overflow-hidden">
+            <div className="logo-icon h-11 w-11 shrink-0">
               <img src={LOGO_URL} alt="غِراس" />
             </div>
             <span className="font-heading font-bold text-[#729352]">غِراس • الإدارة</span>
