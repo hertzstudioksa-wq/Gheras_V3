@@ -21,5 +21,6 @@ async def ensure_indexes():
     await db.content.create_index("key", unique=True)
     await db.prompts.create_index("key", unique=True)
     await db.settings.create_index("key", unique=True)
+    await db.scenarios.create_index("order_id")
     await db.files.create_index("storage_path")
     await db.files.create_index("user_id")

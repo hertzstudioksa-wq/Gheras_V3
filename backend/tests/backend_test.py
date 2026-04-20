@@ -223,7 +223,13 @@ def created_order(session, parent_token, uploaded_child_file):
 
 
 def test_order_create(created_order):
-    assert created_order["status"] == "pending" and created_order["prompt_edited"] is False
+    # Phase 3: POST /orders returns immediately with status=scenarios_generating
+    assert created_order["status"] in ("scenarios_generating", "scenarios_ready"), created_order["status"]
+    assert created_order["prompt_edited"] is False
+    # status_history must include pending->scenarios_generating
+    sh = created_order.get("status_history") or []
+    assert any(h.get("from") is None and h.get("to") == "pending" for h in sh)
+    assert any(h.get("from") == "pending" and h.get("to") == "scenarios_generating" for h in sh)
 
 
 def test_order_clears_draft(session, parent_token, created_order):
@@ -392,3 +398,259 @@ def test_no_mongo_id_leakage(session, admin_token, parent_token, created_order):
                "/admin/plans", "/admin/settings", "/admin/subcategories"]:
         r = session.get(f"{API}{ep}", headers=H(admin_token))
         assert r.status_code == 200 and '"_id"' not in r.text, f"{ep}"
+
+
+# ============================================================
+# ---------- Phase 3: Scenario generation & selection ----------
+# ============================================================
+import time
+
+VALID_ANGLES = {"emotional", "educational", "adventure"}
+
+
+def _wait_scenarios_ready(session, parent_token, order_id, timeout=40):
+    """Poll until status becomes scenarios_ready (or fails) and 3 scenarios appear."""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        r = session.get(f"{API}/orders/{order_id}/scenarios", headers=H(parent_token))
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        last = r.json()
+        if last.get("status") == "scenarios_ready" and len(last.get("scenarios") or []) == 3:
+            return last
+        if last.get("status") == "failed":
+            return last
+        time.sleep(1.0)
+    raise AssertionError(f"scenarios not ready in {timeout}s: {last}")
+
+
+@pytest.fixture(scope="module")
+def scen_order(session, parent_token, uploaded_child_file):
+    """Fresh order specifically for scenario tests."""
+    data, _, _ = _build_data(session, uploaded_child_file["url"], 2)
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    o = r.json()
+    # immediate status assertions
+    assert o["status"] == "scenarios_generating", o["status"]
+    assert o.get("selected_scenario_id") is None
+    assert o.get("scenarios_generation") in (None, {}) or isinstance(o.get("scenarios_generation"), dict)
+    return o
+
+
+def test_p3_create_returns_scenarios_generating(scen_order):
+    sh = scen_order.get("status_history") or []
+    assert any(h.get("to") == "pending" and h.get("by") == "user" for h in sh)
+    assert any(h.get("from") == "pending" and h.get("to") == "scenarios_generating" and h.get("by") == "system" for h in sh)
+
+
+def test_p3_polling_scenarios_ready(session, parent_token, scen_order):
+    res = _wait_scenarios_ready(session, parent_token, scen_order["id"])
+    assert res["status"] == "scenarios_ready"
+    items = res["scenarios"]
+    assert len(items) == 3
+    indices = sorted(s["scenario_index"] for s in items)
+    assert indices == [1, 2, 3]
+    for s in items:
+        assert s["id"] and s["order_id"] == scen_order["id"]
+        assert s["title"] and s["short_summary"]
+        assert s["emotional_angle"] in VALID_ANGLES, s["emotional_angle"]
+        assert s["learning_goal"] and s["visual_style_hint"]
+        assert isinstance(s["estimated_scene_count"], int)
+        assert 4 <= s["estimated_scene_count"] <= 8
+        assert s["is_selected"] is False
+        assert s["created_at"]
+
+
+def test_p3_generation_metadata(session, parent_token, scen_order):
+    _wait_scenarios_ready(session, parent_token, scen_order["id"])
+    o = session.get(f"{API}/orders/{scen_order['id']}", headers=H(parent_token)).json()
+    gen = o.get("scenarios_generation")
+    assert gen, "scenarios_generation missing"
+    assert gen["source"] in ("ai", "fallback"), gen["source"]
+    assert "completed_at" in gen
+    # If ai, error should be None; if fallback, error should be a string
+    if gen["source"] == "ai":
+        assert gen.get("error") in (None, "")
+    print(f"PHASE3 scenario source = {gen['source']}")
+
+
+def test_p3_select_scenario_user(session, parent_token, scen_order):
+    res = session.get(f"{API}/orders/{scen_order['id']}/scenarios", headers=H(parent_token)).json()
+    sid = res["scenarios"][0]["id"]
+    r = session.post(f"{API}/orders/{scen_order['id']}/scenarios/{sid}/select", headers=H(parent_token))
+    assert r.status_code == 200, r.text
+    res2 = session.get(f"{API}/orders/{scen_order['id']}/scenarios", headers=H(parent_token)).json()
+    sels = [s for s in res2["scenarios"] if s["is_selected"]]
+    assert len(sels) == 1 and sels[0]["id"] == sid
+    o = session.get(f"{API}/orders/{scen_order['id']}", headers=H(parent_token)).json()
+    assert o["selected_scenario_id"] == sid
+    assert o["selected_scenario_snapshot"]["id"] == sid
+    assert o["status"] == "ready_for_ai"
+    sh = o["status_history"]
+    # last two entries should be scenario_selected then ready_for_ai
+    last_to = [h["to"] for h in sh[-2:]]
+    assert last_to == ["scenario_selected", "ready_for_ai"], last_to
+
+
+def test_p3_select_other_user_404(session, parent2_token, scen_order):
+    res = requests.get(f"{API}/orders/{scen_order['id']}/scenarios", headers=H(parent2_token))
+    assert res.status_code == 404
+    # try to select with parent2 — must 404
+    # use any random sid we know exists from selected snapshot — fetch via admin path? we'll fabricate
+    fake = "00000000-0000-0000-0000-000000000000"
+    r = requests.post(f"{API}/orders/{scen_order['id']}/scenarios/{fake}/select", headers=H(parent2_token))
+    assert r.status_code == 404
+
+
+def test_p3_reselection_swaps(session, parent_token, scen_order):
+    res = session.get(f"{API}/orders/{scen_order['id']}/scenarios", headers=H(parent_token)).json()
+    other = next(s for s in res["scenarios"] if not s["is_selected"])
+    r = session.post(f"{API}/orders/{scen_order['id']}/scenarios/{other['id']}/select", headers=H(parent_token))
+    assert r.status_code == 200
+    res2 = session.get(f"{API}/orders/{scen_order['id']}/scenarios", headers=H(parent_token)).json()
+    sels = [s for s in res2["scenarios"] if s["is_selected"]]
+    assert len(sels) == 1 and sels[0]["id"] == other["id"]
+
+
+def test_p3_select_blocked_when_generating(session, admin_token, parent_token, scen_order):
+    oid = scen_order["id"]
+    # admin patches order to generating
+    r = session.patch(f"{API}/admin/orders/{oid}/status", headers=H(admin_token), json={"status": "generating"})
+    assert r.status_code == 200
+    res = session.get(f"{API}/orders/{oid}/scenarios", headers=H(parent_token)).json()
+    sid = res["scenarios"][0]["id"]
+    r2 = session.post(f"{API}/orders/{oid}/scenarios/{sid}/select", headers=H(parent_token))
+    assert r2.status_code == 400, r2.status_code
+    # restore to ready_for_ai for downstream tests
+    session.patch(f"{API}/admin/orders/{oid}/status", headers=H(admin_token), json={"status": "ready_for_ai"})
+
+
+def test_p3_regenerate_user(session, parent_token, scen_order):
+    oid = scen_order["id"]
+    before = session.get(f"{API}/orders/{oid}/scenarios", headers=H(parent_token)).json()
+    before_ids = sorted(s["id"] for s in before["scenarios"])
+    r = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+    assert r.status_code == 200, r.text
+    # status flipped
+    immediate = session.get(f"{API}/orders/{oid}/scenarios", headers=H(parent_token)).json()
+    assert immediate["status"] in ("scenarios_generating", "scenarios_ready")
+    res = _wait_scenarios_ready(session, parent_token, oid)
+    after_ids = sorted(s["id"] for s in res["scenarios"])
+    assert after_ids != before_ids, "ids should have changed after regenerate"
+    o = session.get(f"{API}/orders/{oid}", headers=H(parent_token)).json()
+    assert o.get("selected_scenario_id") is None
+
+
+def test_p3_regenerate_blocked_when_generating(session, admin_token, parent_token, scen_order):
+    oid = scen_order["id"]
+    session.patch(f"{API}/admin/orders/{oid}/status", headers=H(admin_token), json={"status": "generating"})
+    r = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+    assert r.status_code == 400, r.status_code
+    # restore
+    session.patch(f"{API}/admin/orders/{oid}/status", headers=H(admin_token), json={"status": "scenarios_ready"})
+
+
+def test_p3_status_history_shape(session, parent_token, scen_order):
+    o = session.get(f"{API}/orders/{scen_order['id']}", headers=H(parent_token)).json()
+    sh = o["status_history"]
+    assert len(sh) > 1
+    for h in sh:
+        for k in ["from", "to", "at", "by"]:
+            assert k in h, f"missing key {k} in {h}"
+        assert h["by"] in ("user", "system", "admin"), h["by"]
+
+
+def test_p3_admin_scenarios(session, admin_token, scen_order):
+    r = session.get(f"{API}/admin/orders/{scen_order['id']}/scenarios", headers=H(admin_token))
+    assert r.status_code == 200
+    j = r.json()
+    assert "scenarios" in j and "generation" in j and "selected_scenario_id" in j
+    assert '"_id"' not in r.text
+
+
+def test_p3_admin_regenerate(session, admin_token, parent_token, scen_order):
+    oid = scen_order["id"]
+    r = session.post(f"{API}/admin/orders/{oid}/scenarios/regenerate", headers=H(admin_token))
+    assert r.status_code == 200
+    res = _wait_scenarios_ready(session, parent_token, oid)
+    assert len(res["scenarios"]) == 3
+    o = session.get(f"{API}/admin/orders/{oid}", headers=H(admin_token)).json()
+    assert any(h.get("by") == "admin" and h.get("to") == "scenarios_generating" for h in o["status_history"])
+
+
+def test_p3_admin_select_on_behalf(session, admin_token, parent_token, scen_order):
+    oid = scen_order["id"]
+    res = session.get(f"{API}/admin/orders/{oid}/scenarios", headers=H(admin_token)).json()
+    sid = res["scenarios"][1]["id"]
+    r = session.post(f"{API}/admin/orders/{oid}/scenarios/{sid}/select", headers=H(admin_token))
+    assert r.status_code == 200
+    o = session.get(f"{API}/admin/orders/{oid}", headers=H(admin_token)).json()
+    assert o["selected_scenario_id"] == sid
+    assert o["status"] == "ready_for_ai"
+    sh = o["status_history"]
+    last_two = sh[-2:]
+    assert last_two[0]["to"] == "scenario_selected" and last_two[0]["by"] == "admin"
+    assert last_two[1]["to"] == "ready_for_ai" and last_two[1]["by"] == "system"
+
+
+def test_p3_admin_status_in_review_then_back(session, admin_token, scen_order):
+    oid = scen_order["id"]
+    r = session.patch(f"{API}/admin/orders/{oid}/status", headers=H(admin_token), json={"status": "in_review", "admin_note": "manual review"})
+    assert r.status_code == 200
+    o = session.get(f"{API}/admin/orders/{oid}", headers=H(admin_token)).json()
+    assert o["status"] == "in_review"
+    assert any(h.get("by") == "admin" and h.get("to") == "in_review" for h in o["status_history"])
+    r2 = session.patch(f"{API}/admin/orders/{oid}/status", headers=H(admin_token), json={"status": "ready_for_ai"})
+    assert r2.status_code == 200
+    o2 = session.get(f"{API}/admin/orders/{oid}", headers=H(admin_token)).json()
+    assert o2["status"] == "ready_for_ai"
+
+
+def test_p3_admin_delete_scenarios(session, admin_token, parent_token, uploaded_child_file):
+    """Use a fresh order to safely delete scenarios."""
+    data, _, _ = _build_data(session, uploaded_child_file["url"], 1)
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    oid = r.json()["id"]
+    _wait_scenarios_ready(session, parent_token, oid)
+    r2 = session.delete(f"{API}/admin/orders/{oid}/scenarios", headers=H(admin_token))
+    assert r2.status_code == 200
+    res = session.get(f"{API}/admin/orders/{oid}/scenarios", headers=H(admin_token)).json()
+    assert res["scenarios"] == []
+    assert res["selected_scenario_id"] is None
+
+
+def test_p3_orders_list_includes_selected_scenario_id(session, parent_token, scen_order):
+    items = session.get(f"{API}/orders", headers=H(parent_token)).json()
+    it = next(i for i in items if i["id"] == scen_order["id"])
+    assert "selected_scenario_id" in it
+
+
+def test_p3_order_full_returns_snapshot(session, parent_token, scen_order):
+    o = session.get(f"{API}/orders/{scen_order['id']}", headers=H(parent_token)).json()
+    if o.get("selected_scenario_id"):
+        assert o.get("selected_scenario_snapshot")
+        assert o["selected_scenario_snapshot"]["id"] == o["selected_scenario_id"]
+
+
+def test_p3_rbac_admin_scenario_endpoints(session, parent_token, scen_order):
+    oid = scen_order["id"]
+    for path, method in [
+        (f"/admin/orders/{oid}/scenarios", "GET"),
+        (f"/admin/orders/{oid}/scenarios/regenerate", "POST"),
+        (f"/admin/orders/{oid}/scenarios", "DELETE"),
+        (f"/admin/orders/{oid}/scenarios/x/select", "POST"),
+    ]:
+        r = session.request(method, f"{API}{path}", headers=H(parent_token))
+        assert r.status_code == 403, f"{method} {path} -> {r.status_code}"
+
+
+def test_p3_no_mongo_id_in_scenario_endpoints(session, parent_token, admin_token, scen_order):
+    oid = scen_order["id"]
+    for ep, tok in [
+        (f"/orders/{oid}/scenarios", parent_token),
+        (f"/admin/orders/{oid}/scenarios", admin_token),
+    ]:
+        r = session.get(f"{API}{ep}", headers=H(tok))
+        assert r.status_code == 200
+        assert '"_id"' not in r.text

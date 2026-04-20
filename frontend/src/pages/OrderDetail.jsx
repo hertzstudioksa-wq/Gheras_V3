@@ -4,7 +4,13 @@ import { api, fileSrc } from "../lib/api";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import OrderStatusBadge from "../components/gheras/OrderStatusBadge";
-import { ArrowRight, Sprout, Calendar, FileText, Image as ImageIcon } from "lucide-react";
+import { ArrowRight, Sprout, Calendar, FileText, Image as ImageIcon, Award, ArrowLeft, Heart, BookOpen, Rocket, CheckCircle2 } from "lucide-react";
+
+const ANGLE_META = {
+  emotional:   { label: "عاطفي", icon: Heart, fg: "text-[#B8612F]", bg: "bg-[#FCE6D4]" },
+  educational: { label: "تعليمي هادئ", icon: BookOpen, fg: "text-[#4F6B3B]", bg: "bg-[#E8F0E1]" },
+  adventure:   { label: "مغامرة", icon: Rocket, fg: "text-[#8B5A2B]", bg: "bg-[#F8F1E7]" },
+};
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -108,11 +114,27 @@ export default function OrderDetail() {
 
         <div className="bg-gradient-to-br from-[#E8F0E1] to-[#F8F1E7] rounded-[2rem] p-8 md:p-10 border border-[#E2D8C9] text-center">
           <Sprout className="w-12 h-12 text-[#729352] mx-auto mb-3" />
-          <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-2">القصة قيد التحضير</h3>
-          <p className="font-body text-[#5A677D] max-w-lg mx-auto">
-            فريقنا يُحضّر قصة طفلك بعناية. ستصلك عند الاكتمال مع الفيديو و PDF جاهز للمشاركة.
+          <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-2">
+            {order.status === "completed" ? "القصة جاهزة 🎉"
+            : order.selected_scenario_snapshot ? "السيناريو مختار وجاهز للتوليد"
+            : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اختر سيناريو القصة"
+            : "القصة قيد التحضير"}
+          </h3>
+          <p className="font-body text-[#5A677D] max-w-lg mx-auto mb-4">
+            {order.status === "completed" ? "يمكنك تحميل الفيديو و PDF أو مشاركة القصة"
+            : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اضغط لاختيار السيناريو الذي يناسب طفلك"
+            : "فريقنا يُحضّر قصة طفلك بعناية. ستصلك عند الاكتمال."}
           </p>
+          {["scenarios_generating","scenarios_ready"].includes(order.status) && (
+            <Link to={`/orders/${order.id}/scenarios`} className="btn-primary inline-flex items-center gap-2">
+              <Sprout className="w-4 h-4" /> اذهب لاختيار السيناريو
+            </Link>
+          )}
         </div>
+
+        {order.selected_scenario_snapshot && (
+          <SelectedScenarioCard snapshot={order.selected_scenario_snapshot} />
+        )}
       </div>
       <Footer />
     </div>

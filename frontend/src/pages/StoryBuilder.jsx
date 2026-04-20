@@ -209,8 +209,8 @@ export default function StoryBuilder() {
     try {
       const { data: created } = await api.post("/orders", { data });
       localStorage.removeItem(LS_KEY);
-      toast.success("تم إرسال الطلب 🌱");
-      navigate(`/orders/${created.id}`);
+      toast.success("تم الإرسال — جاري إعداد السيناريوهات 🌱");
+      navigate(`/orders/${created.id}/scenarios`);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "تعذّر إنشاء الطلب");
     } finally {

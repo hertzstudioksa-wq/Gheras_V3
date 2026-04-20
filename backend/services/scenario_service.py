@@ -1,0 +1,223 @@
+"""Scenario generation service — Claude Sonnet 4.5 primary, deterministic fallback."""
+import os
+import json
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+logger = logging.getLogger("scenario_service")
+
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+MODEL_PROVIDER = "anthropic"
+MODEL_NAME = "claude-sonnet-4-5-20250929"
+
+SYSTEM_MSG = """أنت كاتب قصص أطفال عربية محترف. مهمتك إنشاء 3 سيناريوهات قصيرة متنوعة ومميزة لكل طلب.
+
+كل سيناريو يجب أن يكون مختلفاً جذرياً في الزاوية العاطفية والنبرة، لكن جميعها تحقق نفس الهدف التربوي وتناسب عمر الطفل.
+
+النبرات الثلاث المستهدفة:
+1. عاطفي - يلامس القلب ويبني الذكاء العاطفي
+2. تعليمي/هادئ - يوضّح الدرس بهدوء وتأمّل
+3. مغامرة/تشويق - يستخدم الإثارة لتوصيل القيمة
+
+أرجع الإجابة كـ JSON فقط (بدون أي نص إضافي) بالصيغة التالية تماماً:
+{
+  "scenarios": [
+    {
+      "title": "عنوان قصير جذاب",
+      "short_summary": "ملخص من 2-4 سطور يصف القصة باختصار واضح",
+      "emotional_angle": "emotional|educational|adventure",
+      "learning_goal": "الرسالة/القيمة التي ستُغرس",
+      "visual_style_hint": "توجيه بصري للفنان (لون، جو، مشهد مفتاحي)",
+      "estimated_scene_count": 5
+    },
+    ...
+  ]
+}
+
+قواعد صارمة:
+- 3 سيناريوهات بالضبط
+- emotional_angle يجب أن يكون حرفياً واحداً من: emotional / educational / adventure
+- العنوان ≤ 8 كلمات
+- short_summary ≤ 4 سطور بالعربية
+- estimated_scene_count بين 4 و 8
+- كل سيناريوهين مختلفان في الحبكة وليس فقط في الصياغة"""
+
+
+TONES = ["emotional", "educational", "adventure"]
+TONE_LABEL_AR = {
+    "emotional": "عاطفي",
+    "educational": "تعليمي هادئ",
+    "adventure": "مغامرة مشوّقة",
+}
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _user_prompt(order: dict) -> str:
+    """Concise structured brief for the model."""
+    data = order.get("data", {}) or {}
+    enriched = order.get("enriched", {}) or {}
+    child = data.get("child", {}) or {}
+    goal = data.get("goal", {}) or {}
+    pers = data.get("personalization", {}) or {}
+
+    chars = data.get("characters", []) or []
+    chars_brief = "، ".join(
+        f"{c.get('type','')}"
+        + (f" ({c.get('name')})" if c.get("name") else "")
+        + (" — ظاهر" if c.get("role") == "visible" else "")
+        for c in chars
+    ) or "لا يوجد"
+
+    fav_brief = "، ".join(
+        f"{k}: {(v or {}).get('name','')}"
+        for k, v in (pers.get("favorites") or {}).items()
+        if (v or {}).get("selected") and (v or {}).get("name")
+    ) or "لا يوجد"
+
+    return f"""بيانات الطلب:
+
+الطفل: {child.get('name','')} — عمر {child.get('age','')} — {"ولد" if child.get('gender')=='male' else "بنت"}{"(بحجاب)" if child.get('hijab') else ""}
+التصنيف: {enriched.get('category_name','')}
+الموضوع: {enriched.get('subcategory_name') or goal.get('custom_subcategory','')}
+الموقف الحقيقي: {goal.get('context','')}
+الشخصيات الإضافية: {chars_brief}
+مفضّلات: {fav_brief}
+تفاصيل إضافية: {pers.get('custom_notes','') or 'لا يوجد'}
+
+الأسلوب المطلوب:
+- نوع: {enriched.get('type_name','') or 'غير محدد'}
+- نبرة عامة: {enriched.get('tone_name','') or 'غير محدد'}
+- بيئة: {enriched.get('setting_name','') or 'غير محدد'}
+- لغة: {enriched.get('language_name','') or 'عربية فصحى مبسطة'}
+
+أنشئ الآن 3 سيناريوهات متنوعة حسب القواعد."""
+
+
+async def _generate_via_claude(order: dict) -> list[dict]:
+    """Try Claude Sonnet 4.5. Raises on any failure."""
+    if not EMERGENT_LLM_KEY:
+        raise RuntimeError("EMERGENT_LLM_KEY missing")
+    session_id = f"scenarios-{order.get('id', uuid.uuid4())}"
+    chat = (
+        LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
+        .with_model(MODEL_PROVIDER, MODEL_NAME)
+    )
+    response = await chat.send_message(UserMessage(text=_user_prompt(order)))
+    text = (response or "").strip()
+    # Trim code fences if any
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:].lstrip()
+    # Slice to outermost JSON object
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1:
+        raise ValueError("No JSON object in response")
+    payload = json.loads(text[start : end + 1])
+    items = payload.get("scenarios") or []
+    if len(items) != 3:
+        raise ValueError(f"Expected 3 scenarios, got {len(items)}")
+    # Normalize & validate each
+    out = []
+    for i, s in enumerate(items):
+        angle = str(s.get("emotional_angle", "")).strip().lower()
+        if angle not in TONES:
+            angle = TONES[i % 3]
+        out.append({
+            "title": str(s.get("title") or "").strip()[:120] or f"سيناريو {i+1}",
+            "short_summary": str(s.get("short_summary") or "").strip(),
+            "emotional_angle": angle,
+            "learning_goal": str(s.get("learning_goal") or "").strip(),
+            "visual_style_hint": str(s.get("visual_style_hint") or "").strip(),
+            "estimated_scene_count": int(s.get("estimated_scene_count") or 5),
+        })
+    return out
+
+
+def _fallback_scenarios(order: dict) -> list[dict]:
+    """Deterministic fallback — 3 distinct tones derived from order data."""
+    data = order.get("data", {}) or {}
+    enriched = order.get("enriched", {}) or {}
+    child = data.get("child", {}) or {}
+    goal = data.get("goal", {}) or {}
+    name = child.get("name", "بطلنا")
+    age = child.get("age", 5)
+    theme = enriched.get("subcategory_name") or goal.get("custom_subcategory") or enriched.get("category_name") or "قيمة جميلة"
+    context_snip = (goal.get("context") or "").strip()
+    context_line = context_snip[:80] + ("..." if len(context_snip) > 80 else "")
+
+    return [
+        {
+            "title": f"قلب {name} الكبير",
+            "short_summary": (
+                f"قصة دافئة تلامس مشاعر {name}، تبدأ من الموقف الذي عاشه "
+                f"وتأخذه في رحلة هادئة لاكتشاف معنى {theme} من الداخل. "
+                f"تنتهي بلحظة مؤثرة تجعل الدرس يصل للقلب قبل العقل."
+            ),
+            "emotional_angle": "emotional",
+            "learning_goal": f"أن يفهم {name} قيمة {theme} بصدق مشاعره",
+            "visual_style_hint": "ألوان دافئة خفيفة، إضاءة ذهبية، لقطات قريبة من الوجه لإبراز المشاعر",
+            "estimated_scene_count": 5,
+        },
+        {
+            "title": f"{name} يكتشف الحكمة",
+            "short_summary": (
+                f"قصة هادئة بأسلوب تعليمي لطيف، يتعلم فيها {name} معنى {theme} "
+                f"من شخصية حكيمة ولحظات بسيطة في حياته اليومية. "
+                f"مناسبة جداً لعمر {age} سنوات وتترك أثراً واضحاً."
+            ),
+            "emotional_angle": "educational",
+            "learning_goal": f"توضيح {theme} بأمثلة عملية يفهمها طفل بعمر {age}",
+            "visual_style_hint": "ألوان هادئة، زوايا ثابتة، تركيز على التعابير والتفاصيل الصغيرة",
+            "estimated_scene_count": 5,
+        },
+        {
+            "title": f"مغامرة {name} الكبرى",
+            "short_summary": (
+                f"مغامرة مشوّقة يخوض فيها {name} تحدياً ممتعاً يعلّمه {theme}. "
+                f"أحداث سريعة وشخصيات مرحة ونهاية بطولية — بدون عنف ومناسبة للأطفال. "
+                + (f"القصة تبدأ من موقف شبيه بالذي عاشه: {context_line}" if context_line else "")
+            ),
+            "emotional_angle": "adventure",
+            "learning_goal": f"تعزيز {theme} عبر تجربة بطولية ممتعة",
+            "visual_style_hint": "ألوان زاهية، حركة ديناميكية، لقطات واسعة لإبراز المغامرة",
+            "estimated_scene_count": 6,
+        },
+    ]
+
+
+async def generate_scenarios(order: dict) -> tuple[list[dict], str, str | None]:
+    """Main entry. Returns (scenarios, source, error_message_if_any)."""
+    try:
+        items = await _generate_via_claude(order)
+        return items, "ai", None
+    except Exception as e:
+        logger.warning(f"Claude scenario generation failed, using fallback: {e}")
+        return _fallback_scenarios(order), "fallback", str(e)
+
+
+def build_scenario_docs(order_id: str, items: list[dict]) -> list[dict]:
+    out = []
+    for idx, s in enumerate(items, start=1):
+        out.append({
+            "id": str(uuid.uuid4()),
+            "order_id": order_id,
+            "scenario_index": idx,
+            "title": s["title"],
+            "short_summary": s["short_summary"],
+            "emotional_angle": s["emotional_angle"],
+            "learning_goal": s["learning_goal"],
+            "visual_style_hint": s["visual_style_hint"],
+            "estimated_scene_count": s["estimated_scene_count"],
+            "is_selected": False,
+            "created_at": _now(),
+        })
+    return out

@@ -1,7 +1,7 @@
 """Admin endpoints — v2."""
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 
 from db import db
 from auth import require_admin
@@ -10,6 +10,8 @@ from models import (
     ContentBlockIn, PromptIn, PlanIn, SettingIn, UserUpdate, ORDER_STATUS_AR,
 )
 from prompt_engine import build_prompt
+from services.scenario_service import generate_scenarios, build_scenario_docs
+from routes.order_routes import append_status, run_scenario_generation
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -86,17 +88,13 @@ async def admin_order_detail(order_id: str):
 
 
 @router.patch("/orders/{order_id}/status")
-async def update_order_status(order_id: str, payload: OrderStatusUpdate):
-    res = await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {
-            "status": payload.status.value,
-            "admin_note": payload.admin_note,
-            "updated_at": _now(),
-        }},
-    )
-    if not res.matched_count:
+async def update_order_status(order_id: str, payload: OrderStatusUpdate, admin=Depends(require_admin)):
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0, "status": 1})
+    if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if payload.admin_note is not None:
+        await db.orders.update_one({"id": order_id}, {"$set": {"admin_note": payload.admin_note}})
+    await append_status(order_id, o.get("status"), payload.status.value, "admin", actor_id=admin["id"], reason=payload.admin_note)
     return {"ok": True}
 
 
@@ -126,6 +124,66 @@ async def regenerate_prompt(order_id: str):
         {"$set": {"ai_prompt_snapshot": prompt, "prompt_edited": False, "updated_at": _now()}},
     )
     return {"ok": True, "ai_prompt_snapshot": prompt}
+
+
+# ---------- Admin Scenarios ----------
+@router.get("/orders/{order_id}/scenarios")
+async def admin_list_scenarios(order_id: str):
+    items = await db.scenarios.find({"order_id": order_id}, {"_id": 0}).sort("scenario_index", 1).to_list(10)
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0, "scenarios_generation": 1, "selected_scenario_id": 1, "status": 1})
+    return {
+        "scenarios": items,
+        "generation": (o or {}).get("scenarios_generation"),
+        "selected_scenario_id": (o or {}).get("selected_scenario_id"),
+        "status": (o or {}).get("status"),
+    }
+
+
+@router.post("/orders/{order_id}/scenarios/regenerate")
+async def admin_regenerate_scenarios(order_id: str, background: BackgroundTasks, admin=Depends(require_admin)):
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    await db.scenarios.delete_many({"order_id": order_id})
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"selected_scenario_id": None, "selected_scenario_snapshot": None}},
+    )
+    await append_status(order_id, o.get("status"), "scenarios_generating", "admin", actor_id=admin["id"], reason="admin regenerate")
+    background.add_task(run_scenario_generation, order_id)
+    return {"ok": True}
+
+
+@router.delete("/orders/{order_id}/scenarios")
+async def admin_delete_scenarios(order_id: str, admin=Depends(require_admin)):
+    await db.scenarios.delete_many({"order_id": order_id})
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"selected_scenario_id": None, "selected_scenario_snapshot": None}},
+    )
+    return {"ok": True}
+
+
+@router.post("/orders/{order_id}/scenarios/{scenario_id}/select")
+async def admin_select_scenario(order_id: str, scenario_id: str, admin=Depends(require_admin)):
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    scenario = await db.scenarios.find_one({"id": scenario_id, "order_id": order_id}, {"_id": 0})
+    if not scenario:
+        raise HTTPException(status_code=404, detail="السيناريو غير موجود")
+    await db.scenarios.update_many({"order_id": order_id}, {"$set": {"is_selected": False}})
+    await db.scenarios.update_one({"id": scenario_id}, {"$set": {"is_selected": True}})
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "selected_scenario_id": scenario_id,
+            "selected_scenario_snapshot": scenario,
+        }},
+    )
+    await append_status(order_id, o.get("status"), "scenario_selected", "admin", actor_id=admin["id"], reason=f"admin selected {scenario.get('scenario_index')}")
+    await append_status(order_id, "scenario_selected", "ready_for_ai", "system", reason="auto after admin selection")
+    return {"ok": True}
 
 
 # ---------- Categories ----------

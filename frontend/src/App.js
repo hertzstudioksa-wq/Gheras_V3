@@ -14,6 +14,7 @@ import Signup from "./pages/Signup";
 import StoryBuilder from "./pages/StoryBuilder";
 import Dashboard from "./pages/Dashboard";
 import OrderDetail from "./pages/OrderDetail";
+import ScenarioSelection from "./pages/ScenarioSelection";
 
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminOverview from "./pages/admin/AdminOverview";
@@ -63,6 +64,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <OrderDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/orders/:id/scenarios"
+              element={
+                <ProtectedRoute>
+                  <ScenarioSelection />
                 </ProtectedRoute>
               }
             />

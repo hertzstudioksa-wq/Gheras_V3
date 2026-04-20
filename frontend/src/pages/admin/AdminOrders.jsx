@@ -2,14 +2,24 @@ import React, { useEffect, useState } from "react";
 import { api, fileSrc } from "../../lib/api";
 import OrderStatusBadge from "../../components/gheras/OrderStatusBadge";
 import { toast } from "sonner";
-import { Eye, Filter, Wand2, Save, RefreshCw, X } from "lucide-react";
+import { Eye, Filter, Wand2, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock } from "lucide-react";
+
+const ANGLE_META = {
+  emotional:   { label: "عاطفي", icon: Heart, bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]" },
+  educational: { label: "تعليمي هادئ", icon: BookOpen, bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]" },
+  adventure:   { label: "مغامرة", icon: Rocket, bg: "bg-[#F8F1E7]", fg: "text-[#8B5A2B]" },
+};
 
 const STATUSES = [
-  { v: "pending", l: "بانتظار المراجعة" },
+  { v: "pending", l: "بانتظار البدء" },
   { v: "in_review", l: "قيد المراجعة" },
+  { v: "scenarios_generating", l: "جاري توليد السيناريوهات" },
+  { v: "scenarios_ready", l: "السيناريوهات جاهزة" },
+  { v: "scenario_selected", l: "تم اختيار سيناريو" },
   { v: "ready_for_ai", l: "جاهز للتوليد" },
   { v: "generating", l: "جاري التوليد" },
   { v: "completed", l: "مكتمل" },
+  { v: "failed", l: "فشل" },
 ];
 
 export default function AdminOrders() {
@@ -19,7 +29,8 @@ export default function AdminOrders() {
   const [detail, setDetail] = useState(null);
   const [note, setNote] = useState("");
   const [promptEdit, setPromptEdit] = useState("");
-  const [tab, setTab] = useState("overview"); // overview | json | prompt
+  const [tab, setTab] = useState("overview"); // overview | scenarios | json | prompt | history
+  const [scenariosData, setScenariosData] = useState(null);
 
   const reload = () => {
     setLoading(true);
@@ -27,12 +38,55 @@ export default function AdminOrders() {
   };
   useEffect(reload, []);
 
+  const loadScenarios = async (oid) => {
+    try {
+      const { data } = await api.get(`/admin/orders/${oid}/scenarios`);
+      setScenariosData(data);
+    } catch {
+      setScenariosData({ scenarios: [], generation: null, selected_scenario_id: null });
+    }
+  };
+
   const openDetail = async (id) => {
     const { data } = await api.get(`/admin/orders/${id}`);
     setDetail(data);
     setNote(data.admin_note || "");
     setPromptEdit(data.ai_prompt_snapshot || "");
     setTab("overview");
+    loadScenarios(id);
+  };
+
+  const adminRegenerate = async () => {
+    try {
+      await api.post(`/admin/orders/${detail.id}/scenarios/regenerate`);
+      toast.success("جاري إعادة التوليد...");
+      setScenariosData({ scenarios: [], generation: null, selected_scenario_id: null });
+      // poll briefly
+      let i = 0;
+      const poll = setInterval(async () => {
+        i++;
+        const { data } = await api.get(`/admin/orders/${detail.id}/scenarios`);
+        setScenariosData(data);
+        if (data.scenarios.length > 0 || i > 8) clearInterval(poll);
+      }, 2500);
+    } catch { toast.error("فشل"); }
+  };
+
+  const adminSelectScenario = async (sid) => {
+    try {
+      await api.post(`/admin/orders/${detail.id}/scenarios/${sid}/select`);
+      toast.success("تم الاختيار نيابة عن العميل");
+      loadScenarios(detail.id);
+      reload();
+      openDetail(detail.id);
+    } catch { toast.error("فشل"); }
+  };
+
+  const adminDeleteScenarios = async () => {
+    if (!window.confirm("حذف جميع السيناريوهات؟")) return;
+    await api.delete(`/admin/orders/${detail.id}/scenarios`);
+    toast.success("تم الحذف");
+    loadScenarios(detail.id);
   };
 
   const changeStatus = async (id, status) => {
@@ -129,13 +183,15 @@ export default function AdminOrders() {
               <button onClick={() => setDetail(null)} className="text-[#8A9AB0]"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="flex gap-2 mb-5 border-b border-[#E2D8C9]">
+            <div className="flex gap-2 mb-5 border-b border-[#E2D8C9] overflow-x-auto">
               {[
                 { k: "overview", l: "نظرة عامة" },
-                { k: "json", l: "JSON الكامل" },
+                { k: "scenarios", l: "السيناريوهات" },
+                { k: "history", l: "سجل الحالات" },
+                { k: "json", l: "JSON" },
                 { k: "prompt", l: "البرومبت" },
               ].map((t) => (
-                <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm font-body font-bold border-b-2 ${tab === t.k ? "border-[#87A96B] text-[#4F6B3B]" : "border-transparent text-[#8A9AB0]"}`}>
+                <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm font-body font-bold border-b-2 whitespace-nowrap ${tab === t.k ? "border-[#87A96B] text-[#4F6B3B]" : "border-transparent text-[#8A9AB0]"}`}>
                   {t.l}
                 </button>
               ))}
@@ -178,6 +234,84 @@ export default function AdminOrders() {
               <pre className="bg-[#FDFBF7] rounded-2xl p-4 text-xs overflow-x-auto max-h-[500px] overflow-y-auto border border-[#E2D8C9]">
                 {JSON.stringify(detail.data, null, 2)}
               </pre>
+            )}
+
+            {tab === "scenarios" && (
+              <div data-testid="admin-scenarios-tab">
+                <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                  <div className="text-sm text-[#5A677D] font-body">
+                    {scenariosData?.generation?.source === "ai" && <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-3 py-1 text-xs font-bold">AI</span>}
+                    {scenariosData?.generation?.source === "fallback" && <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-3 py-1 text-xs font-bold">Fallback</span>}
+                    {scenariosData?.generation?.source === "error" && <span className="bg-[#FCE6D4] text-[#B8612F] rounded-full px-3 py-1 text-xs font-bold">Error</span>}
+                    <span className="ms-2">عدد السيناريوهات: <b>{scenariosData?.scenarios?.length || 0}</b></span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={adminRegenerate} className="rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-4 py-2 text-xs font-bold inline-flex items-center gap-1" data-testid="admin-regen-scenarios">
+                      <RefreshCw className="w-3 h-3" /> إعادة توليد
+                    </button>
+                    {(scenariosData?.scenarios?.length || 0) > 0 && (
+                      <button onClick={adminDeleteScenarios} className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-2 text-xs font-bold inline-flex items-center gap-1">
+                        <Trash2 className="w-3 h-3" /> حذف
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {(scenariosData?.scenarios || []).length === 0 ? (
+                  <p className="text-center py-12 text-[#8A9AB0] font-body">لم يتم توليد سيناريوهات بعد</p>
+                ) : (
+                  <div className="space-y-3">
+                    {scenariosData.scenarios.map((s) => {
+                      const meta = ANGLE_META[s.emotional_angle] || ANGLE_META.educational;
+                      const Icon = meta.icon;
+                      const sel = s.is_selected || scenariosData.selected_scenario_id === s.id;
+                      return (
+                        <div key={s.id} className={`rounded-2xl p-4 border-2 ${sel ? "border-[#87A96B] bg-[#E8F0E1]/40" : "border-[#E2D8C9] bg-[#FDFBF7]"}`} data-testid={`admin-scenario-${s.id}`}>
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-9 h-9 rounded-xl ${meta.bg} grid place-content-center`}><Icon className={`w-4 h-4 ${meta.fg}`} /></div>
+                              <div>
+                                <h4 className="font-heading font-bold text-[#2D3748]">{s.title}</h4>
+                                <span className={`text-xs ${meta.fg}`}>{meta.label} • {s.estimated_scene_count} مشاهد</span>
+                              </div>
+                            </div>
+                            {sel ? (
+                              <span className="rounded-full bg-[#87A96B] text-white text-xs font-bold px-3 py-1 inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> مختار
+                              </span>
+                            ) : (
+                              <button onClick={() => adminSelectScenario(s.id)} className="text-xs font-bold text-[#729352] hover:text-[#4F6B3B] px-3 py-1">
+                                اختر هذا
+                              </button>
+                            )}
+                          </div>
+                          <p className="font-body text-sm text-[#5A677D]">{s.short_summary}</p>
+                          {s.learning_goal && (
+                            <div className="mt-2 text-xs text-[#4F6B3B] font-body">🎯 {s.learning_goal}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "history" && (
+              <div data-testid="admin-history-tab">
+                <h4 className="font-heading font-bold text-[#2D3748] mb-3">سجل الحالات</h4>
+                <div className="space-y-2">
+                  {(detail.status_history || []).map((h, i) => (
+                    <div key={i} className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9] flex items-center gap-3">
+                      <Clock className="w-4 h-4 text-[#87A96B] shrink-0" />
+                      <div className="flex-1 text-sm font-body">
+                        <div className="text-[#2D3748] font-bold">{h.from || "—"} ← {h.to}</div>
+                        <div className="text-xs text-[#8A9AB0]">{new Date(h.at).toLocaleString("ar-EG")} • by {h.by}{h.reason ? ` • ${h.reason}` : ""}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {tab === "prompt" && (

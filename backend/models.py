@@ -147,19 +147,29 @@ class StoryData(BaseModel):
 # Order
 # =========================
 class OrderStatus(str, Enum):
+    DRAFT = "draft"
     PENDING = "pending"
     IN_REVIEW = "in_review"
+    SCENARIOS_GENERATING = "scenarios_generating"
+    SCENARIOS_READY = "scenarios_ready"
+    SCENARIO_SELECTED = "scenario_selected"
     READY_FOR_AI = "ready_for_ai"
     GENERATING = "generating"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 ORDER_STATUS_AR = {
-    "pending": "بانتظار المراجعة",
+    "draft": "مسودة",
+    "pending": "بانتظار البدء",
     "in_review": "قيد المراجعة",
+    "scenarios_generating": "جاري توليد السيناريوهات",
+    "scenarios_ready": "السيناريوهات جاهزة",
+    "scenario_selected": "تم اختيار سيناريو",
     "ready_for_ai": "جاهز للتوليد",
     "generating": "جاري التوليد",
     "completed": "مكتمل",
+    "failed": "فشل",
 }
 
 

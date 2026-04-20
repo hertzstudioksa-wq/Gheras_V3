@@ -1,12 +1,13 @@
-"""Order endpoints — v2 structured JSON."""
+"""Order endpoints — v3 with scenarios orchestration."""
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 
 from db import db
 from auth import get_current_user
 from models import OrderCreate, OrderStatus, ORDER_STATUS_AR
 from prompt_engine import build_prompt
+from services.scenario_service import generate_scenarios, build_scenario_docs
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -16,11 +17,9 @@ def _now():
 
 
 async def _enrich(data: dict) -> dict:
-    """Resolve names for category/subcategory/style ids to embed alongside JSON."""
     goal = data.get("goal", {}) or {}
     style = data.get("style", {}) or {}
-    out = {}
-
+    out: dict = {}
     if goal.get("category_id"):
         cat = await db.categories.find_one({"id": goal["category_id"]}, {"_id": 0, "name_ar": 1})
         if cat:
@@ -29,7 +28,6 @@ async def _enrich(data: dict) -> dict:
         sub = await db.subcategories.find_one({"id": goal["subcategory_id"]}, {"_id": 0, "name_ar": 1})
         if sub:
             out["subcategory_name"] = sub["name_ar"]
-
     for k, field in [
         ("type_id", "type_name"), ("tone_id", "tone_name"), ("setting_id", "setting_name"),
         ("language_id", "language_name"), ("voice_id", "voice_name"),
@@ -41,15 +39,62 @@ async def _enrich(data: dict) -> dict:
     return out
 
 
-@router.post("")
-async def create_order(payload: OrderCreate, current=Depends(get_current_user)):
-    data = payload.data.model_dump()
+async def append_status(order_id: str, from_status: str | None, to_status: str, by: str, actor_id: str | None = None, reason: str | None = None):
+    entry = {
+        "from": from_status,
+        "to": to_status,
+        "at": _now(),
+        "by": by,
+        "actor_id": actor_id,
+        "reason": reason,
+    }
+    await db.orders.update_one(
+        {"id": order_id},
+        {
+            "$set": {"status": to_status, "updated_at": _now()},
+            "$push": {"status_history": entry},
+        },
+    )
 
-    # basic ref validation
+
+async def run_scenario_generation(order_id: str):
+    """Background task: generate scenarios, persist, and advance status."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        return
+    try:
+        items, source, err = await generate_scenarios(order)
+        docs = build_scenario_docs(order_id, items)
+        # replace any existing
+        await db.scenarios.delete_many({"order_id": order_id})
+        await db.scenarios.insert_many(docs)
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "scenarios_generation": {
+                    "source": source,
+                    "error": err,
+                    "completed_at": _now(),
+                },
+            }},
+        )
+        await append_status(order_id, order.get("status"), OrderStatus.SCENARIOS_READY.value, "system", reason=f"via {source}")
+    except Exception as e:
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "scenarios_generation": {"source": "error", "error": str(e), "completed_at": _now()},
+            }},
+        )
+        await append_status(order_id, order.get("status"), OrderStatus.FAILED.value, "system", reason=f"scenarios error: {e}")
+
+
+@router.post("")
+async def create_order(payload: OrderCreate, background: BackgroundTasks, current=Depends(get_current_user)):
+    data = payload.data.model_dump()
     if not await db.categories.find_one({"id": data["goal"]["category_id"], "is_active": True}):
         raise HTTPException(status_code=400, detail="التصنيف غير موجود")
 
-    # characters limit from settings
     max_chars = 3
     s = await db.settings.find_one({"key": "characters.max_count"}, {"_id": 0})
     if s and isinstance(s.get("value"), (int, float)):
@@ -61,6 +106,9 @@ async def create_order(payload: OrderCreate, current=Depends(get_current_user)):
     enriched = await _enrich(data)
     prompt = build_prompt(data, enriched)
 
+    initial_history = [
+        {"from": None, "to": OrderStatus.PENDING.value, "at": _now(), "by": "user", "actor_id": current["id"], "reason": "submit"},
+    ]
     doc = {
         "id": order_id,
         "user_id": current["id"],
@@ -70,14 +118,22 @@ async def create_order(payload: OrderCreate, current=Depends(get_current_user)):
         "admin_note": None,
         "ai_prompt_snapshot": prompt,
         "prompt_edited": False,
+        "selected_scenario_id": None,
+        "selected_scenario_snapshot": None,
+        "scenarios_generation": None,
+        "status_history": initial_history,
         "created_at": _now(),
         "updated_at": _now(),
     }
     await db.orders.insert_one(doc)
-    # clear server draft
     await db.drafts.delete_one({"user_id": current["id"]})
-    doc.pop("_id", None)
-    return doc
+
+    # transition to scenarios_generating and kick background
+    await append_status(order_id, OrderStatus.PENDING.value, OrderStatus.SCENARIOS_GENERATING.value, "system", reason="auto")
+    background.add_task(run_scenario_generation, order_id)
+
+    fresh = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    return fresh
 
 
 def _summary(o: dict) -> dict:
@@ -96,14 +152,13 @@ def _summary(o: dict) -> dict:
         "category_name": e.get("category_name"),
         "subcategory_name": e.get("subcategory_name"),
         "type_name": e.get("type_name"),
+        "selected_scenario_id": o.get("selected_scenario_id"),
     }
 
 
 @router.get("")
 async def my_orders(current=Depends(get_current_user)):
-    items = await db.orders.find(
-        {"user_id": current["id"]}, {"_id": 0}
-    ).sort("created_at", -1).to_list(200)
+    items = await db.orders.find({"user_id": current["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return [_summary(o) for o in items]
 
 
@@ -114,3 +169,62 @@ async def order_detail(order_id: str, current=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     o["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
     return o
+
+
+# ---------- Scenarios (user-facing) ----------
+@router.get("/{order_id}/scenarios")
+async def list_scenarios(order_id: str, current=Depends(get_current_user)):
+    o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0, "status": 1, "scenarios_generation": 1, "selected_scenario_id": 1})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    items = await db.scenarios.find({"order_id": order_id}, {"_id": 0}).sort("scenario_index", 1).to_list(10)
+    return {
+        "status": o.get("status"),
+        "status_ar": ORDER_STATUS_AR.get(o.get("status"), o.get("status")),
+        "generation": o.get("scenarios_generation"),
+        "selected_scenario_id": o.get("selected_scenario_id"),
+        "scenarios": items,
+    }
+
+
+@router.post("/{order_id}/scenarios/regenerate")
+async def regenerate_scenarios(order_id: str, background: BackgroundTasks, current=Depends(get_current_user)):
+    o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if o.get("status") in (OrderStatus.GENERATING.value, OrderStatus.COMPLETED.value):
+        raise HTTPException(status_code=400, detail="لا يمكن إعادة التوليد بعد بدء الإنتاج")
+    await db.scenarios.delete_many({"order_id": order_id})
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"selected_scenario_id": None, "selected_scenario_snapshot": None}},
+    )
+    await append_status(order_id, o.get("status"), OrderStatus.SCENARIOS_GENERATING.value, "user", actor_id=current["id"], reason="regenerate")
+    background.add_task(run_scenario_generation, order_id)
+    return {"ok": True}
+
+
+@router.post("/{order_id}/scenarios/{scenario_id}/select")
+async def select_scenario(order_id: str, scenario_id: str, current=Depends(get_current_user)):
+    o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if o.get("status") in (OrderStatus.GENERATING.value, OrderStatus.COMPLETED.value):
+        raise HTTPException(status_code=400, detail="لا يمكن التعديل بعد بدء الإنتاج")
+    scenario = await db.scenarios.find_one({"id": scenario_id, "order_id": order_id}, {"_id": 0})
+    if not scenario:
+        raise HTTPException(status_code=404, detail="السيناريو غير موجود")
+    # unselect others, select this
+    await db.scenarios.update_many({"order_id": order_id}, {"$set": {"is_selected": False}})
+    await db.scenarios.update_one({"id": scenario_id}, {"$set": {"is_selected": True}})
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "selected_scenario_id": scenario_id,
+            "selected_scenario_snapshot": scenario,
+        }},
+    )
+    await append_status(order_id, o.get("status"), OrderStatus.SCENARIO_SELECTED.value, "user", actor_id=current["id"], reason=f"selected scenario {scenario.get('scenario_index')}")
+    # auto-advance to ready_for_ai
+    await append_status(order_id, OrderStatus.SCENARIO_SELECTED.value, OrderStatus.READY_FOR_AI.value, "system", reason="auto after selection")
+    return {"ok": True}
