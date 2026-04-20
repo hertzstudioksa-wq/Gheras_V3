@@ -1,4 +1,4 @@
-"""Gheras AI Storytelling Platform - Main FastAPI entry."""
+"""Gheras — v2 main entry."""
 import logging
 import os
 from pathlib import Path
@@ -13,23 +13,28 @@ from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 
 from db import client, ensure_indexes  # noqa: E402
 from seed import seed_all  # noqa: E402
+from storage import init_storage  # noqa: E402
 from routes.auth_routes import router as auth_router  # noqa: E402
 from routes.public_routes import router as public_router  # noqa: E402
 from routes.order_routes import router as order_router  # noqa: E402
+from routes.draft_routes import router as draft_router  # noqa: E402
+from routes.upload_routes import router as upload_router  # noqa: E402
 from routes.admin_routes import router as admin_router  # noqa: E402
 
-app = FastAPI(title="Gheras API", description="Arabic AI storytelling platform")
+app = FastAPI(title="Gheras API v2", description="Arabic AI storytelling platform")
 api_router = APIRouter(prefix="/api")
 
 
 @api_router.get("/")
 async def health():
-    return {"ok": True, "service": "gheras", "status": "healthy"}
+    return {"ok": True, "service": "gheras", "version": "2", "status": "healthy"}
 
 
 api_router.include_router(auth_router)
 api_router.include_router(public_router)
 api_router.include_router(order_router)
+api_router.include_router(draft_router)
+api_router.include_router(upload_router)
 api_router.include_router(admin_router)
 
 app.include_router(api_router)
@@ -53,7 +58,11 @@ logger = logging.getLogger("gheras")
 async def on_startup():
     await ensure_indexes()
     await seed_all()
-    logger.info("Gheras backend ready")
+    try:
+        init_storage()
+    except Exception as e:
+        logger.warning(f"Storage init deferred: {e}")
+    logger.info("Gheras v2 backend ready")
 
 
 @app.on_event("shutdown")

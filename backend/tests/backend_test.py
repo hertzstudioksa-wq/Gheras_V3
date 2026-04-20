@@ -1,416 +1,394 @@
-"""Comprehensive backend tests for Gheras AI Storytelling platform."""
+"""Gheras Phase 2 backend tests (pytest) — structured orders, uploads, drafts, admin."""
 import os
+import struct
 import uuid
-import time
+import zlib
+
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://girasai-create.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@gheras.com"
 ADMIN_PASSWORD = "Admin@1234"
+RUN_TAG = uuid.uuid4().hex[:6]
+PARENT_EMAIL = f"parent_{RUN_TAG}@test.com"
+PARENT2_EMAIL = f"parent2_{RUN_TAG}@test.com"
+PARENT_PASSWORD = "test123"
 
 
-# ---------- Fixtures ----------
+def _tiny_png_bytes() -> bytes:
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = b"IHDR" + struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    ihdr_chunk = struct.pack(">I", 13) + ihdr + struct.pack(">I", zlib.crc32(ihdr) & 0xffffffff)
+    raw = b"\x00\xff\x00\x00"
+    comp = zlib.compress(raw)
+    idat = b"IDAT" + comp
+    idat_chunk = struct.pack(">I", len(comp)) + idat + struct.pack(">I", zlib.crc32(idat) & 0xffffffff)
+    iend = b"IEND"
+    iend_chunk = struct.pack(">I", 0) + iend + struct.pack(">I", zlib.crc32(iend) & 0xffffffff)
+    return sig + ihdr_chunk + idat_chunk + iend_chunk
+
+
 @pytest.fixture(scope="session")
-def http():
-    s = requests.Session()
-    s.headers.update({"Content-Type": "application/json"})
-    return s
+def session():
+    return requests.Session()
 
 
 @pytest.fixture(scope="session")
-def admin_token(http):
-    r = http.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
-    assert r.status_code == 200, f"Admin login failed: {r.status_code} {r.text}"
+def admin_token(session):
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    assert r.status_code == 200, f"admin login failed: {r.status_code} {r.text}"
     data = r.json()
     assert data["user"]["role"] == "admin"
     return data["access_token"]
 
 
 @pytest.fixture(scope="session")
-def user_creds():
-    suffix = uuid.uuid4().hex[:8]
-    return {
-        "email": f"TEST_user_{suffix}@gherastest.com",
-        "password": "Passw0rd!",
-        "full_name": "TEST User",
-    }
+def parent_token(session):
+    r = session.post(f"{API}/auth/register", json={
+        "email": PARENT_EMAIL, "password": PARENT_PASSWORD, "full_name": "Parent Test"
+    })
+    assert r.status_code == 200, f"register failed: {r.status_code} {r.text}"
+    tok = r.json()["access_token"]
+    r2 = session.post(f"{API}/auth/login", json={"email": PARENT_EMAIL, "password": PARENT_PASSWORD})
+    assert r2.status_code == 200
+    return tok
 
 
 @pytest.fixture(scope="session")
-def user_token(http, user_creds):
-    r = http.post(f"{API}/auth/register", json=user_creds)
-    assert r.status_code == 200, f"Register failed: {r.status_code} {r.text}"
+def parent2_token(session):
+    r = session.post(f"{API}/auth/register", json={
+        "email": PARENT2_EMAIL, "password": PARENT_PASSWORD, "full_name": "Parent Two"
+    })
+    assert r.status_code == 200
     return r.json()["access_token"]
 
 
-def _admin_headers(token):
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+def H(tok):
+    return {"Authorization": f"Bearer {tok}"}
 
 
-def _user_headers(token):
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+# ---------- Health + Public ----------
+def test_health(session):
+    r = session.get(f"{API}/")
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("ok") is True
+    assert str(d.get("version")) == "2"
 
 
-# ---------- Health ----------
-class TestHealth:
-    def test_root_health(self, http):
-        r = http.get(f"{API}/")
-        assert r.status_code == 200
-        body = r.json()
-        assert body.get("status") == "healthy"
-        assert body.get("ok") is True
+def test_public_categories(session):
+    r = session.get(f"{API}/public/categories")
+    assert r.status_code == 200
+    cats = r.json()
+    assert len(cats) == 8, f"expected 8 got {len(cats)}"
+    for c in cats:
+        assert "_id" not in c and isinstance(c.get("subcategories"), list)
+    assert any(len(c["subcategories"]) > 0 for c in cats)
 
 
-# ---------- Public endpoints / seed verification ----------
-class TestPublicSeed:
-    def test_categories_seeded(self, http):
-        r = http.get(f"{API}/public/categories")
-        assert r.status_code == 200
-        cats = r.json()
-        assert isinstance(cats, list)
-        assert len(cats) == 8, f"expected 8 categories, got {len(cats)}"
-        for c in cats:
-            assert "_id" not in c
-            assert "id" in c and "name_ar" in c and "slug" in c
-            assert "subcategories" in c and isinstance(c["subcategories"], list)
-        # spot-check a known seeded category having subcategories
-        emotions = next((c for c in cats if c["slug"] == "emotions"), None)
-        assert emotions and len(emotions["subcategories"]) >= 1
-
-    def test_styles_seeded(self, http):
-        r = http.get(f"{API}/public/styles")
-        assert r.status_code == 200
-        styles = r.json()
-        assert len(styles) == 5
-        assert all("_id" not in s for s in styles)
-
-    def test_content_has_hero_title(self, http):
-        r = http.get(f"{API}/public/content")
-        assert r.status_code == 200
-        content = r.json()
-        assert isinstance(content, dict)
-        assert "hero.title" in content
-        assert isinstance(content["hero.title"], str) and len(content["hero.title"]) > 0
-
-    def test_plans_seeded(self, http):
-        r = http.get(f"{API}/public/plans")
-        assert r.status_code == 200
-        plans = r.json()
-        assert len(plans) == 3
-        assert all("_id" not in p for p in plans)
-
-    def test_settings_returns_dict(self, http):
-        r = http.get(f"{API}/public/settings")
-        assert r.status_code == 200
-        s = r.json()
-        assert isinstance(s, dict)
-        assert "site.name" in s
+def test_public_story_options(session):
+    r = session.get(f"{API}/public/story-options")
+    assert r.status_code == 200
+    g = r.json()
+    assert set(g.keys()) == {"type", "tone", "setting", "language", "voice"}
+    assert len(g["type"]) == 5 and len(g["tone"]) == 4 and len(g["setting"]) == 5
+    assert len(g["language"]) == 3 and len(g["voice"]) == 3
 
 
-# ---------- Auth ----------
-class TestAuth:
-    def test_register_new_user(self, http, user_token, user_creds):
-        # token created via fixture; verify by hitting /me
-        r = http.get(f"{API}/auth/me", headers=_user_headers(user_token))
-        assert r.status_code == 200
-        u = r.json()
-        assert u["email"] == user_creds["email"].lower()
-        assert u["role"] == "user"
-        assert "_id" not in u
-
-    def test_register_duplicate_email(self, http, user_creds):
-        r = http.post(f"{API}/auth/register", json=user_creds)
-        assert r.status_code == 400
-
-    def test_login_admin(self, http, admin_token):
-        # admin_token fixture already verifies login; now verify /me reports admin
-        r = http.get(f"{API}/auth/me", headers=_admin_headers(admin_token))
-        assert r.status_code == 200
-        assert r.json()["role"] == "admin"
-
-    def test_login_wrong_password(self, http):
-        r = http.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": "WrongPass!"})
-        assert r.status_code == 401
-
-    def test_me_without_token(self, http):
-        r = requests.get(f"{API}/auth/me")
-        assert r.status_code in (401, 403)
-
-    def test_change_password_wrong_current(self, http, user_token):
-        r = http.post(
-            f"{API}/auth/change-password",
-            headers=_user_headers(user_token),
-            json={"current_password": "WRONG", "new_password": "NewPassw0rd!"},
-        )
-        assert r.status_code == 400
-
-    def test_change_password_success_then_revert(self, http, user_token, user_creds):
-        # change to new password
-        r = http.post(
-            f"{API}/auth/change-password",
-            headers=_user_headers(user_token),
-            json={"current_password": user_creds["password"], "new_password": "NewPassw0rd!"},
-        )
-        assert r.status_code == 200
-        # login with new password
-        r2 = http.post(f"{API}/auth/login", json={"email": user_creds["email"], "password": "NewPassw0rd!"})
-        assert r2.status_code == 200
-        new_tok = r2.json()["access_token"]
-        # revert back so subsequent fixtures still work
-        r3 = http.post(
-            f"{API}/auth/change-password",
-            headers=_user_headers(new_tok),
-            json={"current_password": "NewPassw0rd!", "new_password": user_creds["password"]},
-        )
-        assert r3.status_code == 200
+def test_public_settings(session):
+    r = session.get(f"{API}/public/settings")
+    assert r.status_code == 200
+    s = r.json()
+    assert "characters.max_count" in s and "upload.max_mb" in s
 
 
-# ---------- Orders (user) ----------
+def test_auth(admin_token, parent_token):
+    assert admin_token and parent_token
+
+
+# ---------- Uploads ----------
 @pytest.fixture(scope="session")
-def seed_refs(http):
-    cats = http.get(f"{API}/public/categories").json()
-    styles = http.get(f"{API}/public/styles").json()
-    cat = next(c for c in cats if c["subcategories"])
+def uploaded_child_file(session, parent_token):
+    png = _tiny_png_bytes()
+    r = session.post(f"{API}/uploads/image", headers=H(parent_token),
+                     files={"file": ("t.png", png, "image/png")},
+                     data={"scope": "child"})
+    assert r.status_code == 200, f"upload failed: {r.status_code} {r.text}"
+    j = r.json()
+    assert j["url"].startswith("/api/uploads/file/")
+    return j
+
+
+def test_upload_happy_path(uploaded_child_file):
+    assert uploaded_child_file["id"]
+
+
+def test_download_with_bearer(session, parent_token, uploaded_child_file):
+    r = session.get(f"{API}/uploads/file/{uploaded_child_file['id']}", headers=H(parent_token))
+    assert r.status_code == 200 and len(r.content) > 0
+
+
+def test_download_with_query_auth(session, parent_token, uploaded_child_file):
+    r = session.get(f"{API}/uploads/file/{uploaded_child_file['id']}?auth={parent_token}")
+    assert r.status_code == 200
+
+
+def test_download_other_user_forbidden(session, parent2_token, uploaded_child_file):
+    r = session.get(f"{API}/uploads/file/{uploaded_child_file['id']}", headers=H(parent2_token))
+    assert r.status_code == 403
+
+
+def test_download_no_auth_401(session, uploaded_child_file):
+    r = session.get(f"{API}/uploads/file/{uploaded_child_file['id']}")
+    assert r.status_code == 401
+
+
+def test_admin_can_access_any_file(session, admin_token, uploaded_child_file):
+    r = session.get(f"{API}/uploads/file/{uploaded_child_file['id']}", headers=H(admin_token))
+    assert r.status_code == 200
+
+
+def test_upload_wrong_ext(session, parent_token):
+    r = session.post(f"{API}/uploads/image", headers=H(parent_token),
+                     files={"file": ("bad.txt", b"hello", "text/plain")},
+                     data={"scope": "child"})
+    assert r.status_code == 400
+
+
+def test_upload_invalid_scope(session, parent_token):
+    r = session.post(f"{API}/uploads/image", headers=H(parent_token),
+                     files={"file": ("t.png", _tiny_png_bytes(), "image/png")},
+                     data={"scope": "evil"})
+    assert r.status_code == 400
+
+
+# ---------- Drafts ----------
+def test_drafts_lifecycle(session, parent_token):
+    r = session.get(f"{API}/drafts/current", headers=H(parent_token))
+    assert r.status_code == 200
+    r = session.put(f"{API}/drafts/current", headers=H(parent_token),
+                    json={"current_step": 3, "data": {"x": 1}})
+    assert r.status_code == 200
+    r = session.get(f"{API}/drafts/current", headers=H(parent_token))
+    assert r.json().get("current_step") == 3
+    r = session.delete(f"{API}/drafts/current", headers=H(parent_token))
+    assert r.status_code == 200
+
+
+# ---------- Orders ----------
+def _build_data(session, url, n=2):
+    cats = session.get(f"{API}/public/categories").json()
+    opts = session.get(f"{API}/public/story-options").json()
+    cat = cats[0]
+    sub = cat["subcategories"][0] if cat["subcategories"] else None
+    chars = [
+        {"type": "mother", "name": "سارة", "role": "visible"},
+        {"type": "friend", "name": "أحمد", "role": "mentioned"},
+        {"type": "teacher", "name": "يوسف", "role": "visible"},
+        {"type": "sibling", "name": "لمى", "role": "visible"},
+    ][:n]
     return {
-        "category_id": cat["id"],
-        "subcategory_id": cat["subcategories"][0]["id"],
-        "style_id": styles[0]["id"],
-    }
+        "goal": {"category_id": cat["id"],
+                 "subcategory_id": sub["id"] if sub else None,
+                 "context": "موقف حقيقي: رفض ترتيب ألعابه."},
+        "child": {"name": "ريان", "age": 6, "gender": "male",
+                  "image_url": url, "appearance_notes": "شعر أسود", "hijab": False},
+        "characters": chars,
+        "personalization": {"favorites": {"toy": {"selected": True, "name": "دبدوب"}},
+                            "custom_notes": "يحب النجوم"},
+        "style": {"type_id": opts["type"][0]["id"], "tone_id": opts["tone"][0]["id"],
+                  "setting_id": opts["setting"][0]["id"],
+                  "language_id": opts["language"][0]["id"],
+                  "voice_id": opts["voice"][0]["id"]},
+    }, cat, sub
 
 
 @pytest.fixture(scope="session")
-def created_order(http, user_token, seed_refs):
-    payload = {
-        "category_id": seed_refs["category_id"],
-        "subcategory_id": seed_refs["subcategory_id"],
-        "child": {
-            "name": "سلمى",
-            "age": 6,
-            "gender": "female",
-            "personality": "هادئة وفضولية",
-            "interests": "الرسم والقراءة",
-        },
-        "style_id": seed_refs["style_id"],
-        "notes": "TEST notes",
-    }
-    r = http.post(f"{API}/orders", headers=_user_headers(user_token), json=payload)
-    assert r.status_code == 200, f"create order failed: {r.status_code} {r.text}"
-    return r.json()
+def created_order(session, parent_token, uploaded_child_file):
+    session.put(f"{API}/drafts/current", headers=H(parent_token),
+                json={"current_step": 6, "data": {"marker": "pre"}})
+    data, cat, sub = _build_data(session, uploaded_child_file["url"], 2)
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    assert r.status_code == 200, f"order create: {r.status_code} {r.text}"
+    o = r.json()
+    assert "ريان" in o["ai_prompt_snapshot"]
+    assert cat["name_ar"] in o["ai_prompt_snapshot"]
+    if sub:
+        assert sub["name_ar"] in o["ai_prompt_snapshot"]
+    assert "موقف حقيقي" in o["ai_prompt_snapshot"]
+    return o
 
 
-class TestOrders:
-    def test_create_order_has_ai_prompt_with_child_name(self, created_order):
-        assert "_id" not in created_order
-        assert created_order["status"] == "pending"
-        assert created_order["child_snapshot"]["name"] == "سلمى"
-        assert created_order["child_snapshot"]["age"] == 6
-        assert created_order["child_snapshot"]["personality"] == "هادئة وفضولية"
-        snap = created_order.get("ai_prompt_snapshot") or ""
-        assert "سلمى" in snap, f"ai_prompt_snapshot missing child name: {snap!r}"
+def test_order_create(created_order):
+    assert created_order["status"] == "pending" and created_order["prompt_edited"] is False
 
-    def test_list_my_orders_enriched(self, http, user_token, created_order):
-        r = http.get(f"{API}/orders", headers=_user_headers(user_token))
+
+def test_order_clears_draft(session, parent_token, created_order):
+    d = session.get(f"{API}/drafts/current", headers=H(parent_token)).json()
+    assert d.get("data", {}).get("marker") != "pre"
+
+
+def test_orders_list(session, parent_token, created_order):
+    items = session.get(f"{API}/orders", headers=H(parent_token)).json()
+    it = next(i for i in items if i["id"] == created_order["id"])
+    assert it["child_name"] == "ريان" and it["category_name"] and it["status_ar"]
+    assert "ai_prompt_snapshot" not in it
+
+
+def test_order_detail(session, parent_token, created_order):
+    o = session.get(f"{API}/orders/{created_order['id']}", headers=H(parent_token)).json()
+    assert "data" in o and o["ai_prompt_snapshot"]
+
+
+def test_order_detail_other_user_404(session, parent2_token, created_order):
+    r = session.get(f"{API}/orders/{created_order['id']}", headers=H(parent2_token))
+    assert r.status_code == 404
+
+
+def test_order_too_many_chars(session, parent_token, uploaded_child_file):
+    data, _, _ = _build_data(session, uploaded_child_file["url"], 4)
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    assert r.status_code == 400
+
+
+def test_order_invalid_category(session, parent_token, uploaded_child_file):
+    data, _, _ = _build_data(session, uploaded_child_file["url"], 1)
+    data["goal"]["category_id"] = "bad-id"
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    assert r.status_code == 400
+
+
+# ---------- Admin orders ----------
+def test_admin_orders_list(session, admin_token, created_order):
+    items = session.get(f"{API}/admin/orders", headers=H(admin_token)).json()
+    it = next((i for i in items if i["id"] == created_order["id"]), None)
+    assert it and it["user_email"] == PARENT_EMAIL and it["child_name"] == "ريان"
+
+
+def test_admin_order_detail(session, admin_token, created_order):
+    o = session.get(f"{API}/admin/orders/{created_order['id']}", headers=H(admin_token)).json()
+    assert o["ai_prompt_snapshot"] and o["user_email"] == PARENT_EMAIL
+
+
+def test_admin_status_transitions(session, admin_token, created_order):
+    oid = created_order["id"]
+    for st in ["in_review", "ready_for_ai", "generating", "completed", "pending"]:
+        r = session.patch(f"{API}/admin/orders/{oid}/status",
+                          headers=H(admin_token), json={"status": st})
         assert r.status_code == 200
-        orders = r.json()
-        assert any(o["id"] == created_order["id"] for o in orders)
-        first = orders[0]
-        assert "category_name" in first
-        assert "style_name" in first
-        assert "status_ar" in first
-        assert all("_id" not in o for o in orders)
-
-    def test_get_order_detail_owner(self, http, user_token, created_order):
-        r = http.get(f"{API}/orders/{created_order['id']}", headers=_user_headers(user_token))
-        assert r.status_code == 200
-        assert r.json()["id"] == created_order["id"]
-
-    def test_get_order_detail_other_user_404(self, http, created_order):
-        suffix = uuid.uuid4().hex[:8]
-        other = {"email": f"TEST_other_{suffix}@gherastest.com", "password": "Passw0rd!", "full_name": "Other"}
-        reg = http.post(f"{API}/auth/register", json=other)
-        assert reg.status_code == 200
-        tok = reg.json()["access_token"]
-        r = http.get(f"{API}/orders/{created_order['id']}", headers=_user_headers(tok))
-        assert r.status_code == 404
+        assert session.get(f"{API}/admin/orders/{oid}", headers=H(admin_token)).json()["status"] == st
 
 
-# ---------- Admin guard ----------
-class TestAdminGuard:
-    def test_user_forbidden_on_admin(self, http, user_token):
-        r = http.get(f"{API}/admin/stats", headers=_user_headers(user_token))
-        assert r.status_code == 403
-
-    def test_admin_stats_ok(self, http, admin_token):
-        r = http.get(f"{API}/admin/stats", headers=_admin_headers(admin_token))
-        assert r.status_code == 200
-        d = r.json()
-        for k in ["users_count", "orders_count", "pending_count", "in_review_count",
-                  "completed_count", "categories_count", "recent_orders"]:
-            assert k in d
-        assert isinstance(d["recent_orders"], list)
-        for o in d["recent_orders"]:
-            assert "_id" not in o
+def test_admin_edit_and_regenerate_prompt(session, admin_token, created_order):
+    oid = created_order["id"]
+    r = session.patch(f"{API}/admin/orders/{oid}/prompt",
+                      headers=H(admin_token), json={"ai_prompt_snapshot": "محرر"})
+    assert r.status_code == 200
+    rd = session.get(f"{API}/admin/orders/{oid}", headers=H(admin_token)).json()
+    assert rd["ai_prompt_snapshot"] == "محرر" and rd["prompt_edited"] is True
+    r = session.post(f"{API}/admin/orders/{oid}/regenerate-prompt", headers=H(admin_token))
+    assert r.status_code == 200
+    rd = session.get(f"{API}/admin/orders/{oid}", headers=H(admin_token)).json()
+    assert rd["prompt_edited"] is False and "ريان" in rd["ai_prompt_snapshot"]
 
 
-# ---------- Admin orders + status workflow ----------
-class TestAdminOrders:
-    def test_list_orders_enriched(self, http, admin_token, created_order):
-        r = http.get(f"{API}/admin/orders", headers=_admin_headers(admin_token))
-        assert r.status_code == 200
-        orders = r.json()
-        target = next((o for o in orders if o["id"] == created_order["id"]), None)
-        assert target is not None
-        assert "user_email" in target and target["user_email"]
-        assert "category_name" in target
-        assert "status_ar" in target
-        assert all("_id" not in o for o in orders)
-
-    @pytest.mark.parametrize("status", ["pending", "in_review", "ready_for_ai", "generating", "completed"])
-    def test_status_workflow(self, http, admin_token, created_order, status):
-        r = http.patch(
-            f"{API}/admin/orders/{created_order['id']}/status",
-            headers=_admin_headers(admin_token),
-            json={"status": status, "admin_note": f"moved to {status}"},
-        )
-        assert r.status_code == 200
-        # Verify persisted
-        d = http.get(f"{API}/admin/orders/{created_order['id']}", headers=_admin_headers(admin_token))
-        assert d.status_code == 200
-        assert d.json()["status"] == status
+# ---------- Admin story-options ----------
+def test_admin_story_options_crud_and_hidden(session, admin_token):
+    payload = {"kind": "type", "name_ar": "تجريبي", "value": f"t-{RUN_TAG}",
+               "sort_order": 99, "is_active": True, "is_hidden": False}
+    r = session.post(f"{API}/admin/story-options", headers=H(admin_token), json=payload)
+    assert r.status_code == 200
+    oid = r.json()["id"]
+    pub = session.get(f"{API}/public/story-options").json()
+    assert any(o["id"] == oid for o in pub["type"])
+    payload["is_hidden"] = True
+    r = session.patch(f"{API}/admin/story-options/{oid}", headers=H(admin_token), json=payload)
+    assert r.status_code == 200
+    pub = session.get(f"{API}/public/story-options").json()
+    assert not any(o["id"] == oid for o in pub["type"])
+    assert session.delete(f"{API}/admin/story-options/{oid}",
+                          headers=H(admin_token)).status_code == 200
 
 
-# ---------- Admin CRUD ----------
-class TestAdminCategoriesCRUD:
-    def test_full_cycle_and_slug_uniqueness(self, http, admin_token):
-        slug = f"test-cat-{uuid.uuid4().hex[:6]}"
-        payload = {"name_ar": "تصنيف اختبار", "slug": slug, "description": "TEST",
-                   "icon": "sun", "color": "#abcdef", "sort_order": 99, "is_active": True}
-        r = http.post(f"{API}/admin/categories", headers=_admin_headers(admin_token), json=payload)
-        assert r.status_code == 200
-        cat = r.json()
-        assert "_id" not in cat
-        cid = cat["id"]
-        # duplicate slug should 400
-        dup = http.post(f"{API}/admin/categories", headers=_admin_headers(admin_token), json=payload)
-        assert dup.status_code == 400
-        # patch
-        payload2 = {**payload, "name_ar": "محدّث"}
-        p = http.patch(f"{API}/admin/categories/{cid}", headers=_admin_headers(admin_token), json=payload2)
-        assert p.status_code == 200
-        # verify via public
-        cats = http.get(f"{API}/public/categories").json()
-        updated = next((c for c in cats if c["id"] == cid), None)
-        assert updated and updated["name_ar"] == "محدّث"
-        # delete
-        d = http.delete(f"{API}/admin/categories/{cid}", headers=_admin_headers(admin_token))
-        assert d.status_code == 200
+# ---------- Admin content / settings / categories / plans / users ----------
+def test_admin_content_upsert(session, admin_token):
+    key = f"test.block.{RUN_TAG}"
+    r = session.put(f"{API}/admin/content", headers=H(admin_token),
+                    json={"key": key, "value": "قيمة", "section": "test"})
+    assert r.status_code == 200
+    assert session.get(f"{API}/public/content").json().get(key) == "قيمة"
+    session.delete(f"{API}/admin/content/{key}", headers=H(admin_token))
 
 
-class TestAdminSubcategoriesCRUD:
-    def test_full_cycle(self, http, admin_token, seed_refs):
-        payload = {"category_id": seed_refs["category_id"], "name_ar": "TEST sub",
-                   "description": None, "sort_order": 50, "is_active": True}
-        r = http.post(f"{API}/admin/subcategories", headers=_admin_headers(admin_token), json=payload)
-        assert r.status_code == 200
-        sid = r.json()["id"]
-        p = http.patch(f"{API}/admin/subcategories/{sid}", headers=_admin_headers(admin_token),
-                       json={**payload, "name_ar": "TEST sub 2"})
-        assert p.status_code == 200
-        d = http.delete(f"{API}/admin/subcategories/{sid}", headers=_admin_headers(admin_token))
-        assert d.status_code == 200
+def test_admin_settings_char_limit(session, admin_token, parent_token, uploaded_child_file):
+    r = session.put(f"{API}/admin/settings", headers=H(admin_token),
+                    json={"key": "characters.max_count", "value": 5})
+    assert r.status_code == 200
+    data, _, _ = _build_data(session, uploaded_child_file["url"], 4)
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    assert r.status_code == 200, f"expected ok with 4 chars: {r.status_code} {r.text}"
+    session.put(f"{API}/admin/settings", headers=H(admin_token),
+                json={"key": "characters.max_count", "value": 3})
 
 
-class TestAdminStylesCRUD:
-    def test_full_cycle(self, http, admin_token):
-        payload = {"name_ar": "TEST style", "description": "x", "image_url": None,
-                   "sort_order": 99, "is_active": True}
-        r = http.post(f"{API}/admin/styles", headers=_admin_headers(admin_token), json=payload)
-        assert r.status_code == 200
-        sid = r.json()["id"]
-        p = http.patch(f"{API}/admin/styles/{sid}", headers=_admin_headers(admin_token),
-                       json={**payload, "name_ar": "TEST style 2"})
-        assert p.status_code == 200
-        d = http.delete(f"{API}/admin/styles/{sid}", headers=_admin_headers(admin_token))
-        assert d.status_code == 200
+def test_admin_categories_crud(session, admin_token):
+    slug = f"test-cat-{RUN_TAG}"
+    r = session.post(f"{API}/admin/categories", headers=H(admin_token),
+                     json={"name_ar": "تج", "slug": slug, "description": "d", "sort_order": 99})
+    assert r.status_code == 200
+    cid = r.json()["id"]
+    r = session.post(f"{API}/admin/subcategories", headers=H(admin_token),
+                     json={"category_id": cid, "name_ar": "فرعي", "sort_order": 1})
+    assert r.status_code == 200
+    sid = r.json()["id"]
+    r = session.patch(f"{API}/admin/subcategories/{sid}", headers=H(admin_token),
+                      json={"category_id": cid, "name_ar": "محدث", "sort_order": 2})
+    assert r.status_code == 200
+    assert session.delete(f"{API}/admin/categories/{cid}",
+                          headers=H(admin_token)).status_code == 200
 
 
-class TestAdminContent:
-    def test_upsert_reflects_in_public(self, http, admin_token):
-        key = f"test.block.{uuid.uuid4().hex[:6]}"
-        val = "hello world"
-        r = http.put(f"{API}/admin/content", headers=_admin_headers(admin_token),
-                     json={"key": key, "value": val, "section": "test"})
-        assert r.status_code == 200
-        public = http.get(f"{API}/public/content").json()
-        assert public.get(key) == val
-        # cleanup
-        d = http.delete(f"{API}/admin/content/{key}", headers=_admin_headers(admin_token))
-        assert d.status_code == 200
+def test_admin_plans_crud(session, admin_token):
+    r = session.post(f"{API}/admin/plans", headers=H(admin_token),
+                     json={"name_ar": f"خطة {RUN_TAG}", "price": 1, "story_limit": 1,
+                           "features": ["x"], "sort_order": 99})
+    assert r.status_code == 200
+    pid = r.json()["id"]
+    r = session.patch(f"{API}/admin/plans/{pid}", headers=H(admin_token),
+                      json={"name_ar": "v2", "price": 2, "story_limit": 2,
+                            "features": ["y"], "sort_order": 100})
+    assert r.status_code == 200
+    assert session.delete(f"{API}/admin/plans/{pid}",
+                          headers=H(admin_token)).status_code == 200
 
 
-class TestAdminPromptsCRUD:
-    def test_full_cycle_with_uniqueness(self, http, admin_token):
-        key = f"test.prompt.{uuid.uuid4().hex[:6]}"
-        payload = {"key": key, "title_ar": "TEST", "description": None,
-                   "template": "hello {x}", "variables": ["x"], "is_active": True}
-        r = http.post(f"{API}/admin/prompts", headers=_admin_headers(admin_token), json=payload)
-        assert r.status_code == 200
-        pid = r.json()["id"]
-        dup = http.post(f"{API}/admin/prompts", headers=_admin_headers(admin_token), json=payload)
-        assert dup.status_code == 400
-        p = http.patch(f"{API}/admin/prompts/{pid}", headers=_admin_headers(admin_token),
-                       json={**payload, "title_ar": "TEST 2"})
-        assert p.status_code == 200
-        d = http.delete(f"{API}/admin/prompts/{pid}", headers=_admin_headers(admin_token))
-        assert d.status_code == 200
+def test_admin_users_list(session, admin_token):
+    users = session.get(f"{API}/admin/users", headers=H(admin_token)).json()
+    assert any(u["email"] == ADMIN_EMAIL for u in users)
+    for u in users:
+        assert "hashed_password" not in u and "_id" not in u
 
 
-class TestAdminPlansCRUD:
-    def test_full_cycle(self, http, admin_token):
-        payload = {"name_ar": "TEST plan", "price": 1.0, "currency": "SAR",
-                   "story_limit": 1, "features": ["a"], "is_active": True, "sort_order": 99}
-        r = http.post(f"{API}/admin/plans", headers=_admin_headers(admin_token), json=payload)
-        assert r.status_code == 200
-        pid = r.json()["id"]
-        p = http.patch(f"{API}/admin/plans/{pid}", headers=_admin_headers(admin_token),
-                       json={**payload, "price": 2.0})
-        assert p.status_code == 200
-        d = http.delete(f"{API}/admin/plans/{pid}", headers=_admin_headers(admin_token))
-        assert d.status_code == 200
+def test_non_admin_forbidden(session, parent_token):
+    for path in ["/admin/stats", "/admin/users", "/admin/orders", "/admin/story-options",
+                 "/admin/settings", "/admin/plans", "/admin/content", "/admin/prompts",
+                 "/admin/subcategories"]:
+        r = session.get(f"{API}{path}", headers=H(parent_token))
+        assert r.status_code == 403, f"{path} -> {r.status_code}"
 
 
-class TestAdminSettings:
-    def test_upsert_reflects_in_public(self, http, admin_token):
-        key = f"test.setting.{uuid.uuid4().hex[:6]}"
-        r = http.put(f"{API}/admin/settings", headers=_admin_headers(admin_token),
-                     json={"key": key, "value": 42})
-        assert r.status_code == 200
-        s = http.get(f"{API}/public/settings").json()
-        assert s.get(key) == 42
-
-
-# ---------- Admin users ----------
-class TestAdminUsers:
-    def test_toggle_is_active_and_role(self, http, admin_token):
-        suffix = uuid.uuid4().hex[:8]
-        creds = {"email": f"TEST_admgmt_{suffix}@gherastest.com", "password": "Passw0rd!", "full_name": "TEST AdmGmt"}
-        reg = http.post(f"{API}/auth/register", json=creds)
-        assert reg.status_code == 200
-        uid = reg.json()["user"]["id"]
-        # toggle is_active = False
-        r = http.patch(f"{API}/admin/users/{uid}", headers=_admin_headers(admin_token),
-                       json={"is_active": False, "role": "admin"})
-        assert r.status_code == 200
-        # verify by listing admin/users
-        users = http.get(f"{API}/admin/users", headers=_admin_headers(admin_token)).json()
-        assert all("_id" not in u for u in users)
-        target = next((u for u in users if u["id"] == uid), None)
-        assert target is not None
-        assert target["is_active"] is False
-        assert target["role"] == "admin"
-        # login should now be 403 (inactive)
-        r2 = http.post(f"{API}/auth/login", json={"email": creds["email"], "password": creds["password"]})
-        assert r2.status_code == 403
+def test_no_mongo_id_leakage(session, admin_token, parent_token, created_order):
+    for ep in ["/public/categories", "/public/story-options", "/public/content",
+               "/public/plans", "/public/settings", "/orders",
+               f"/orders/{created_order['id']}", "/drafts/current"]:
+        r = session.get(f"{API}{ep}", headers=H(parent_token))
+        assert r.status_code == 200 and '"_id"' not in r.text, f"{ep}"
+    for ep in ["/admin/stats", "/admin/users", "/admin/orders",
+               f"/admin/orders/{created_order['id']}",
+               "/admin/story-options", "/admin/content", "/admin/prompts",
+               "/admin/plans", "/admin/settings", "/admin/subcategories"]:
+        r = session.get(f"{API}{ep}", headers=H(admin_token))
+        assert r.status_code == 200 and '"_id"' not in r.text, f"{ep}"

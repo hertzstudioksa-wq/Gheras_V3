@@ -1,4 +1,4 @@
-"""Admin endpoints."""
+"""Admin endpoints — v2."""
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from db import db
 from auth import require_admin
 from models import (
-    CategoryIn, SubcategoryIn, StoryStyleIn, OrderStatusUpdate,
+    CategoryIn, SubcategoryIn, StoryOptionIn, OrderStatusUpdate, PromptUpdate,
     ContentBlockIn, PromptIn, PlanIn, SettingIn, UserUpdate, ORDER_STATUS_AR,
 )
+from prompt_engine import build_prompt
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -26,7 +27,10 @@ async def stats():
     in_review = await db.orders.count_documents({"status": "in_review"})
     completed = await db.orders.count_documents({"status": "completed"})
     categories = await db.categories.count_documents({})
-    recent_orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    recent = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    for r in recent:
+        d = (r.get("data") or {}).get("child", {})
+        r["child_name"] = d.get("name")
     return {
         "users_count": users_count,
         "orders_count": orders_count,
@@ -34,23 +38,21 @@ async def stats():
         "in_review_count": in_review,
         "completed_count": completed,
         "categories_count": categories,
-        "recent_orders": recent_orders,
+        "recent_orders": recent,
     }
 
 
 # ---------- Users ----------
 @router.get("/users")
 async def list_users():
-    return await db.users.find(
-        {}, {"_id": 0, "hashed_password": 0}
-    ).sort("created_at", -1).to_list(500)
+    return await db.users.find({}, {"_id": 0, "hashed_password": 0}).sort("created_at", -1).to_list(500)
 
 
 @router.patch("/users/{user_id}")
 async def update_user(user_id: str, payload: UserUpdate):
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not updates:
-        raise HTTPException(status_code=400, detail="لا يوجد تحديثات")
+        raise HTTPException(status_code=400, detail="لا توجد تحديثات")
     res = await db.users.update_one({"id": user_id}, {"$set": updates})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
@@ -60,17 +62,15 @@ async def update_user(user_id: str, payload: UserUpdate):
 # ---------- Orders ----------
 @router.get("/orders")
 async def list_orders():
-    orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    for o in orders:
+    items = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    for o in items:
         user = await db.users.find_one({"id": o.get("user_id")}, {"_id": 0, "email": 1, "full_name": 1})
-        cat = await db.categories.find_one({"id": o.get("category_id")}, {"_id": 0, "name_ar": 1})
-        style = await db.story_styles.find_one({"id": o.get("style_id")}, {"_id": 0, "name_ar": 1})
+        d = (o.get("data") or {}).get("child", {})
         o["user_email"] = user.get("email") if user else None
         o["user_name"] = user.get("full_name") if user else None
-        o["category_name"] = cat.get("name_ar") if cat else None
-        o["style_name"] = style.get("name_ar") if style else None
+        o["child_name"] = d.get("name")
         o["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
-    return orders
+    return items
 
 
 @router.get("/orders/{order_id}")
@@ -79,16 +79,8 @@ async def admin_order_detail(order_id: str):
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     user = await db.users.find_one({"id": o.get("user_id")}, {"_id": 0, "email": 1, "full_name": 1})
-    cat = await db.categories.find_one({"id": o.get("category_id")}, {"_id": 0, "name_ar": 1})
-    style = await db.story_styles.find_one({"id": o.get("style_id")}, {"_id": 0, "name_ar": 1})
-    sub = None
-    if o.get("subcategory_id"):
-        sub = await db.subcategories.find_one({"id": o["subcategory_id"]}, {"_id": 0, "name_ar": 1})
     o["user_email"] = user.get("email") if user else None
     o["user_name"] = user.get("full_name") if user else None
-    o["category_name"] = cat.get("name_ar") if cat else None
-    o["subcategory_name"] = sub.get("name_ar") if sub else None
-    o["style_name"] = style.get("name_ar") if style else None
     o["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
     return o
 
@@ -108,6 +100,34 @@ async def update_order_status(order_id: str, payload: OrderStatusUpdate):
     return {"ok": True}
 
 
+@router.patch("/orders/{order_id}/prompt")
+async def update_order_prompt(order_id: str, payload: PromptUpdate):
+    res = await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "ai_prompt_snapshot": payload.ai_prompt_snapshot,
+            "prompt_edited": True,
+            "updated_at": _now(),
+        }},
+    )
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    return {"ok": True}
+
+
+@router.post("/orders/{order_id}/regenerate-prompt")
+async def regenerate_prompt(order_id: str):
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    prompt = build_prompt(o.get("data", {}), o.get("enriched", {}))
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"ai_prompt_snapshot": prompt, "prompt_edited": False, "updated_at": _now()}},
+    )
+    return {"ok": True, "ai_prompt_snapshot": prompt}
+
+
 # ---------- Categories ----------
 @router.post("/categories")
 async def create_category(payload: CategoryIn):
@@ -121,8 +141,7 @@ async def create_category(payload: CategoryIn):
 
 @router.patch("/categories/{cat_id}")
 async def update_category(cat_id: str, payload: CategoryIn):
-    data = payload.model_dump()
-    res = await db.categories.update_one({"id": cat_id}, {"$set": data})
+    res = await db.categories.update_one({"id": cat_id}, {"$set": payload.model_dump()})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="غير موجود")
     return {"ok": True}
@@ -167,31 +186,31 @@ async def delete_subcategory(sub_id: str):
     return {"ok": True}
 
 
-# ---------- Styles ----------
-@router.get("/styles")
-async def list_styles():
-    return await db.story_styles.find({}, {"_id": 0}).sort("sort_order", 1).to_list(100)
+# ---------- Story options (dynamic Step 5) ----------
+@router.get("/story-options")
+async def list_story_options():
+    return await db.story_options.find({}, {"_id": 0}).sort([("kind", 1), ("sort_order", 1)]).to_list(500)
 
 
-@router.post("/styles")
-async def create_style(payload: StoryStyleIn):
+@router.post("/story-options")
+async def create_story_option(payload: StoryOptionIn):
     doc = {"id": str(uuid.uuid4()), **payload.model_dump(), "created_at": _now()}
-    await db.story_styles.insert_one(doc)
+    await db.story_options.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
 
-@router.patch("/styles/{sid}")
-async def update_style(sid: str, payload: StoryStyleIn):
-    res = await db.story_styles.update_one({"id": sid}, {"$set": payload.model_dump()})
+@router.patch("/story-options/{oid}")
+async def update_story_option(oid: str, payload: StoryOptionIn):
+    res = await db.story_options.update_one({"id": oid}, {"$set": payload.model_dump()})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="غير موجود")
     return {"ok": True}
 
 
-@router.delete("/styles/{sid}")
-async def delete_style(sid: str):
-    res = await db.story_styles.delete_one({"id": sid})
+@router.delete("/story-options/{oid}")
+async def delete_story_option(oid: str):
+    res = await db.story_options.delete_one({"id": oid})
     if not res.deleted_count:
         raise HTTPException(status_code=404, detail="غير موجود")
     return {"ok": True}
@@ -218,7 +237,7 @@ async def delete_content(key: str):
     return {"ok": True}
 
 
-# ---------- Prompts ----------
+# ---------- Prompts (global templates) ----------
 @router.get("/prompts")
 async def list_prompts():
     return await db.prompts.find({}, {"_id": 0}).sort("key", 1).to_list(100)

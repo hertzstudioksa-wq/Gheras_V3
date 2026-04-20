@@ -39,9 +39,7 @@ export default function Dashboard() {
             <div className="w-20 h-20 rounded-3xl bg-[#E8F0E1] grid place-content-center mx-auto mb-6">
               <Sprout className="w-10 h-10 text-[#729352]" />
             </div>
-            <h2 className="font-heading text-2xl font-bold text-[#2D3748] mb-3">
-              لم تبدأ أي قصة بعد
-            </h2>
+            <h2 className="font-heading text-2xl font-bold text-[#2D3748] mb-3">لم تبدأ أي قصة بعد</h2>
             <p className="font-body text-[#5A677D] mb-6 max-w-md mx-auto">
               ابدأ أول قصة مخصصة لطفلك وغرس قيمة جميلة في قلبه
             </p>
@@ -65,9 +63,7 @@ export default function Dashboard() {
                   </div>
                   <OrderStatusBadge status={o.status} />
                 </div>
-                <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-1">
-                  قصة {o.child_snapshot?.name}
-                </h3>
+                <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-1">قصة {o.child_name}</h3>
                 <p className="font-body text-sm text-[#5A677D] mb-4">
                   {o.category_name}
                   {o.subcategory_name ? ` • ${o.subcategory_name}` : ""}

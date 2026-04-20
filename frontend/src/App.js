@@ -20,7 +20,7 @@ import AdminOverview from "./pages/admin/AdminOverview";
 import AdminOrders from "./pages/admin/AdminOrders";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminCategories from "./pages/admin/AdminCategories";
-import AdminStyles from "./pages/admin/AdminStyles";
+import AdminStoryOptions from "./pages/admin/AdminStoryOptions";
 import AdminContent from "./pages/admin/AdminContent";
 import AdminPrompts from "./pages/admin/AdminPrompts";
 import AdminPlans from "./pages/admin/AdminPlans";
@@ -79,7 +79,7 @@ function App() {
               <Route path="orders" element={<AdminOrders />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="categories" element={<AdminCategories />} />
-              <Route path="styles" element={<AdminStyles />} />
+              <Route path="styles" element={<AdminStoryOptions />} />
               <Route path="content" element={<AdminContent />} />
               <Route path="prompts" element={<AdminPrompts />} />
               <Route path="plans" element={<AdminPlans />} />

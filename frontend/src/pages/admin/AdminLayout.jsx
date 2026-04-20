@@ -13,7 +13,7 @@ const items = [
   { to: "/admin/orders", label: "الطلبات", icon: BookOpen, tid: "admin-nav-orders" },
   { to: "/admin/users", label: "المستخدمين", icon: Users, tid: "admin-nav-users" },
   { to: "/admin/categories", label: "التصنيفات", icon: Sprout, tid: "admin-nav-cats" },
-  { to: "/admin/styles", label: "أساليب القصة", icon: Palette, tid: "admin-nav-styles" },
+  { to: "/admin/styles", label: "خيارات نمط القصة", icon: Palette, tid: "admin-nav-styles" },
   { to: "/admin/content", label: "محتوى الصفحة", icon: FileText, tid: "admin-nav-content" },
   { to: "/admin/prompts", label: "برومبتات AI", icon: Wand2, tid: "admin-nav-prompts" },
   { to: "/admin/plans", label: "الأسعار والباقات", icon: CreditCard, tid: "admin-nav-plans" },

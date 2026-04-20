@@ -1,4 +1,4 @@
-"""Public endpoints: categories, styles, content, plans."""
+"""Public endpoints."""
 from fastapi import APIRouter
 from db import db
 
@@ -8,7 +8,6 @@ router = APIRouter(prefix="/public", tags=["public"])
 @router.get("/categories")
 async def list_categories():
     cats = await db.categories.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(100)
-    # attach subcategories
     for c in cats:
         subs = await db.subcategories.find(
             {"category_id": c["id"], "is_active": True}, {"_id": 0}
@@ -17,9 +16,17 @@ async def list_categories():
     return cats
 
 
-@router.get("/styles")
-async def list_styles():
-    return await db.story_styles.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(100)
+@router.get("/story-options")
+async def list_story_options():
+    items = await db.story_options.find(
+        {"is_active": True, "is_hidden": False}, {"_id": 0}
+    ).sort("sort_order", 1).to_list(500)
+    grouped: dict[str, list] = {"type": [], "tone": [], "setting": [], "language": [], "voice": []}
+    for it in items:
+        k = it.get("kind")
+        if k in grouped:
+            grouped[k].append(it)
+    return grouped
 
 
 @router.get("/content")

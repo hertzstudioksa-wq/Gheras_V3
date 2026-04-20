@@ -1,4 +1,4 @@
-"""Seed database with initial data."""
+"""Seed database with initial data — v2."""
 import os
 import uuid
 from datetime import datetime, timezone
@@ -39,12 +39,32 @@ CATEGORIES = [
      "subcategories": []},
 ]
 
-STYLES = [
-    {"name_ar": "كرتون دافئ", "description": "رسوم كرتونية ملوّنة بأجواء دافئة ومحببة للأطفال", "sort_order": 1},
-    {"name_ar": "حكاية كلاسيكية", "description": "أسلوب روائي كلاسيكي يشبه قصص الجدّات", "sort_order": 2},
-    {"name_ar": "مغامرات ملحمية", "description": "مغامرات مشوّقة ببطولة طفلك", "sort_order": 3},
-    {"name_ar": "قصة مصوّرة هادئة", "description": "إيقاع هادئ مناسب لوقت النوم", "sort_order": 4},
-    {"name_ar": "قصة تعليمية مرحة", "description": "قصة مرحة مع حوارات تعليمية بسيطة", "sort_order": 5},
+STORY_OPTIONS = [
+    # kind, name_ar, value, sort
+    ("type", "واقعية", "realistic", 1),
+    ("type", "خيالية", "fantasy", 2),
+    ("type", "مرحة", "funny", 3),
+    ("type", "مغامرات", "adventure", 4),
+    ("type", "قبل النوم", "bedtime", 5),
+
+    ("tone", "عاطفية", "emotional", 1),
+    ("tone", "تعليمية", "educational", 2),
+    ("tone", "هادئة", "calm", 3),
+    ("tone", "مشوّقة", "exciting", 4),
+
+    ("setting", "البيت", "home", 1),
+    ("setting", "المدرسة", "school", 2),
+    ("setting", "الحديقة", "park", 3),
+    ("setting", "عالم خيالي", "fantasy-world", 4),
+    ("setting", "تلقائي", "auto", 5),
+
+    ("language", "عربية فصحى مبسّطة", "arabic-simple", 1),
+    ("language", "لهجة خليجية", "gulf", 2),
+    ("language", "لهجة مصرية", "egyptian", 3),
+
+    ("voice", "صوت ولد", "boy", 1),
+    ("voice", "صوت بنت", "girl", 2),
+    ("voice", "تلقائي", "auto", 3),
 ]
 
 CONTENT_BLOCKS = [
@@ -54,15 +74,15 @@ CONTENT_BLOCKS = [
     {"section": "hero", "key": "hero.cta_primary", "value": "ابدأ أول قصة لطفلك"},
     {"section": "hero", "key": "hero.cta_secondary", "value": "كيف تعمل غِراس؟"},
     {"section": "how", "key": "how.title", "value": "كيف تعمل غِراس؟"},
-    {"section": "how", "key": "how.subtitle", "value": "أربع خطوات بسيطة تفصلك عن قصة لن ينساها طفلك"},
-    {"section": "how", "key": "how.step1.title", "value": "اختر القيمة"},
-    {"section": "how", "key": "how.step1.desc", "value": "حدّد الهدف التربوي للقصة من بين تصنيفات متنوعة"},
+    {"section": "how", "key": "how.subtitle", "value": "ست خطوات بسيطة تفصلك عن قصة لن ينساها طفلك"},
+    {"section": "how", "key": "how.step1.title", "value": "اختر الهدف"},
+    {"section": "how", "key": "how.step1.desc", "value": "حدّد القيمة أو السلوك واذكر موقفاً حقيقياً"},
     {"section": "how", "key": "how.step2.title", "value": "أخبرنا عن طفلك"},
-    {"section": "how", "key": "how.step2.desc", "value": "الاسم، العمر، الاهتمامات — ليصبح بطلاً حقيقياً"},
-    {"section": "how", "key": "how.step3.title", "value": "اختر أسلوب القصة"},
-    {"section": "how", "key": "how.step3.desc", "value": "كرتوني، كلاسيكي، مغامرات... أنت تقرر"},
-    {"section": "how", "key": "how.step4.title", "value": "استلم القصة"},
-    {"section": "how", "key": "how.step4.desc", "value": "قصة وفيديو وملف PDF جاهز للمشاركة مع طفلك"},
+    {"section": "how", "key": "how.step2.desc", "value": "الاسم والعمر وصورة ليصبح بطلاً حقيقياً"},
+    {"section": "how", "key": "how.step3.title", "value": "أضف الشخصيات"},
+    {"section": "how", "key": "how.step3.desc", "value": "أم، أب، صديق... لتكتمل عائلة القصة"},
+    {"section": "how", "key": "how.step4.title", "value": "خصّصها"},
+    {"section": "how", "key": "how.step4.desc", "value": "أضف مفضّلات طفلك ليشعر أنها قصته"},
     {"section": "values", "key": "values.title", "value": "لماذا غِراس؟"},
     {"section": "values", "key": "values.items", "value": [
         {"icon": "heart", "title": "مصممة بحب", "desc": "كل تفصيلة تراعي قلب طفلك وبراءته"},
@@ -78,22 +98,9 @@ PROMPTS = [
     {
         "key": "story.generate.master",
         "title_ar": "برومبت توليد القصة الرئيسي",
-        "description": "القالب الذي يُرسل لنموذج الذكاء الاصطناعي لتوليد القصة بناءً على مدخلات المستخدم.",
-        "template": (
-            "اكتب قصة عربية للأطفال بأسلوب {style} حول موضوع '{goal}'.\n"
-            "بطل القصة هو طفل اسمه {child_name}، عمره {child_age} سنة، {child_gender}.\n"
-            "شخصيته: {personality}. اهتماماته: {interests}.\n"
-            "يجب أن تتضمن القصة درساً تربوياً واضحاً دون مباشرة.\n"
-            "ملاحظات إضافية من الأهل: {notes}"
-        ),
-        "variables": ["style", "goal", "child_name", "child_age", "child_gender", "personality", "interests", "notes"],
-    },
-    {
-        "key": "video.scene.prompt",
-        "title_ar": "برومبت توليد المشهد المرئي",
-        "description": "قالب لتوليد الصور/الفيديو من كل مشهد.",
-        "template": "صورة رسوم متحركة دافئة بأسلوب {style} تُظهر الطفل {child_name} وهو {scene_action}. ألوان هادئة، جو عائلي.",
-        "variables": ["style", "child_name", "scene_action"],
+        "description": "القالب المرجعي الذي ستعتمد عليه محركات التوليد مستقبلاً. يُبنى البرومبت الفعلي لكل طلب ديناميكياً من JSON.",
+        "template": "يتم بناء البرومبت تلقائياً من البيانات المهيكلة للطلب. راجع ai_prompt_snapshot في كل طلب.",
+        "variables": [],
     },
 ]
 
@@ -111,6 +118,8 @@ SETTINGS = [
     {"key": "brand.primary_color", "value": "#87A96B"},
     {"key": "site.name", "value": "غِراس"},
     {"key": "site.tagline", "value": "نَغرِس القيَم بقِصصٍ بَطلُها طِفلُك"},
+    {"key": "characters.max_count", "value": 3},
+    {"key": "upload.max_mb", "value": 6},
 ]
 
 
@@ -138,40 +147,25 @@ async def seed_categories():
     for c in CATEGORIES:
         cat_id = str(uuid.uuid4())
         await db.categories.insert_one({
-            "id": cat_id,
-            "slug": c["slug"],
-            "name_ar": c["name_ar"],
-            "description": c["description"],
-            "icon": c["icon"],
-            "color": c["color"],
-            "sort_order": c["sort_order"],
-            "is_active": True,
-            "created_at": _now(),
+            "id": cat_id, "slug": c["slug"], "name_ar": c["name_ar"],
+            "description": c["description"], "icon": c["icon"], "color": c["color"],
+            "sort_order": c["sort_order"], "is_active": True, "created_at": _now(),
         })
         for idx, sub in enumerate(c["subcategories"]):
             await db.subcategories.insert_one({
-                "id": str(uuid.uuid4()),
-                "category_id": cat_id,
-                "name_ar": sub,
-                "description": None,
-                "sort_order": idx,
-                "is_active": True,
-                "created_at": _now(),
+                "id": str(uuid.uuid4()), "category_id": cat_id, "name_ar": sub,
+                "description": None, "sort_order": idx, "is_active": True, "created_at": _now(),
             })
 
 
-async def seed_styles():
-    if await db.story_styles.count_documents({}) > 0:
+async def seed_story_options():
+    if await db.story_options.count_documents({}) > 0:
         return
-    for s in STYLES:
-        await db.story_styles.insert_one({
-            "id": str(uuid.uuid4()),
-            "name_ar": s["name_ar"],
-            "description": s["description"],
-            "image_url": None,
-            "sort_order": s["sort_order"],
-            "is_active": True,
-            "created_at": _now(),
+    for kind, name_ar, value, sort in STORY_OPTIONS:
+        await db.story_options.insert_one({
+            "id": str(uuid.uuid4()), "kind": kind, "name_ar": name_ar, "value": value,
+            "description": None, "icon": None, "sort_order": sort,
+            "is_active": True, "is_hidden": False, "created_at": _now(),
         })
 
 
@@ -190,11 +184,8 @@ async def seed_prompts():
         if exists:
             continue
         await db.prompts.insert_one({
-            "id": str(uuid.uuid4()),
-            **p,
-            "is_active": True,
-            "created_at": _now(),
-            "updated_at": _now(),
+            "id": str(uuid.uuid4()), **p, "is_active": True,
+            "created_at": _now(), "updated_at": _now(),
         })
 
 
@@ -202,11 +193,7 @@ async def seed_plans():
     if await db.plans.count_documents({}) > 0:
         return
     for p in PLANS:
-        await db.plans.insert_one({
-            "id": str(uuid.uuid4()),
-            **p,
-            "created_at": _now(),
-        })
+        await db.plans.insert_one({"id": str(uuid.uuid4()), **p, "created_at": _now()})
 
 
 async def seed_settings():
@@ -221,7 +208,7 @@ async def seed_settings():
 async def seed_all():
     await seed_admin()
     await seed_categories()
-    await seed_styles()
+    await seed_story_options()
     await seed_content()
     await seed_prompts()
     await seed_plans()
