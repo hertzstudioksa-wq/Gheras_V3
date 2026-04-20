@@ -135,12 +135,40 @@ class StylePayload(BaseModel):
     voice_id: Optional[str] = None
 
 
+# Allowed duration snap points (seconds)
+DURATION_SNAPS = [30, 45, 60, 90, 120, 150, 180]
+
+
+def duration_meta(seconds: int) -> dict:
+    """Derive label / scene_target / cost_tier from a duration in seconds."""
+    s = int(seconds)
+    if s not in DURATION_SNAPS:
+        # snap to nearest allowed
+        s = min(DURATION_SNAPS, key=lambda x: abs(x - s))
+    mapping = {
+        30:  {"label": "30 ثانية",      "scene_target": 3, "cost_tier": "low"},
+        45:  {"label": "45 ثانية",      "scene_target": 4, "cost_tier": "low"},
+        60:  {"label": "دقيقة",         "scene_target": 5, "cost_tier": "medium"},
+        90:  {"label": "دقيقة ونصف",    "scene_target": 6, "cost_tier": "medium"},
+        120: {"label": "دقيقتان",       "scene_target": 7, "cost_tier": "high"},
+        150: {"label": "دقيقتان ونصف",  "scene_target": 8, "cost_tier": "high"},
+        180: {"label": "ثلاث دقائق",    "scene_target": 9, "cost_tier": "high"},
+    }
+    m = mapping[s]
+    return {"seconds": s, "label": m["label"], "scene_target": m["scene_target"], "cost_tier": m["cost_tier"]}
+
+
+class DurationPayload(BaseModel):
+    seconds: int = 90
+
+
 class StoryData(BaseModel):
     goal: GoalPayload
     child: ChildPayload
     characters: List[CharacterPayload] = []
     personalization: PersonalizationPayload = PersonalizationPayload()
     style: StylePayload = StylePayload()
+    duration: DurationPayload = DurationPayload()
 
 
 # =========================

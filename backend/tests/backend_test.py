@@ -654,3 +654,248 @@ def test_p3_no_mongo_id_in_scenario_endpoints(session, parent_token, admin_token
         r = session.get(f"{API}{ep}", headers=H(tok))
         assert r.status_code == 200
         assert '"_id"' not in r.text
+
+
+
+# ============================================================
+# ---------- Phase 4: Duration + Batches + Regen Limit ----------
+# ============================================================
+
+def _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=None):
+    data, _, _ = _build_data(session, uploaded_child_file["url"], 1)
+    if seconds is not None:
+        data["duration"] = {"seconds": seconds}
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.fixture(scope="module")
+def p4_order(session, parent_token, uploaded_child_file):
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=90)
+    _wait_scenarios_ready(session, parent_token, o["id"])
+    return o
+
+
+def test_p4_duration_default_90(session, parent_token, uploaded_child_file):
+    # Omit duration -> should default to 90s
+    data, _, _ = _build_data(session, uploaded_child_file["url"], 1)
+    data.pop("duration", None)
+    r = session.post(f"{API}/orders", headers=H(parent_token), json={"data": data})
+    assert r.status_code == 200
+    o = r.json()
+    dur = o.get("duration")
+    assert dur and dur["seconds"] == 90
+    assert dur["label"] == "دقيقة ونصف"
+    assert dur["scene_target"] == 6
+    assert dur["cost_tier"] == "medium"
+
+
+@pytest.mark.parametrize("sec,label,target,tier", [
+    (30, "30 ثانية", 3, "low"),
+    (45, "45 ثانية", 4, "low"),
+    (60, "دقيقة", 5, "medium"),
+    (90, "دقيقة ونصف", 6, "medium"),
+    (120, "دقيقتان", 7, "high"),
+    (150, "دقيقتان ونصف", 8, "high"),
+    (180, "ثلاث دقائق", 9, "high"),
+])
+def test_p4_duration_snap_points(session, parent_token, uploaded_child_file, sec, label, target, tier):
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=sec)
+    d = o["duration"]
+    assert d["seconds"] == sec and d["label"] == label
+    assert d["scene_target"] == target and d["cost_tier"] == tier
+
+
+def test_p4_duration_snap_nearest(session, parent_token, uploaded_child_file):
+    # 100 should snap to 90 (closer than 120)
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=100)
+    assert o["duration"]["seconds"] == 90
+
+
+def test_p4_initial_batch_and_counters(p4_order):
+    assert p4_order.get("current_scenario_batch_id")
+    assert p4_order.get("regeneration_count") == 0
+    assert p4_order.get("max_regenerations") == 3
+
+
+def test_p4_scenarios_have_batch_and_why_fits(session, parent_token, p4_order):
+    res = session.get(f"{API}/orders/{p4_order['id']}/scenarios", headers=H(parent_token)).json()
+    assert res["current_scenario_batch_id"] == p4_order["current_scenario_batch_id"]
+    assert res["regeneration_count"] == 0
+    assert res["max_regenerations"] == 3
+    assert res["regenerations_remaining"] == 3
+    assert res["duration"]["seconds"] == 90
+    assert len(res["scenarios"]) == 3
+    target = p4_order["duration"]["scene_target"]  # 6
+    for s in res["scenarios"]:
+        assert s["scenario_batch_id"] == p4_order["current_scenario_batch_id"]
+        assert "why_this_fits" in s  # field must exist
+        assert isinstance(s["why_this_fits"], str)
+        assert s["is_archived"] is False
+        # estimated_scene_count within target ±1
+        assert target - 1 <= s["estimated_scene_count"] <= target + 1
+
+
+def test_p4_list_scenarios_returns_only_current_batch(session, parent_token, uploaded_child_file):
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=60)
+    oid = o["id"]
+    _wait_scenarios_ready(session, parent_token, oid)
+    first = session.get(f"{API}/orders/{oid}/scenarios", headers=H(parent_token)).json()
+    first_batch = first["current_scenario_batch_id"]
+    first_ids = {s["id"] for s in first["scenarios"]}
+
+    # Regenerate
+    r = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["regeneration_count"] == 1
+    assert body["regenerations_remaining"] == 2
+    assert body["batch_id"] and body["batch_id"] != first_batch
+
+    res = _wait_scenarios_ready(session, parent_token, oid)
+    new_ids = {s["id"] for s in res["scenarios"]}
+    assert res["current_scenario_batch_id"] != first_batch
+    assert res["regeneration_count"] == 1
+    assert res["regenerations_remaining"] == 2
+    # User must NOT see old batch scenarios
+    assert first_ids.isdisjoint(new_ids)
+    for s in res["scenarios"]:
+        assert s["scenario_batch_id"] == res["current_scenario_batch_id"]
+
+
+def test_p4_regenerate_limit_429(session, parent_token, uploaded_child_file):
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=45)
+    oid = o["id"]
+    _wait_scenarios_ready(session, parent_token, oid)
+
+    # 3 successful regenerations
+    for i in range(1, 4):
+        r = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+        assert r.status_code == 200, f"regen {i}: {r.status_code} {r.text}"
+        body = r.json()
+        assert body["regeneration_count"] == i
+        assert body["regenerations_remaining"] == 3 - i
+        _wait_scenarios_ready(session, parent_token, oid)
+
+    # 4th must 429 in Arabic
+    r4 = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+    assert r4.status_code == 429, f"expected 429 got {r4.status_code} {r4.text}"
+    detail = (r4.json() or {}).get("detail", "")
+    assert isinstance(detail, str) and len(detail) > 0
+    # Must contain Arabic characters
+    assert any("\u0600" <= ch <= "\u06ff" for ch in detail), f"expected Arabic detail, got: {detail}"
+
+    # Counters reflect state
+    res = session.get(f"{API}/orders/{oid}/scenarios", headers=H(parent_token)).json()
+    assert res["regeneration_count"] == 3
+    assert res["regenerations_remaining"] == 0
+
+
+def test_p4_old_batch_selection_blocked(session, parent_token, uploaded_child_file):
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=60)
+    oid = o["id"]
+    first = _wait_scenarios_ready(session, parent_token, oid)
+    old_sid = first["scenarios"][0]["id"]
+
+    # Regenerate to create new batch
+    r = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+    assert r.status_code == 200
+    new_res = _wait_scenarios_ready(session, parent_token, oid)
+    assert new_res["current_scenario_batch_id"] != first["current_scenario_batch_id"]
+
+    # Try to select the OLD-batch scenario as user -> must 400
+    r_sel = session.post(f"{API}/orders/{oid}/scenarios/{old_sid}/select", headers=H(parent_token))
+    assert r_sel.status_code == 400, f"expected 400 got {r_sel.status_code} {r_sel.text}"
+    detail = (r_sel.json() or {}).get("detail", "")
+    assert any("\u0600" <= ch <= "\u06ff" for ch in detail)
+
+    # Selecting a current batch scenario succeeds
+    cur_sid = new_res["scenarios"][0]["id"]
+    r_ok = session.post(f"{API}/orders/{oid}/scenarios/{cur_sid}/select", headers=H(parent_token))
+    assert r_ok.status_code == 200
+    od = session.get(f"{API}/orders/{oid}", headers=H(parent_token)).json()
+    assert od["selected_scenario_id"] == cur_sid
+    assert od["selected_scenario_batch_id"] == new_res["current_scenario_batch_id"]
+
+
+def test_p4_regenerate_preserves_old_batches_for_admin(session, parent_token, admin_token, uploaded_child_file):
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=60)
+    oid = o["id"]
+    _wait_scenarios_ready(session, parent_token, oid)
+    # Two user regens -> should have 3 batches visible to admin
+    for _ in range(2):
+        r = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+        assert r.status_code == 200
+        _wait_scenarios_ready(session, parent_token, oid)
+
+    admin_res = session.get(f"{API}/admin/orders/{oid}/scenarios", headers=H(admin_token)).json()
+    assert "batches" in admin_res
+    batches = admin_res["batches"]
+    assert len(batches) == 3, f"expected 3 batches, got {len(batches)}"
+    # Exactly one batch is_current=True
+    current_flags = [b["is_current"] for b in batches]
+    assert current_flags.count(True) == 1
+    # Latest batch first (sorted desc by created_at) AND is_current should be the first
+    assert batches[0]["is_current"] is True
+    assert batches[0]["batch_id"] == admin_res["current_scenario_batch_id"]
+    # Each batch has 3 scenarios with scenario_batch_id matching
+    for b in batches:
+        assert len(b["scenarios"]) == 3
+        assert all(s["scenario_batch_id"] == b["batch_id"] for s in b["scenarios"])
+        assert b.get("source") in ("ai", "fallback")
+    # Counters on admin response
+    assert admin_res["regeneration_count"] == 2
+    assert admin_res["max_regenerations"] == 3
+    assert admin_res["regenerations_remaining"] == 1
+    assert admin_res["duration"]["seconds"] == 60
+
+
+def test_p4_admin_regenerate_bypasses_limit(session, parent_token, admin_token, uploaded_child_file):
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=45)
+    oid = o["id"]
+    _wait_scenarios_ready(session, parent_token, oid)
+    # Exhaust user limit (3 regens)
+    for _ in range(3):
+        r = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+        assert r.status_code == 200
+        _wait_scenarios_ready(session, parent_token, oid)
+    # User 4th -> 429
+    r4 = session.post(f"{API}/orders/{oid}/scenarios/regenerate", headers=H(parent_token))
+    assert r4.status_code == 429
+
+    # Admin bypass works
+    r_admin = session.post(f"{API}/admin/orders/{oid}/scenarios/regenerate", headers=H(admin_token))
+    assert r_admin.status_code == 200, r_admin.text
+    body = r_admin.json()
+    assert body["regeneration_count"] == 4  # bumped beyond max
+    _wait_scenarios_ready(session, parent_token, oid)
+
+    # Admin sees 5 batches (initial + 3 user + 1 admin)
+    admin_res = session.get(f"{API}/admin/orders/{oid}/scenarios", headers=H(admin_token)).json()
+    assert len(admin_res["batches"]) == 5
+    assert admin_res["regeneration_count"] == 4
+    assert admin_res["regenerations_remaining"] == 0  # max(0, 3-4)
+    # Latest admin batch is current
+    assert admin_res["batches"][0]["is_current"] is True
+
+    # Admin can regen again even though count >= max
+    r_again = session.post(f"{API}/admin/orders/{oid}/scenarios/regenerate", headers=H(admin_token))
+    assert r_again.status_code == 200
+
+
+def test_p4_user_cannot_see_archived_scenarios_in_list(session, parent_token, admin_token, uploaded_child_file):
+    """After admin regenerates, user's GET /scenarios must only show current batch (3 items)."""
+    o = _create_order_with_duration(session, parent_token, uploaded_child_file, seconds=60)
+    oid = o["id"]
+    _wait_scenarios_ready(session, parent_token, oid)
+    r = session.post(f"{API}/admin/orders/{oid}/scenarios/regenerate", headers=H(admin_token))
+    assert r.status_code == 200
+    _wait_scenarios_ready(session, parent_token, oid)
+    user_res = session.get(f"{API}/orders/{oid}/scenarios", headers=H(parent_token)).json()
+    assert len(user_res["scenarios"]) == 3
+    cur = user_res["current_scenario_batch_id"]
+    assert all(s["scenario_batch_id"] == cur for s in user_res["scenarios"])
+    # Admin sees both batches
+    admin_res = session.get(f"{API}/admin/orders/{oid}/scenarios", headers=H(admin_token)).json()
+    assert len(admin_res["batches"]) == 2

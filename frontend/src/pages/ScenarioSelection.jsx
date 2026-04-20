@@ -6,6 +6,7 @@ import Footer from "../components/gheras/Footer";
 import {
   Sprout, Heart, BookOpen, Rocket, CheckCircle2, RefreshCcw,
   Sparkles, Loader2, AlertTriangle, ArrowRight, Award, Eye,
+  Lightbulb, ShieldAlert, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,9 +19,14 @@ const ANGLE_META = {
 export default function ScenarioSelection() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [state, setState] = useState({ status: "scenarios_generating", scenarios: [], generation: null, selected_scenario_id: null });
+  const [state, setState] = useState({
+    status: "scenarios_generating", scenarios: [], generation: null,
+    selected_scenario_id: null, regeneration_count: 0, max_regenerations: 3,
+    regenerations_remaining: 3, duration: null,
+  });
   const [polling, setPolling] = useState(true);
   const [selectingId, setSelectingId] = useState(null);
+  const [regenerating, setRegenerating] = useState(false);
   const pollRef = useRef(null);
 
   const fetchData = async () => {
@@ -44,7 +50,20 @@ export default function ScenarioSelection() {
     // eslint-disable-next-line
   }, [id, polling]);
 
+  const remaining = state.regenerations_remaining ?? Math.max(0, (state.max_regenerations ?? 3) - (state.regeneration_count ?? 0));
+  const limitReached = remaining <= 0;
+
   const regenerate = async () => {
+    if (limitReached) {
+      toast.error("تم استهلاك جميع محاولات إعادة التوليد");
+      return;
+    }
+    // warning on last attempt
+    if (remaining === 1) {
+      const ok = window.confirm("هذه هي آخر محاولة لإعادة توليد الأفكار. هل تريد المتابعة؟");
+      if (!ok) return;
+    }
+    setRegenerating(true);
     try {
       await api.post(`/orders/${id}/scenarios/regenerate`);
       setState((s) => ({ ...s, status: "scenarios_generating", scenarios: [], generation: null, selected_scenario_id: null }));
@@ -52,6 +71,8 @@ export default function ScenarioSelection() {
       toast.success("جاري إعادة التوليد...");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "فشل");
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -72,6 +93,13 @@ export default function ScenarioSelection() {
   const isReady = state.status === "scenarios_ready" || state.status === "scenario_selected" || state.status === "ready_for_ai";
   const isFailed = state.status === "failed";
   const isLocked = state.status === "generating" || state.status === "completed";
+
+  const regenBtnDisabled = isLocked || regenerating || limitReached;
+  const regenTooltip = limitReached
+    ? "تم استهلاك جميع محاولات إعادة التوليد"
+    : remaining === 1
+    ? "هذه هي آخر محاولة لإعادة التوليد"
+    : "إنشاء 3 أفكار جديدة بديلة";
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]" data-testid="scenario-selection">
@@ -98,10 +126,17 @@ export default function ScenarioSelection() {
               : isFailed ? "لم نتمكن من إنشاء السيناريوهات. جرّب إعادة التوليد."
               : "كل سيناريو له شخصية مختلفة. اختر الزاوية التي تشعر أنها الأقرب لطفلك."}
             </p>
+            {state.duration?.label && (
+              <div className="mt-4 inline-flex items-center gap-2 bg-white/80 backdrop-blur rounded-full px-3 py-1 text-xs font-body text-[#5A677D]" data-testid="hero-duration">
+                <Clock className="w-3 h-3 text-[#729352]" />
+                مدة الفيديو المطلوبة: <b className="text-[#2D3748]">{state.duration.label}</b>
+                <span>•</span>
+                <span>~{state.duration.scene_target} مشاهد</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* States */}
         {isLoading && <LoadingSkeleton />}
 
         {isFailed && (
@@ -111,7 +146,13 @@ export default function ScenarioSelection() {
             </div>
             <h2 className="font-heading text-2xl font-bold text-[#2D3748] mb-2">تعذّر إنشاء السيناريوهات</h2>
             <p className="font-body text-[#5A677D] mb-6">يمكن أن يحدث هذا أحياناً. اضغط لإعادة المحاولة.</p>
-            <button onClick={regenerate} className="btn-primary inline-flex items-center gap-2" data-testid="retry-btn">
+            <button
+              onClick={regenerate}
+              disabled={regenBtnDisabled}
+              title={regenTooltip}
+              className="btn-primary inline-flex items-center gap-2 disabled:opacity-50"
+              data-testid="retry-btn"
+            >
               <RefreshCcw className="w-4 h-4" /> إعادة المحاولة
             </button>
           </div>
@@ -119,6 +160,25 @@ export default function ScenarioSelection() {
 
         {isReady && state.scenarios.length > 0 && (
           <>
+            {/* Last-attempt warning banner */}
+            {remaining === 1 && !limitReached && (
+              <div className="mb-5 rounded-2xl bg-[#F8F1E7] border border-[#D4A373]/40 p-4 flex items-center gap-3" data-testid="last-attempt-warning">
+                <ShieldAlert className="w-5 h-5 text-[#8B5A2B] shrink-0" />
+                <p className="font-body text-sm text-[#8B5A2B]">
+                  تنبيه: تبقّت لديك <b>محاولة واحدة</b> فقط لإعادة توليد الأفكار.
+                </p>
+              </div>
+            )}
+            {limitReached && (
+              <div className="mb-5 rounded-2xl bg-[#FCE6D4] border border-[#E07A5F]/40 p-4 flex items-start gap-3" data-testid="limit-reached-warning">
+                <AlertTriangle className="w-5 h-5 text-[#B8612F] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-body font-bold text-[#B8612F]">لقد وصلت للحد الأقصى من إعادة توليد الأفكار لهذه القصة.</p>
+                  <p className="font-body text-sm text-[#8B3A1F] mt-1">يمكنك اختيار أحد الخيارات الحالية أو التواصل معنا لمساعدتك.</p>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6" data-testid="scenarios-grid">
               {state.scenarios.map((s, i) => {
                 const meta = ANGLE_META[s.emotional_angle] || ANGLE_META.educational;
@@ -156,6 +216,15 @@ export default function ScenarioSelection() {
                       {s.short_summary}
                     </p>
 
+                    {s.why_this_fits && (
+                      <div className="bg-[#F8F1E7] rounded-2xl p-3 border border-[#D4A373]/30 mb-3" data-testid={`why-fits-${s.id}`}>
+                        <div className="flex items-center gap-2 text-xs font-bold text-[#8B5A2B] mb-1">
+                          <Lightbulb className="w-3 h-3" /> لماذا هذا السيناريو يناسب طفلك؟
+                        </div>
+                        <p className="font-body text-sm text-[#2D3748]">{s.why_this_fits}</p>
+                      </div>
+                    )}
+
                     {s.learning_goal && (
                       <div className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9] mb-4">
                         <div className="flex items-center gap-2 text-xs font-bold text-[#729352] mb-1">
@@ -186,21 +255,28 @@ export default function ScenarioSelection() {
             </div>
 
             <div className="flex items-center justify-between flex-wrap gap-3 bg-white rounded-2xl p-4 border border-[#E2D8C9]">
-              <div className="text-sm text-[#5A677D] font-body inline-flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                مصدر التوليد:{" "}
-                <span className="font-bold text-[#2D3748]">
-                  {state.generation?.source === "ai" ? "ذكاء اصطناعي (Claude Sonnet 4.5)" :
-                   state.generation?.source === "fallback" ? "نظام احتياطي" : "—"}
+              <div className="text-sm text-[#5A677D] font-body inline-flex items-center gap-3 flex-wrap">
+                <span className="inline-flex items-center gap-2">
+                  <Eye className="w-4 h-4" />
+                  مصدر التوليد:{" "}
+                  <span className="font-bold text-[#2D3748]">
+                    {state.generation?.source === "ai" ? "ذكاء اصطناعي (Claude Sonnet 4.5)" :
+                    state.generation?.source === "fallback" ? "نظام احتياطي" : "—"}
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-1 bg-[#FDFBF7] rounded-full px-3 py-1 text-xs border border-[#E2D8C9]" data-testid="regen-counter">
+                  محاولات التوليد: <b className="text-[#4F6B3B]">{state.regeneration_count ?? 0} / {state.max_regenerations ?? 3}</b>
                 </span>
               </div>
               <button
                 onClick={regenerate}
-                disabled={isLocked}
-                className="inline-flex items-center gap-2 rounded-full bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] px-5 py-2 text-sm font-bold disabled:opacity-50"
+                disabled={regenBtnDisabled}
+                title={regenTooltip}
+                className="inline-flex items-center gap-2 rounded-full bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] px-5 py-2 text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="regenerate-btn"
               >
-                <RefreshCcw className="w-4 h-4" /> إعادة توليد 3 أفكار جديدة
+                <RefreshCcw className="w-4 h-4" />
+                {limitReached ? "استُهلكت المحاولات" : regenerating ? "جاري..." : "إعادة توليد 3 أفكار جديدة"}
               </button>
             </div>
           </>

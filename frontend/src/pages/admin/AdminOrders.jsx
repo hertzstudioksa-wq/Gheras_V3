@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api, fileSrc } from "../../lib/api";
 import OrderStatusBadge from "../../components/gheras/OrderStatusBadge";
 import { toast } from "sonner";
-import { Eye, Filter, Wand2, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock } from "lucide-react";
+import { Eye, Filter, Wand2, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock, ChevronDown, ChevronUp, Lightbulb, Coins } from "lucide-react";
 
 const ANGLE_META = {
   emotional:   { label: "عاطفي", icon: Heart, bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]" },
@@ -237,64 +237,12 @@ export default function AdminOrders() {
             )}
 
             {tab === "scenarios" && (
-              <div data-testid="admin-scenarios-tab">
-                <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-                  <div className="text-sm text-[#5A677D] font-body">
-                    {scenariosData?.generation?.source === "ai" && <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-3 py-1 text-xs font-bold">AI</span>}
-                    {scenariosData?.generation?.source === "fallback" && <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-3 py-1 text-xs font-bold">Fallback</span>}
-                    {scenariosData?.generation?.source === "error" && <span className="bg-[#FCE6D4] text-[#B8612F] rounded-full px-3 py-1 text-xs font-bold">Error</span>}
-                    <span className="ms-2">عدد السيناريوهات: <b>{scenariosData?.scenarios?.length || 0}</b></span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={adminRegenerate} className="rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-4 py-2 text-xs font-bold inline-flex items-center gap-1" data-testid="admin-regen-scenarios">
-                      <RefreshCw className="w-3 h-3" /> إعادة توليد
-                    </button>
-                    {(scenariosData?.scenarios?.length || 0) > 0 && (
-                      <button onClick={adminDeleteScenarios} className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-2 text-xs font-bold inline-flex items-center gap-1">
-                        <Trash2 className="w-3 h-3" /> حذف
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {(scenariosData?.scenarios || []).length === 0 ? (
-                  <p className="text-center py-12 text-[#8A9AB0] font-body">لم يتم توليد سيناريوهات بعد</p>
-                ) : (
-                  <div className="space-y-3">
-                    {scenariosData.scenarios.map((s) => {
-                      const meta = ANGLE_META[s.emotional_angle] || ANGLE_META.educational;
-                      const Icon = meta.icon;
-                      const sel = s.is_selected || scenariosData.selected_scenario_id === s.id;
-                      return (
-                        <div key={s.id} className={`rounded-2xl p-4 border-2 ${sel ? "border-[#87A96B] bg-[#E8F0E1]/40" : "border-[#E2D8C9] bg-[#FDFBF7]"}`} data-testid={`admin-scenario-${s.id}`}>
-                          <div className="flex items-start justify-between gap-3 mb-2">
-                            <div className="flex items-center gap-2">
-                              <div className={`w-9 h-9 rounded-xl ${meta.bg} grid place-content-center`}><Icon className={`w-4 h-4 ${meta.fg}`} /></div>
-                              <div>
-                                <h4 className="font-heading font-bold text-[#2D3748]">{s.title}</h4>
-                                <span className={`text-xs ${meta.fg}`}>{meta.label} • {s.estimated_scene_count} مشاهد</span>
-                              </div>
-                            </div>
-                            {sel ? (
-                              <span className="rounded-full bg-[#87A96B] text-white text-xs font-bold px-3 py-1 inline-flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3" /> مختار
-                              </span>
-                            ) : (
-                              <button onClick={() => adminSelectScenario(s.id)} className="text-xs font-bold text-[#729352] hover:text-[#4F6B3B] px-3 py-1">
-                                اختر هذا
-                              </button>
-                            )}
-                          </div>
-                          <p className="font-body text-sm text-[#5A677D]">{s.short_summary}</p>
-                          {s.learning_goal && (
-                            <div className="mt-2 text-xs text-[#4F6B3B] font-body">🎯 {s.learning_goal}</div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              <AdminScenariosTab
+                scenariosData={scenariosData}
+                onRegenerate={adminRegenerate}
+                onDelete={adminDeleteScenarios}
+                onSelect={adminSelectScenario}
+              />
             )}
 
             {tab === "history" && (
@@ -351,4 +299,149 @@ function Field({ label, value }) {
       <div className="font-body font-bold text-[#2D3748] text-sm">{value || "—"}</div>
     </div>
   );
+}
+
+function AdminScenariosTab({ scenariosData, onRegenerate, onDelete, onSelect }) {
+  const batches = scenariosData?.batches || [];
+  const regenUsed = scenariosData?.regeneration_count ?? 0;
+  const regenMax = scenariosData?.max_regenerations ?? 3;
+  const remaining = scenariosData?.regenerations_remaining ?? Math.max(0, regenMax - regenUsed);
+  const limitReached = remaining <= 0;
+  const duration = scenariosData?.duration;
+
+  // Expand the current (latest) batch by default
+  const currentBatchId = scenariosData?.current_scenario_batch_id;
+  const [openBatches, setOpenBatches] = useState({});
+  useEffect(() => {
+    if (currentBatchId && openBatches[currentBatchId] === undefined) {
+      setOpenBatches((p) => ({ ...p, [currentBatchId]: true }));
+    }
+    // eslint-disable-next-line
+  }, [currentBatchId]);
+
+  const toggleBatch = (bid) => setOpenBatches((p) => ({ ...p, [bid]: !p[bid] }));
+
+  return (
+    <div data-testid="admin-scenarios-tab">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="text-sm text-[#5A677D] font-body flex items-center gap-2 flex-wrap">
+          <span className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-full px-3 py-1 text-xs inline-flex items-center gap-1" data-testid="admin-regen-counter">
+            المحاولات: <b className="text-[#4F6B3B]">{regenUsed} / {regenMax}</b>
+          </span>
+          {limitReached && (
+            <span className="bg-[#FCE6D4] text-[#B8612F] rounded-full px-3 py-1 text-xs font-bold inline-flex items-center gap-1" data-testid="admin-max-reached-badge">
+              <AlertBadge /> Max reached
+            </span>
+          )}
+          {duration?.label && (
+            <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-3 py-1 text-xs inline-flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {duration.label} • ~{duration.scene_target} مشاهد
+            </span>
+          )}
+          {duration?.cost_tier && (
+            <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-3 py-1 text-xs inline-flex items-center gap-1">
+              <Coins className="w-3 h-3" /> {duration.cost_tier}
+            </span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={onRegenerate}
+            title={limitReached ? "تجاوز الحد — الأدمن فقط" : "إنشاء دفعة جديدة"}
+            className="rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-4 py-2 text-xs font-bold inline-flex items-center gap-1 hover:bg-[#D4E3C1]"
+            data-testid="admin-regen-scenarios"
+          >
+            <RefreshCw className="w-3 h-3" /> {limitReached ? "إعادة توليد (تجاوز)" : "إعادة توليد"}
+          </button>
+          {batches.length > 0 && (
+            <button onClick={onDelete} className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-2 text-xs font-bold inline-flex items-center gap-1" data-testid="admin-delete-scenarios">
+              <Trash2 className="w-3 h-3" /> حذف الكل
+            </button>
+          )}
+        </div>
+      </div>
+
+      {batches.length === 0 ? (
+        <p className="text-center py-12 text-[#8A9AB0] font-body">لم يتم توليد سيناريوهات بعد</p>
+      ) : (
+        <div className="space-y-3">
+          {batches.map((b, bIdx) => {
+            const open = !!openBatches[b.batch_id];
+            const short = (b.batch_id || "").slice(0, 8);
+            const when = b.created_at ? new Date(b.created_at).toLocaleString("ar-EG") : "";
+            return (
+              <div key={b.batch_id} className={`rounded-2xl border-2 overflow-hidden ${b.is_current ? "border-[#87A96B] bg-[#E8F0E1]/20" : "border-[#E2D8C9] bg-white"}`} data-testid={`admin-batch-${b.batch_id}`}>
+                <button
+                  onClick={() => toggleBatch(b.batch_id)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 text-right hover:bg-[#FDFBF7] transition"
+                  data-testid={`admin-batch-toggle-${b.batch_id}`}
+                >
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="font-heading font-bold text-[#2D3748]">
+                      الدفعة {batches.length - bIdx}
+                    </span>
+                    <code className="text-[10px] text-[#8A9AB0]">#{short}</code>
+                    <span className="text-xs text-[#8A9AB0] font-body">{when}</span>
+                    {b.is_current && (
+                      <span className="bg-[#87A96B] text-white rounded-full px-2 py-0.5 text-[10px] font-bold">الحالية</span>
+                    )}
+                    {b.source === "ai" && <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5 text-[10px] font-bold">AI</span>}
+                    {b.source === "fallback" && <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-2 py-0.5 text-[10px] font-bold">Fallback</span>}
+                    <span className="text-xs text-[#8A9AB0] font-body">{b.scenarios.length} سيناريوهات</span>
+                  </div>
+                  {open ? <ChevronUp className="w-4 h-4 text-[#8A9AB0]" /> : <ChevronDown className="w-4 h-4 text-[#8A9AB0]" />}
+                </button>
+
+                {open && (
+                  <div className="px-3 pb-3 space-y-2">
+                    {b.scenarios.map((s) => {
+                      const meta = ANGLE_META[s.emotional_angle] || ANGLE_META.educational;
+                      const Icon = meta.icon;
+                      const sel = s.is_selected || scenariosData.selected_scenario_id === s.id;
+                      return (
+                        <div key={s.id} className={`rounded-2xl p-4 border-2 ${sel ? "border-[#87A96B] bg-[#E8F0E1]/40" : "border-[#E2D8C9] bg-[#FDFBF7]"}`} data-testid={`admin-scenario-${s.id}`}>
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-9 h-9 rounded-xl ${meta.bg} grid place-content-center`}><Icon className={`w-4 h-4 ${meta.fg}`} /></div>
+                              <div>
+                                <h4 className="font-heading font-bold text-[#2D3748]">{s.title}</h4>
+                                <span className={`text-xs ${meta.fg}`}>{meta.label} • {s.estimated_scene_count} مشاهد</span>
+                              </div>
+                            </div>
+                            {sel ? (
+                              <span className="rounded-full bg-[#87A96B] text-white text-xs font-bold px-3 py-1 inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> مختار
+                              </span>
+                            ) : (
+                              <button onClick={() => onSelect(s.id)} className="text-xs font-bold text-[#729352] hover:text-[#4F6B3B] px-3 py-1" data-testid={`admin-select-${s.id}`}>
+                                اختر هذا
+                              </button>
+                            )}
+                          </div>
+                          <p className="font-body text-sm text-[#5A677D]">{s.short_summary}</p>
+                          {s.why_this_fits && (
+                            <div className="mt-2 text-xs text-[#8B5A2B] font-body inline-flex items-start gap-1">
+                              <Lightbulb className="w-3 h-3 mt-0.5 shrink-0" />
+                              <span>{s.why_this_fits}</span>
+                            </div>
+                          )}
+                          {s.learning_goal && (
+                            <div className="mt-1 text-xs text-[#4F6B3B] font-body">🎯 {s.learning_goal}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AlertBadge() {
+  return <span className="w-2 h-2 rounded-full bg-[#B8612F]" />;
 }

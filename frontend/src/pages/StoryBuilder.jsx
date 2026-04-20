@@ -8,7 +8,7 @@ import ImageUploader from "../components/gheras/ImageUploader";
 import {
   ChevronRight, ChevronLeft, Check, Sprout, User, Users, Sparkles, BookOpen,
   PenTool, Heart, Sun, Award, Moon, Rocket, CheckCircle2, Plus, Trash2, X,
-  PartyPopper, Palette, MapPin, Languages, Mic, FileText,
+  PartyPopper, Palette, MapPin, Languages, Mic, FileText, Clock, Coins,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,12 +44,30 @@ const FAV_TYPES = [
   { v: "other", l: "أخرى", i: PenTool },
 ];
 
+// Duration snap points & mapping (must mirror backend models.duration_meta)
+const DURATION_SNAPS = [30, 45, 60, 90, 120, 150, 180];
+const DURATION_META = {
+  30:  { label: "30 ثانية",     scene_target: 3, cost_tier: "low" },
+  45:  { label: "45 ثانية",     scene_target: 4, cost_tier: "low" },
+  60:  { label: "دقيقة",        scene_target: 5, cost_tier: "medium" },
+  90:  { label: "دقيقة ونصف",   scene_target: 6, cost_tier: "medium" },
+  120: { label: "دقيقتان",      scene_target: 7, cost_tier: "high" },
+  150: { label: "دقيقتان ونصف", scene_target: 8, cost_tier: "high" },
+  180: { label: "ثلاث دقائق",   scene_target: 9, cost_tier: "high" },
+};
+const COST_TIER_META = {
+  low:    { label: "اقتصادي",  color: "bg-[#E8F0E1] text-[#4F6B3B] border-[#87A96B]/40" },
+  medium: { label: "متوازن",   color: "bg-[#F8F1E7] text-[#8B5A2B] border-[#D4A373]/40" },
+  high:   { label: "مميّز",    color: "bg-[#FCE6D4] text-[#B8612F] border-[#E07A5F]/40" },
+};
+
 const blankData = () => ({
   goal: { category_id: "", subcategory_id: "", custom_subcategory: "", context: "" },
   child: { name: "", age: 5, gender: "male", image_url: "", appearance_notes: "", hijab: false },
   characters: [],
   personalization: { favorites: {}, toy_image_url: "", custom_notes: "" },
   style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "" },
+  duration: { seconds: 90 },
 });
 
 const LS_KEY = "gheras_story_draft_v2";
@@ -130,6 +148,7 @@ export default function StoryBuilder() {
   const updateChild = (patch) => setData((d) => ({ ...d, child: { ...d.child, ...patch } }));
   const updateStyle = (patch) => setData((d) => ({ ...d, style: { ...d.style, ...patch } }));
   const updatePers = (patch) => setData((d) => ({ ...d, personalization: { ...d.personalization, ...patch } }));
+  const updateDuration = (seconds) => setData((d) => ({ ...d, duration: { seconds } }));
 
   const toggleFav = (key) => {
     const cur = data.personalization.favorites?.[key] || { selected: false, name: "" };
@@ -656,6 +675,11 @@ export default function StoryBuilder() {
               <h2 className="font-heading text-2xl md:text-3xl font-bold text-[#2D3748] mb-2">أسلوب القصة</h2>
               <p className="font-body text-[#5A677D] mb-6">كيف تحب أن تُروى القصة لطفلك؟</p>
 
+              <DurationPicker
+                seconds={data.duration?.seconds || 90}
+                onChange={updateDuration}
+              />
+
               <OptionGroup label="نوع القصة" icon={Palette} items={options.type} value={data.style.type_id} onChange={(v) => updateStyle({ type_id: v })} testId="style-type" required />
               <OptionGroup label="النبرة" icon={Heart} items={options.tone} value={data.style.tone_id} onChange={(v) => updateStyle({ tone_id: v })} testId="style-tone" required />
               <OptionGroup label="البيئة" icon={MapPin} items={options.setting} value={data.style.setting_id} onChange={(v) => updateStyle({ setting_id: v })} testId="style-setting" />
@@ -718,6 +742,73 @@ export default function StoryBuilder() {
   );
 }
 
+function DurationPicker({ seconds, onChange }) {
+  const snapped = DURATION_SNAPS.includes(seconds)
+    ? seconds
+    : DURATION_SNAPS.reduce((a, b) => (Math.abs(b - seconds) < Math.abs(a - seconds) ? b : a), 90);
+  const meta = DURATION_META[snapped];
+  const cost = COST_TIER_META[meta.cost_tier];
+  const idx = DURATION_SNAPS.indexOf(snapped);
+
+  return (
+    <div className="mb-6" data-testid="duration-picker">
+      <label className="flex items-center justify-between mb-3">
+        <span className="text-sm font-bold text-[#2D3748] font-body inline-flex items-center gap-2">
+          <Clock className="w-4 h-4 text-[#729352]" />
+          مدة الفيديو
+        </span>
+        <span className="text-sm font-heading font-bold text-[#4F6B3B] bg-[#E8F0E1] rounded-full px-3 py-1" data-testid="duration-label">
+          {meta.label}
+        </span>
+      </label>
+
+      <input
+        type="range"
+        min={0}
+        max={DURATION_SNAPS.length - 1}
+        step={1}
+        value={idx}
+        onChange={(e) => onChange(DURATION_SNAPS[parseInt(e.target.value)])}
+        className="w-full accent-[#87A96B] cursor-pointer"
+        data-testid="duration-slider"
+      />
+
+      <div className="flex items-center justify-between text-[10px] md:text-xs text-[#8A9AB0] font-body mt-1 px-1">
+        {DURATION_SNAPS.map((s) => (
+          <button
+            type="button"
+            key={s}
+            onClick={() => onChange(s)}
+            className={`${snapped === s ? "text-[#4F6B3B] font-bold" : "hover:text-[#5A677D]"}`}
+            data-testid={`duration-snap-${s}`}
+          >
+            {s}ث
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="bg-[#FDFBF7] rounded-2xl px-4 py-3 border border-[#E2D8C9]">
+          <div className="text-[11px] text-[#8A9AB0] font-body mb-1 inline-flex items-center gap-1">
+            <Sparkles className="w-3 h-3" /> عدد المشاهد التقريبي
+          </div>
+          <div className="font-heading font-bold text-[#2D3748]" data-testid="duration-scene-target">
+            {meta.scene_target} مشاهد
+          </div>
+        </div>
+        <div className={`rounded-2xl px-4 py-3 border ${cost.color}`}>
+          <div className="text-[11px] opacity-80 font-body mb-1 inline-flex items-center gap-1">
+            <Coins className="w-3 h-3" /> تصنيف التكلفة
+          </div>
+          <div className="font-heading font-bold" data-testid="duration-cost-tier">
+            {cost.label}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OptionGroup({ label, icon: Icon, items, value, onChange, testId, required }) {
   if (!items?.length) return null;
   return (
@@ -751,6 +842,8 @@ function Review({ data, categories, options }) {
   const cat = categories.find((c) => c.id === data.goal.category_id);
   const sub = cat?.subcategories?.find((s) => s.id === data.goal.subcategory_id);
   const findOpt = (kind, id) => (options[kind] || []).find((o) => o.id === id)?.name_ar || "—";
+  const durSec = data.duration?.seconds || 90;
+  const durMeta = DURATION_META[durSec] || DURATION_META[90];
 
   return (
     <div data-testid="step-6-content">
@@ -766,6 +859,7 @@ function Review({ data, categories, options }) {
         <Field label="النبرة" value={findOpt("tone", data.style.tone_id)} />
         <Field label="البيئة" value={findOpt("setting", data.style.setting_id)} />
         <Field label="اللغة" value={findOpt("language", data.style.language_id)} />
+        <Field label="مدة الفيديو" value={`${durMeta.label} • ~${durMeta.scene_target} مشاهد`} />
       </div>
 
       <div className="bg-[#E8F0E1] rounded-2xl p-4 border border-[#87A96B]/30 mb-4">

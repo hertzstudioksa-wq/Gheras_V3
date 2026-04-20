@@ -129,13 +129,46 @@ async def regenerate_prompt(order_id: str):
 # ---------- Admin Scenarios ----------
 @router.get("/orders/{order_id}/scenarios")
 async def admin_list_scenarios(order_id: str):
-    items = await db.scenarios.find({"order_id": order_id}, {"_id": 0}).sort("scenario_index", 1).to_list(10)
-    o = await db.orders.find_one({"id": order_id}, {"_id": 0, "scenarios_generation": 1, "selected_scenario_id": 1, "status": 1})
+    o = await db.orders.find_one(
+        {"id": order_id},
+        {"_id": 0, "scenarios_generation": 1, "selected_scenario_id": 1,
+         "status": 1, "current_scenario_batch_id": 1, "selected_scenario_batch_id": 1,
+         "regeneration_count": 1, "max_regenerations": 1, "duration": 1},
+    ) or {}
+    items = await db.scenarios.find({"order_id": order_id}, {"_id": 0}).sort([("created_at", -1), ("scenario_index", 1)]).to_list(200)
+    # Group by batch
+    batches_map: dict[str, dict] = {}
+    for s in items:
+        bid = s.get("scenario_batch_id") or "legacy"
+        if bid not in batches_map:
+            batches_map[bid] = {
+                "batch_id": bid,
+                "is_current": bid == o.get("current_scenario_batch_id"),
+                "created_at": s.get("created_at"),
+                "source": s.get("source"),
+                "scenarios": [],
+            }
+        # keep earliest created_at in batch (should be same)
+        if s.get("created_at") and s["created_at"] < batches_map[bid]["created_at"]:
+            batches_map[bid]["created_at"] = s["created_at"]
+        batches_map[bid]["scenarios"].append(s)
+    batches = sorted(batches_map.values(), key=lambda b: b.get("created_at") or "", reverse=True)
+    for b in batches:
+        b["scenarios"].sort(key=lambda x: x.get("scenario_index", 0))
+    max_regen = o.get("max_regenerations", 3)
+    used = o.get("regeneration_count", 0)
     return {
-        "scenarios": items,
-        "generation": (o or {}).get("scenarios_generation"),
-        "selected_scenario_id": (o or {}).get("selected_scenario_id"),
-        "status": (o or {}).get("status"),
+        "scenarios": items,  # kept for backwards compatibility (all scenarios)
+        "batches": batches,
+        "current_scenario_batch_id": o.get("current_scenario_batch_id"),
+        "selected_scenario_batch_id": o.get("selected_scenario_batch_id"),
+        "generation": o.get("scenarios_generation"),
+        "selected_scenario_id": o.get("selected_scenario_id"),
+        "status": o.get("status"),
+        "regeneration_count": used,
+        "max_regenerations": max_regen,
+        "regenerations_remaining": max(0, max_regen - used),
+        "duration": o.get("duration"),
     }
 
 
@@ -144,14 +177,28 @@ async def admin_regenerate_scenarios(order_id: str, background: BackgroundTasks,
     o = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    await db.scenarios.delete_many({"order_id": order_id})
+    # Admin bypass: always allowed, but still bumps counter
+    new_batch_id = str(uuid.uuid4())
+    used = int(o.get("regeneration_count", 0))
+    max_regen = int(o.get("max_regenerations", 3))
     await db.orders.update_one(
         {"id": order_id},
-        {"$set": {"selected_scenario_id": None, "selected_scenario_snapshot": None}},
+        {
+            "$set": {
+                "current_scenario_batch_id": new_batch_id,
+                "selected_scenario_id": None,
+                "selected_scenario_snapshot": None,
+            },
+            "$inc": {"regeneration_count": 1},
+        },
     )
-    await append_status(order_id, o.get("status"), "scenarios_generating", "admin", actor_id=admin["id"], reason="admin regenerate")
-    background.add_task(run_scenario_generation, order_id)
-    return {"ok": True}
+    await append_status(
+        order_id, o.get("status"), "scenarios_generating", "admin",
+        actor_id=admin["id"],
+        reason=f"admin regenerate ({used + 1}/{max_regen})" + (" — over limit" if used >= max_regen else ""),
+    )
+    background.add_task(run_scenario_generation, order_id, new_batch_id)
+    return {"ok": True, "batch_id": new_batch_id, "regeneration_count": used + 1}
 
 
 @router.delete("/orders/{order_id}/scenarios")
@@ -159,7 +206,11 @@ async def admin_delete_scenarios(order_id: str, admin=Depends(require_admin)):
     await db.scenarios.delete_many({"order_id": order_id})
     await db.orders.update_one(
         {"id": order_id},
-        {"$set": {"selected_scenario_id": None, "selected_scenario_snapshot": None}},
+        {"$set": {
+            "selected_scenario_id": None,
+            "selected_scenario_snapshot": None,
+            "selected_scenario_batch_id": None,
+        }},
     )
     return {"ok": True}
 
@@ -172,16 +223,22 @@ async def admin_select_scenario(order_id: str, scenario_id: str, admin=Depends(r
     scenario = await db.scenarios.find_one({"id": scenario_id, "order_id": order_id}, {"_id": 0})
     if not scenario:
         raise HTTPException(status_code=404, detail="السيناريو غير موجود")
+    # Admin is allowed to select any batch. If from an old batch, promote it to current.
+    target_batch = scenario.get("scenario_batch_id")
+    current_batch = o.get("current_scenario_batch_id")
     await db.scenarios.update_many({"order_id": order_id}, {"$set": {"is_selected": False}})
     await db.scenarios.update_one({"id": scenario_id}, {"$set": {"is_selected": True}})
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {
-            "selected_scenario_id": scenario_id,
-            "selected_scenario_snapshot": scenario,
-        }},
-    )
-    await append_status(order_id, o.get("status"), "scenario_selected", "admin", actor_id=admin["id"], reason=f"admin selected {scenario.get('scenario_index')}")
+    updates = {
+        "selected_scenario_id": scenario_id,
+        "selected_scenario_snapshot": scenario,
+        "selected_scenario_batch_id": target_batch,
+    }
+    reason = f"admin selected {scenario.get('scenario_index')}"
+    if target_batch and target_batch != current_batch:
+        updates["current_scenario_batch_id"] = target_batch
+        reason += f" (promoted batch {str(target_batch)[:8]})"
+    await db.orders.update_one({"id": order_id}, {"$set": updates})
+    await append_status(order_id, o.get("status"), "scenario_selected", "admin", actor_id=admin["id"], reason=reason)
     await append_status(order_id, "scenario_selected", "ready_for_ai", "system", reason="auto after admin selection")
     return {"ok": True}
 
