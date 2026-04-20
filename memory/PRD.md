@@ -1,79 +1,127 @@
-# PRD — غِراس (Gheras) AI Storytelling Platform
+# PRD — غِراس (Gheras) v2
 
-## Problem Statement
-Arabic-first (RTL) production-level AI storytelling platform for children. Parents create personalized stories where their child is the hero, to teach values and behaviors. Includes dynamic admin system — every piece of content editable from an admin panel.
-
-## User Personas
-1. **الوالدان (Parents / End Users)** — Arabic-speaking parents of children 1–14 y/o who want tailored educational stories.
-2. **المدير (Admin / Content Operator)** — Edits landing copy, categories, story styles, AI prompts, pricing, reviews orders, manages users.
-3. **(Future) محرر محتوى** — Reviews AI-generated stories before they ship.
+## Phase 2 Scope (this iteration)
+Upgraded Story Builder to 6 steps with structured JSON data model, integrated Emergent Object Storage, server-side drafts, and fully dynamic Step-5 story options.
 
 ## Architecture
-- **Frontend**: React 19 + React Router 7 + TailwindCSS + Shadcn + Sonner. RTL globally (`<html dir="rtl" lang="ar">`). Fonts: El Messiri (heading) + Tajawal (body).
-- **Backend**: FastAPI + Motor (async MongoDB) + JWT (PyJWT) + bcrypt. All routes `/api/*`.
-- **Database**: MongoDB collections — `users`, `children`, `orders`, `categories`, `subcategories`, `story_styles`, `content`, `prompts`, `plans`, `settings`. All IDs are UUID strings, `_id` excluded from every response.
+- **Frontend**: React 19 + React Router + Tailwind + Shadcn + Sonner (RTL).
+- **Backend**: FastAPI + Motor (MongoDB) + JWT + bcrypt. All routes `/api/*`.
+- **Storage**: Emergent Object Storage (managed). Only URLs stored in DB.
+- **LLM key**: `EMERGENT_LLM_KEY` configured (ready for future AI hookup).
 
-## What's Been Implemented (Phase 1 — 2026-04-20)
-### Public website
-- Landing (hero + values + how-it-works preview + categories preview + CTA), all content **pulled from CMS content blocks**.
-- How It Works detail page.
-- Categories browse page (dynamic from DB).
-### Auth
-- Email/password signup + login, JWT stored in localStorage (`gheras_token`).
-- Protected routes + admin-only routes via `ProtectedRoute`.
-- Seeded admin `admin@gheras.com / Admin@1234` with `role=admin`, `must_change_password=true`.
-### Story Builder (5-step card wizard)
-1. Goal (category → subcategory chips; custom text for free-form)
-2. Child info (name, age, gender, personality, interests, appearance)
-3. Personalization (color, toy, parent message, sibling toggle)
-4. Style (5 seeded styles — card selection)
-5. Review + final notes → submit creates an Order
-- Draft auto-saved to localStorage; if user is anonymous they're routed to login and draft restored.
-### User Dashboard
-- List of orders with Arabic status badges, links to order detail with full snapshot.
-### Order System
-- `status ∈ {pending, in_review, ready_for_ai, generating, completed}`
-- Every order stores `child_snapshot` + `personalization` + **pre-computed `ai_prompt_snapshot`** ready for future AI hookup.
-### Admin Dashboard (`/admin`)
-- Overview (stats + recent orders)
-- Orders (filter by status, view modal, change status, admin note)
-- Users (toggle active, promote/demote admin)
-- Categories & subcategories CRUD (icons + colors)
-- Story Styles CRUD
-- Content Blocks CMS (edit any text on landing page)
-- AI Prompts CRUD (template + variables)
-- Plans & Pricing CRUD
-- Settings (generic key/value)
-### Seeded Data
-- 8 categories + full subcategory tree exactly per spec (السلوك اليومي, المشاعر, القيم والأخلاق, العادات الإيجابية, القيم الإسلامية, الخيال والطموح, قصص قبل النوم, حالة خاصة)
-- 5 story styles, 3 plans, 2 AI prompt templates, 4 system settings, ~20 content blocks.
+## Database Schema
+| Collection | Purpose |
+|---|---|
+| `users` | accounts + admin role |
+| `categories` / `subcategories` | dynamic taxonomy |
+| `story_options` | polymorphic Step-5 options (kind ∈ type\|tone\|setting\|language\|voice) with `is_active`, `is_hidden`, `sort_order` |
+| `orders` | **structured JSON** `{id, user_id, status, data, enriched, ai_prompt_snapshot, prompt_edited, admin_note, created_at, updated_at}` |
+| `drafts` | one-per-user `{user_id, current_step, data, updated_at}` — auto-upsert |
+| `files` | uploaded file index `{id, user_id, scope, storage_path, content_type, size}` |
+| `content` | CMS key/value blocks |
+| `prompts` | reference AI templates |
+| `plans` | subscription tiers |
+| `settings` | incl. `characters.max_count=3`, `upload.max_mb=6` |
+
+`story_styles` collection dropped.
+
+## Story Builder — 6 Steps (final)
+1. **Goal** — category card + subcategory chips + "أخرى" inline text + **required** "موقف حقيقي" textarea.
+2. **Child** — name, age, gender, **required image upload**, appearance notes, hijab toggle (female only).
+3. **Characters** — add up to `characters.max_count` (default 3). Each: type chips (mother/father/sibling/friend/teacher/grandparent/other), optional name, role (mentioned/visible), optional image upload revealed when role=visible.
+4. **Personalization** — multi-select favorites (toy/place/character/hobby/other) → dynamic name field + optional toy image upload + custom notes.
+5. **Style** — 5 dynamic chip groups from `/public/story-options` (type, tone, setting, language, voice). Admin-editable.
+6. **Review** — visual summary + expandable raw JSON.
+
+Mobile: sticky bottom action bar (السابق / التالي / إرسال).
+
+## Structured JSON (stored in `order.data`)
+```json
+{
+  "goal": {
+    "category_id": "<uuid>",
+    "subcategory_id": "<uuid|null>",
+    "custom_subcategory": "نص حر لو اختار أخرى",
+    "context": "أمس رفض يوسف مشاركة لعبته مع أخيه"
+  },
+  "child": {
+    "name": "يوسف",
+    "age": 5,
+    "gender": "male",
+    "image_url": "/api/uploads/file/<uuid>",
+    "appearance_notes": "شعر أسود قصير",
+    "hijab": false
+  },
+  "characters": [
+    { "type": "sibling", "name": "أحمد", "role": "visible", "image_url": "/api/uploads/file/<uuid>" }
+  ],
+  "personalization": {
+    "favorites": {
+      "toy":   { "selected": true,  "name": "دب أبيض" },
+      "place": { "selected": false, "name": null }
+    },
+    "toy_image_url": "/api/uploads/file/<uuid>",
+    "custom_notes": "يحب كلمة 'حبيبي' في النهاية"
+  },
+  "style": {
+    "type_id":     "<uuid>",
+    "tone_id":     "<uuid>",
+    "setting_id":  "<uuid>",
+    "language_id": "<uuid>",
+    "voice_id":    "<uuid>"
+  }
+}
+```
+Alongside `data`, `enriched` carries resolved Arabic names (category_name, subcategory_name, type_name, tone_name, setting_name, language_name, voice_name).
+
+## Prompt Engine
+`build_prompt(data, enriched)` produces an Arabic prompt including:
+- child identity + gender + hijab state
+- goal: category → subcategory/custom + **real-life context**
+- appearance notes + reference image URL
+- characters list with role labels
+- favorites (comma-joined Arabic labels)
+- style line (نوع/نبرة/بيئة/لغة/راوٍ)
+- narrative instructions (warmth, age-appropriate, values woven not preached)
+
+Stored in `order.ai_prompt_snapshot`. Admin can:
+- **edit manually** → `PATCH /admin/orders/{id}/prompt` (sets `prompt_edited=true`)
+- **regenerate from JSON** → `POST /admin/orders/{id}/regenerate-prompt`
+
+## Storage System
+- Uses Emergent Object Storage (no external setup).
+- Paths: `gheras/users/{user_id}/{scope}s/{file_id}.{ext}` where scope ∈ {child, character, toy}.
+- Max 6 MB. Allowed: png, jpg, jpeg, webp, gif.
+- Access: backend proxies via `GET /api/uploads/file/{id}` — owner OR admin only. Authentication via `Authorization: Bearer` header OR `?auth=<token>` query (for `<img src>` tags).
+- DB stores only the backend-proxy URL; raw storage path kept internal.
+
+## Drafts System
+- **Logged-in user**: every change debounced 600 ms → `PUT /api/drafts/current` (one-per-user upsert).
+- **Guest**: same payload written to `localStorage["gheras_story_draft_v2"]`.
+- Hydration priority: logged-in → server draft first, else localStorage.
+- On successful order creation → draft cleared (server + local).
+
+## Admin Dashboard (v2 capabilities)
+- View all orders + full JSON + prompt editor tab with regenerate.
+- Story-options CRUD grouped by kind + show/hide toggle.
+- Settings CRUD (edit `characters.max_count`, `upload.max_mb`, any key).
+- Content blocks CMS.
+- Categories + subcategories CRUD.
+- Users, plans, prompts CRUD.
+- 5-state order workflow (pending → in_review → ready_for_ai → generating → completed).
 
 ## Testing
-- **33/33 backend tests passed** (pytest) covering auth, public endpoints, orders full lifecycle, admin CRUD, admin guards, status workflow, _id exclusion, child_snapshot persistence.
-
-## Design System
-- Palette: `#FDFBF7` (page), `#F8F1E7` (cards), `#87A96B` (brand sage), `#D4A373` (gold), `#E07A5F` (coral), `#8B5A2B` (brown).
-- Components: rounded-3xl cards, pill buttons, stepper circles with connecting progress line, animated blob shapes, grain-free warm aesthetic.
-
-## P0 Backlog (Next)
-- **Google OAuth** (Emergent-managed) alongside JWT for faster parent signups.
-- **AI generation wiring**: call Claude/GPT using `prompts.story.generate.master` template on status → `ready_for_ai`.
-- **Image + video generation** via Nano Banana / Sora when order → `generating`.
-- **PDF export** of finished story + shareable link.
+- **iteration_2.json: 33/33 passed** (uploads w/ 401/403/admin-override, orders full lifecycle, drafts lifecycle, admin overrides, RBAC, no _id leaks).
 
 ## P1 Backlog
-- Email notifications on order status change (Resend).
-- Child profiles reuse (instead of re-entering child data per story).
-- Payment + plan subscription (Stripe).
-- Analytics dashboard for admin (completion rate, avg time per status).
+- Google OAuth (Emergent-managed) alongside JWT.
+- AI generation: Claude Sonnet to consume `ai_prompt_snapshot` on `ready_for_ai`.
+- Nano Banana for scene images + Sora2 for video at `generating`.
+- PDF export on `completed`.
+- Payment (Stripe) for plan subscription.
 
 ## P2 Backlog
-- Arabic + English i18n (infrastructure already in place via content blocks).
+- English i18n.
+- Child profiles reuse.
 - Audio narration.
-- Parent collaborative editing/approval before final publish.
-
-## Known Minor Issues (non-blocking, see iteration_1.json)
-- `POST /api/auth/register` returns 422 (Pydantic) for malformed email instead of 400 with Arabic message.
-- `GET /api/auth/me` without token returns 403 instead of 401 (FastAPI HTTPBearer default).
-- `POST /api/orders` inserts a new child doc each time (no de-dup).
-- Admin PATCH endpoints require full payload (not true PATCH semantics yet).
+- Showcase gallery ("قصصنا").
