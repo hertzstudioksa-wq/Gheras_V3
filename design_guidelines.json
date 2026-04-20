@@ -1,0 +1,159 @@
+{
+  "project_name": "غِراس (Gheras)",
+  "theme": "Light",
+  "archetype": "1 (Organic & Earthy)",
+  "global_rules": {
+    "direction": "rtl",
+    "mobile_first": true,
+    "ui_style": "card-based",
+    "corners": "rounded-2xl to rounded-3xl",
+    "animations": "smooth, subtle, plant-growing metaphor (upward gentle translation with opacity)",
+    "css_logical_properties_enforced": true
+  },
+  "colors": {
+    "background": {
+      "page": "#FDFBF7",
+      "card": "#F8F1E7",
+      "surface_alt": "#F2E8DA"
+    },
+    "brand": {
+      "primary": "#87A96B",
+      "primary_hover": "#729352",
+      "primary_light": "#E8F0E1"
+    },
+    "accents": {
+      "gold": "#D4A373",
+      "coral_red": "#E07A5F",
+      "warm_brown": "#8B5A2B"
+    },
+    "text": {
+      "primary": "#2D3748",
+      "secondary": "#5A677D",
+      "muted": "#8A9AB0",
+      "inverse": "#FFFFFF",
+      "on_primary": "#FFFFFF"
+    },
+    "border": {
+      "default": "#E2D8C9",
+      "focus": "#87A96B"
+    },
+    "status": {
+      "success": "#87A96B",
+      "pending": "#D4A373",
+      "error": "#E07A5F"
+    }
+  },
+  "typography": {
+    "primary_font": "El Messiri",
+    "secondary_font": "Tajawal",
+    "font_setup": "Add to index.css: @import url('https://fonts.googleapis.com/css2?family=El+Messiri:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap');",
+    "scales": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl font-bold font-['El_Messiri'] text-primary tracking-tight",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl font-semibold font-['El_Messiri'] text-primary",
+      "h3": "text-xl sm:text-2xl font-semibold font-['El_Messiri'] text-primary",
+      "h4": "text-lg sm:text-xl font-medium font-['El_Messiri'] text-primary",
+      "body_large": "text-lg font-['Tajawal'] text-secondary leading-relaxed",
+      "body": "text-base font-['Tajawal'] text-secondary leading-relaxed",
+      "small": "text-sm font-['Tajawal'] text-muted"
+    }
+  },
+  "spacing": {
+    "container_padding": "px-4 sm:px-6 lg:px-8",
+    "section_gap": "gap-12 md:gap-24",
+    "card_padding": "p-6 md:p-8",
+    "element_gap": "gap-4 md:gap-6"
+  },
+  "rtl_specifics": {
+    "alignment": "Use text-start and text-end instead of text-left/text-right",
+    "margins_padding": "Use ps-, pe-, ms-, me- instead of pl-, pr-, ml-, mr-",
+    "borders": "Use border-s, border-e instead of border-l, border-r",
+    "icons": "Mirror directional icons (e.g. arrows, chevrons) using 'transform scale-x-[-1]'",
+    "flex_direction": "Flexbox automatically handles RTL when dir='rtl' is set on the html tag. Do not reverse flex-row manually."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#87A96B] hover:bg-[#729352] text-white rounded-full px-8 py-3 font-['Tajawal'] font-bold transition-all duration-300 shadow-sm hover:shadow-md active:scale-95 text-base md:text-lg",
+      "secondary": "bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] rounded-full px-8 py-3 font-['Tajawal'] font-bold transition-all duration-300 border border-[#E2D8C9]",
+      "outline": "border-2 border-[#87A96B] text-[#87A96B] rounded-full px-8 py-3 font-['Tajawal'] font-bold hover:bg-[#E8F0E1] transition-all duration-300"
+    },
+    "cards": {
+      "default": "bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-[#E2D8C9] hover:shadow-md transition-shadow duration-300",
+      "interactive": "bg-white rounded-3xl p-6 border-2 border-transparent hover:border-[#87A96B] cursor-pointer transition-all duration-300 shadow-sm hover:shadow-md flex flex-col items-center text-center",
+      "selected": "bg-[#E8F0E1] rounded-3xl p-6 border-2 border-[#87A96B] shadow-md flex flex-col items-center text-center"
+    },
+    "inputs": {
+      "default": "w-full bg-white border border-[#E2D8C9] rounded-2xl px-5 py-3 text-[#2D3748] font-['Tajawal'] focus:outline-none focus:ring-2 focus:ring-[#87A96B] focus:border-transparent transition-all",
+      "label": "block text-sm font-bold text-[#4A5568] mb-2 font-['Tajawal'] text-start"
+    },
+    "wizard_steps": {
+      "container": "flex items-center justify-between w-full max-w-2xl mx-auto mb-12 relative",
+      "line": "absolute top-1/2 left-0 w-full h-1 bg-[#E2D8C9] -z-10 -translate-y-1/2",
+      "line_progress": "absolute top-1/2 right-0 h-1 bg-[#87A96B] -z-10 -translate-y-1/2 transition-all duration-500",
+      "step_circle_active": "w-10 h-10 rounded-full bg-[#87A96B] text-white flex items-center justify-center font-bold shadow-md ring-4 ring-white",
+      "step_circle_pending": "w-10 h-10 rounded-full bg-[#F8F1E7] text-[#8A9AB0] flex items-center justify-center font-bold ring-4 ring-white border border-[#E2D8C9]"
+    }
+  },
+  "layouts": {
+    "landing": {
+      "hero": "Two-column grid on desktop (text pe-8, image ps-8), single column on mobile. Generous padding (py-20 md:py-32).",
+      "how_it_works": "Vertical timeline or 3-step horizontal cards with connecting dotted lines.",
+      "categories": "CSS Grid (grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 or 4) with generous gap-6."
+    },
+    "story_builder": {
+      "container": "Max-w-4xl mx-auto py-12 px-4 md:px-8",
+      "grid_selection": "grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6",
+      "action_bar": "flex justify-between items-center mt-12 pt-6 border-t border-[#E2D8C9]"
+    },
+    "dashboard": {
+      "layout": "Sidebar navigation (pe-6 border-e border-[#E2D8C9]) + Main Content area.",
+      "grid": "Grid of story cards (thumbnail, title, status pill, date)."
+    },
+    "admin": {
+      "layout": "Fixed sidebar on the right side (RTL), main content takes remaining width.",
+      "tables": "Clean Shadcn-style tables customized with softer borders, text-start alignment, and rounded-xl wrappers."
+    }
+  },
+  "motion": {
+    "page_load": "Framer Motion: initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: 'easeOut' }}",
+    "stagger_children": "transition={{ staggerChildren: 0.1 }}",
+    "hover_lift": "hover:-translate-y-1 transition-transform duration-300"
+  },
+  "media": {
+    "logo_url": "https://customer-assets.emergentagent.com/job_63d63889-ac7b-41d8-b7a7-55c098ae2162/artifacts/47jyw57s_Gheras_3-Final.png",
+    "image_urls": {
+      "hero_background": {
+        "url": "https://images.unsplash.com/photo-1758598737999-e5b659b3d65c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHw0fHxwYXJlbnQlMjByZWFkaW5nJTIwY2hpbGR8ZW58MHx8fHwxNzc2NzE0NTU5fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Mother and daughter reading a book together on sofa - warm, nurturing vibe for hero section",
+        "category": "hero"
+      },
+      "story_courage": {
+        "url": "https://images.pexels.com/photos/9127164/pexels-photo-9127164.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Father and son bonding - use for story examples or categories",
+        "category": "category"
+      },
+      "story_values": {
+        "url": "https://images.pexels.com/photos/6963011/pexels-photo-6963011.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Child proudly displaying artwork - use for personalization step or about us",
+        "category": "category"
+      },
+      "story_empathy": {
+        "url": "https://images.unsplash.com/photo-1758598737528-77505cac475f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwyfHxwYXJlbnQlMjByZWFkaW5nJTIwY2hpbGR8ZW58MHx8fHwxNzc2NzE0NTU5fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Parent and child reading - alternative hero or how it works section",
+        "category": "how_it_works"
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "Ensure <html dir='rtl' lang='ar'> is set globally in the main layout.",
+    "Do not use generic Inter font. Apply El Messiri for headings and Tajawal for body globally.",
+    "Strictly avoid default dropdowns (<select>) in the Story Builder wizard. Use the specified card-based 'interactive' grids for selections.",
+    "Do NOT use any purple, violet, or dark neon themes. Stick entirely to the provided Organic Earthy palette (Cream, Sage Green, Gold, Warm Brown).",
+    "All containers must have generous padding to maintain the premium kids brand feel.",
+    "Buttons and cards must be heavily rounded (rounded-full, rounded-2xl, rounded-3xl).",
+    "When applying Framer Motion, use upward scaling motions (the 'Gheras/Planting' metaphor) instead of simple fades.",
+    "Test IDs are mandatory on all interactive elements (e.g., data-testid='start-story-btn'). Use role-based kebab-case.",
+    "Use Shadcn components for complex interactions but heavily customize their border radius, colors, and shadows to match this soft theme.",
+    "Never use raw text-left or text-right; always use logical properties text-start and text-end.",
+    "Ensure all icons that imply direction (back, forward, arrows) are mirrored for RTL."
+  ]
+}
