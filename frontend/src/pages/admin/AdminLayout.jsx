@@ -1,0 +1,118 @@
+import React from "react";
+import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+import {
+  LayoutDashboard, Users, BookOpen, Sprout, FileText, Wand2,
+  CreditCard, Settings, LogOut, Palette,
+} from "lucide-react";
+
+const LOGO_URL =
+  "https://customer-assets.emergentagent.com/job_63d63889-ac7b-41d8-b7a7-55c098ae2162/artifacts/47jyw57s_Gheras_3-Final.png";
+
+const items = [
+  { to: "/admin", label: "نظرة عامة", icon: LayoutDashboard, end: true, tid: "admin-nav-overview" },
+  { to: "/admin/orders", label: "الطلبات", icon: BookOpen, tid: "admin-nav-orders" },
+  { to: "/admin/users", label: "المستخدمين", icon: Users, tid: "admin-nav-users" },
+  { to: "/admin/categories", label: "التصنيفات", icon: Sprout, tid: "admin-nav-cats" },
+  { to: "/admin/styles", label: "أساليب القصة", icon: Palette, tid: "admin-nav-styles" },
+  { to: "/admin/content", label: "محتوى الصفحة", icon: FileText, tid: "admin-nav-content" },
+  { to: "/admin/prompts", label: "برومبتات AI", icon: Wand2, tid: "admin-nav-prompts" },
+  { to: "/admin/plans", label: "الأسعار والباقات", icon: CreditCard, tid: "admin-nav-plans" },
+  { to: "/admin/settings", label: "الإعدادات", icon: Settings, tid: "admin-nav-settings" },
+];
+
+export default function AdminLayout() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const doLogout = () => {
+    logout();
+    navigate("/");
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FDFBF7] flex" data-testid="admin-layout">
+      <aside className="w-72 bg-white border-l border-[#E2D8C9] h-screen sticky top-0 overflow-y-auto hidden md:block">
+        <div className="p-6 border-b border-[#E2D8C9]">
+          <Link to="/" className="flex items-center gap-3">
+            <img src={LOGO_URL} alt="غِراس" className="h-12 w-12 object-contain" />
+            <div>
+              <div className="font-heading text-xl font-bold text-[#729352]">غِراس</div>
+              <div className="font-body text-xs text-[#8A9AB0]">لوحة الإدارة</div>
+            </div>
+          </Link>
+        </div>
+        <nav className="p-4 space-y-1">
+          {items.map((it) => (
+            <NavLink
+              key={it.to}
+              to={it.to}
+              end={it.end}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-4 py-3 rounded-2xl font-body transition ${
+                  isActive
+                    ? "bg-[#E8F0E1] text-[#4F6B3B] font-bold"
+                    : "text-[#5A677D] hover:bg-[#F8F1E7]"
+                }`
+              }
+              data-testid={it.tid}
+            >
+              <it.icon className="w-5 h-5" />
+              <span>{it.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+        <div className="p-4 border-t border-[#E2D8C9] mt-4">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-[#E8F0E1] grid place-content-center text-[#729352] font-bold font-heading">
+              {user?.full_name?.[0] || "A"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-body text-sm font-bold text-[#2D3748] truncate">{user?.full_name}</div>
+              <div className="font-body text-xs text-[#8A9AB0] truncate">{user?.email}</div>
+            </div>
+          </div>
+          <button
+            onClick={doLogout}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] px-4 py-2 text-sm font-bold"
+            data-testid="admin-logout-btn"
+          >
+            <LogOut className="w-4 h-4" /> خروج
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 min-w-0">
+        {/* Mobile top bar */}
+        <div className="md:hidden bg-white border-b border-[#E2D8C9] px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+          <Link to="/" className="flex items-center gap-2">
+            <img src={LOGO_URL} alt="غِراس" className="h-10 w-10" />
+            <span className="font-heading font-bold text-[#729352]">غِراس • الإدارة</span>
+          </Link>
+          <button onClick={doLogout} className="text-[#8B5A2B]"><LogOut className="w-5 h-5" /></button>
+        </div>
+        {/* Mobile nav pills */}
+        <div className="md:hidden overflow-x-auto whitespace-nowrap px-4 py-3 border-b border-[#E2D8C9] bg-white">
+          {items.map((it) => (
+            <NavLink
+              key={it.to}
+              to={it.to}
+              end={it.end}
+              className={({ isActive }) =>
+                `inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-body ml-2 ${
+                  isActive ? "bg-[#87A96B] text-white" : "bg-[#F8F1E7] text-[#5A677D]"
+                }`
+              }
+            >
+              <it.icon className="w-3 h-3" /> {it.label}
+            </NavLink>
+          ))}
+        </div>
+
+        <div className="p-6 md:p-10">
+          <Outlet />
+        </div>
+      </main>
+    </div>
+  );
+}

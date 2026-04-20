@@ -1,0 +1,48 @@
+{
+  "summary": "Comprehensive backend testing for Gheras AI Storytelling platform. 33/33 pytest tests passed against external URL covering health, public endpoints (categories, styles, content, plans, settings), auth (register, login, /me, change-password), orders (create with ai_prompt_snapshot Arabic substitution, list, owner detail, 404 for other users), admin guard (403 for user, 200 for admin), admin stats, admin orders + full status workflow (pending->in_review->ready_for_ai->generating->completed), and full CRUD for categories/subcategories/styles/content/prompts/plans/settings + admin user toggle is_active+role. Verified Mongo _id is never exposed in any response and child_snapshot persists full child info including Arabic personality.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/register", "issue": "Uses pydantic EmailStr which rejects reserved TLDs like .test (RFC 2606). Real-world emails are unaffected; only test fixtures had to switch to a non-reserved TLD."},
+      {"endpoint": "POST /api/auth/register", "issue": "Returns 422 (Pydantic validation error) for malformed email instead of a custom 400 with Arabic message — inconsistent with login error format."},
+      {"endpoint": "GET /api/auth/me without token", "issue": "Returns 403 (FastAPI HTTPBearer default) rather than 401. Acceptable but 401 would be more semantically correct."},
+      {"endpoint": "POST /api/orders", "issue": "Side-effect always inserts a new child document into db.children even for repeated orders — could create duplicate children records over time."},
+      {"endpoint": "PATCH /api/admin/categories/{id}", "issue": "Uses CategoryIn (full model) for partial update, requiring all fields each call; not destructive but limits true PATCH semantics."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Convert register Pydantic 422 errors into uniform 400 with Arabic message for consistency.",
+    "(Optional) De-duplicate child insert in POST /api/orders or only create if not already present for the user.",
+    "(Optional) Use OAuth2PasswordBearer or auto_error tweak so missing token returns 401 not 403.",
+    "(Optional) Switch admin update endpoints (categories, subcategories, styles, plans, prompts) to true partial-update Pydantic models with exclude_unset for proper PATCH semantics."
+  ],
+  "critical_code_review_comments": [
+    "Mongo _id correctly excluded across all queries (projection {\"_id\": 0}) — verified in tests.",
+    "Seeded admin has must_change_password=True which is good security practice; login still works.",
+    "ai_prompt_snapshot is correctly pre-computed from active prompt template with Arabic child name substitution.",
+    "Route module 'auth_routes' helper _public manually maps fields — could simply rely on UserPublic(**user) since model has extra='ignore'.",
+    "Admin status update PATCH overwrites admin_note even when not provided in payload (because OrderStatusUpdate.admin_note default None) — fine but documented.",
+    "JWT_SECRET present in .env and used; expiry 7 days configurable. Good.",
+    "CORS allow_origins='*' with allow_credentials=True is technically invalid per CORS spec; browsers will reject credentialed requests. Recommend lock down origins for prod."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Admin: admin@gheras.com / Admin@1234 (seeded). Test users created with TEST_user_<random>@gherastest.com pattern.",
+  "seed_data_creation": "Tests create temporary categories/subcategories/styles/content/prompts/plans/settings with TEST_ prefix or random keys and delete them after each test. Some additional regular users are registered (with TEST_ prefix in email) and a couple of orders persist for the test user.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Use BASE_URL from REACT_APP_BACKEND_URL. Pydantic EmailStr blocks .test/.example TLDs — use gherastest.com or similar. Backend lowercases stored emails. Auth uses Bearer header. Admin login: admin@gheras.com / Admin@1234. The 33-test pytest suite at /app/backend/tests/backend_test.py is idempotent and can be re-run any time; cleanup happens in-test. /api prefix is required for all routes.",
+  "rca of the issue": "No outstanding bugs. Initial test failures were due to (1) RFC-2606 reserved TLD .test rejected by EmailStr — test data fix only; (2) email normalisation to lowercase by backend — test assertion fix only. Backend behaviour is correct in both cases."
+}
