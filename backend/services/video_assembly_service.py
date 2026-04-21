@@ -9,14 +9,21 @@ Phase 6B design:
       - silent audio track (real TTS/music comes in Phase 6C)
   * Thumbnail = cover image directly.
   * audio_background.mode is stored in metadata for later mixing.
+
+Hardening:
+  * Missing scene/cover images fall back to a generated placeholder PNG
+    so the pipeline NEVER fails because one image is absent.
 """
 import asyncio
+import io
 import logging
 import os
 import subprocess
 import tempfile
 import uuid
 from typing import Sequence
+
+from PIL import Image, ImageDraw
 
 from db import db
 from storage import put_object, get_object, APP_NAME
@@ -61,6 +68,30 @@ def _run_ffmpeg(args: Sequence[str], timeout: int = 180) -> subprocess.Completed
     return subprocess.run(["ffmpeg", "-y", *args], capture_output=True, text=True, timeout=timeout)
 
 
+def _make_placeholder_png(label: str = "") -> bytes:
+    """Warm-toned 1280x720 placeholder PNG used when a scene image is unavailable.
+
+    The goal is graceful degradation: the video ALWAYS assembles even if a
+    scene image failed to generate for whatever reason.
+    """
+    img = Image.new("RGB", (1280, 720), color=(248, 241, 231))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([(0, 0), (1280, 12)], fill=(135, 169, 107))
+    draw.rectangle([(0, 708), (1280, 720)], fill=(212, 163, 115))
+    if label:
+        try:
+            from PIL import ImageFont
+            font = ImageFont.load_default()
+            bbox = draw.textbbox((0, 0), label, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            draw.text(((1280 - tw) / 2, (720 - th) / 2), label, fill=(90, 103, 125), font=font)
+        except Exception:
+            pass
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 async def assemble_video(
     order_id: str,
     plan: dict,
@@ -90,32 +121,39 @@ async def assemble_video(
 
     # Build input frames in order: cover + scenes
     work_dir = tempfile.mkdtemp(prefix=f"gheras-video-{order_id[:8]}-")
+    placeholder_count = 0
     try:
         concat_items: list[tuple[str, float]] = []  # (path, duration_seconds)
 
-        # Cover
+        # Cover — use generated image, or a placeholder if missing
+        cover_bytes: bytes | None = None
         if cover_image_url:
             fid = _file_id_from_url(cover_image_url)
-            b = await _fetch_file_bytes(fid) if fid else None
-            if b:
-                cpath = os.path.join(work_dir, "cover.png")
-                with open(cpath, "wb") as f:
-                    f.write(b)
-                concat_items.append((cpath, COVER_DURATION_SEC))
+            cover_bytes = await _fetch_file_bytes(fid) if fid else None
+        if not cover_bytes:
+            cover_bytes = _make_placeholder_png("Cover")
+            placeholder_count += 1
+        cpath = os.path.join(work_dir, "cover.png")
+        with open(cpath, "wb") as f:
+            f.write(cover_bytes)
+        concat_items.append((cpath, COVER_DURATION_SEC))
 
-        # Scenes
+        # Scenes — substitute a placeholder when bytes are missing so the
+        # final video always reflects every planned scene.
         for s in scenes:
             idx = int(s.get("scene_index") or 0)
             fid = _file_id_from_url(s.get("image_url"))
             b = await _fetch_file_bytes(fid) if fid else None
             if not b:
-                continue
+                b = _make_placeholder_png(f"Scene {idx}")
+                placeholder_count += 1
             spath = os.path.join(work_dir, f"scene_{idx:02d}.png")
             with open(spath, "wb") as f:
                 f.write(b)
             dur = dur_by_idx.get(idx, 6.0)
             concat_items.append((spath, dur))
 
+        # Guarantee we have at least the cover — even without any scenes we can ship a short clip.
         if not concat_items:
             raise ValueError("no image frames available for video assembly")
 
@@ -196,6 +234,7 @@ async def assemble_video(
             "audio_track": "silent-placeholder",
             "total_duration_seconds": round(total_duration, 2),
             "clip_count": len(clip_paths),
+            "placeholder_frames": placeholder_count,
             "encoder": "ffmpeg",
             "resolution": "1280x720",
             "real_narration_used": False,

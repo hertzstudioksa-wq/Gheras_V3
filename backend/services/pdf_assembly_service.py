@@ -28,8 +28,14 @@ from storage import put_object, get_object, APP_NAME
 logger = logging.getLogger("pdf_assembly_service")
 
 
-ARABIC_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+# Amiri — a proper Arabic typeface shipped with the app. Falls back to DejaVu only
+# if Amiri cannot be found (should never happen in production).
+_BUNDLED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts")
+AMIRI_REGULAR = os.path.join(_BUNDLED_DIR, "Amiri-Regular.ttf")
+AMIRI_BOLD = os.path.join(_BUNDLED_DIR, "Amiri-Bold.ttf")
+
 ARABIC_FONT_NAME = "GherasAr"
+ARABIC_FONT_BOLD = "GherasAr-Bold"
 _FONT_REGISTERED = False
 
 
@@ -37,15 +43,25 @@ def _ensure_font():
     global _FONT_REGISTERED
     if _FONT_REGISTERED:
         return
-    candidates = [
+    regular_candidates = [
+        AMIRI_REGULAR,
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     ]
-    path = next((p for p in candidates if os.path.exists(p)), None)
-    if not path:
+    bold_candidates = [
+        AMIRI_BOLD,
+        AMIRI_REGULAR,
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    reg = next((p for p in regular_candidates if os.path.exists(p)), None)
+    bold = next((p for p in bold_candidates if os.path.exists(p)), None)
+    if not reg:
         raise RuntimeError("No usable TTF font found on system for Arabic PDF")
-    pdfmetrics.registerFont(TTFont(ARABIC_FONT_NAME, path))
+    pdfmetrics.registerFont(TTFont(ARABIC_FONT_NAME, reg))
+    if bold and bold != reg:
+        pdfmetrics.registerFont(TTFont(ARABIC_FONT_BOLD, bold))
+    else:
+        pdfmetrics.registerFont(TTFont(ARABIC_FONT_BOLD, reg))
     _FONT_REGISTERED = True
 
 
@@ -165,14 +181,14 @@ async def assemble_pdf(
         _draw_image_fit(c, cover_bytes, margin, margin + 25 * mm, page_w - 2 * margin, page_h - 2 * margin - 25 * mm)
     # Title at bottom
     title = plan.get("title") or ""
-    c.setFont(ARABIC_FONT_NAME, 20)
+    c.setFont(ARABIC_FONT_BOLD, 22)
     shaped = _shape_ar(title)
-    tw = c.stringWidth(shaped, ARABIC_FONT_NAME, 20)
+    tw = c.stringWidth(shaped, ARABIC_FONT_BOLD, 22)
     c.drawString((page_w - tw) / 2, margin + 12 * mm, shaped)
     # Small brand tag
-    c.setFont(ARABIC_FONT_NAME, 8)
+    c.setFont(ARABIC_FONT_NAME, 9)
     brand = _shape_ar("من إعداد غِراس")
-    bw = c.stringWidth(brand, ARABIC_FONT_NAME, 8)
+    bw = c.stringWidth(brand, ARABIC_FONT_NAME, 9)
     c.drawString((page_w - bw) / 2, margin + 4 * mm, brand)
     c.showPage()
 
@@ -204,12 +220,12 @@ async def assemble_pdf(
         pages_drawn += 1
 
     # ---- Back page ----
-    c.setFont(ARABIC_FONT_NAME, 18)
-    the_end = _shape_ar("النهاية 🌱")
-    tw = c.stringWidth(the_end, ARABIC_FONT_NAME, 18)
+    c.setFont(ARABIC_FONT_BOLD, 20)
+    the_end = _shape_ar("النهاية")
+    tw = c.stringWidth(the_end, ARABIC_FONT_BOLD, 20)
     c.drawString((page_w - tw) / 2, page_h / 2 + 15 * mm, the_end)
     message = plan.get("main_message") or ""
-    _draw_wrapped_ar(c, message, x=margin, y=page_h / 2, width=page_w - 2 * margin, font_size=12, leading=18)
+    _draw_wrapped_ar(c, message, x=margin, y=page_h / 2, width=page_w - 2 * margin, font_size=13, leading=20)
     c.showPage()
     pages_drawn += 2  # cover + back
 

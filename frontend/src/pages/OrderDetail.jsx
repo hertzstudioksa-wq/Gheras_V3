@@ -133,7 +133,17 @@ export default function OrderDetail() {
         </div>
 
         {order.selected_scenario_snapshot && (
-          <SelectedScenarioCard snapshot={order.selected_scenario_snapshot} />
+          <div className="bg-white rounded-[2rem] p-6 md:p-8 border border-[#E2D8C9] mt-6" data-testid="selected-scenario">
+            <div className="flex items-center gap-2 text-[#4F6B3B] font-body text-sm font-bold mb-2">
+              <CheckCircle2 className="w-4 h-4" /> السيناريو المختار
+            </div>
+            <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-2">
+              {order.selected_scenario_snapshot.title}
+            </h3>
+            <p className="font-body text-[#5A677D] leading-relaxed">
+              {order.selected_scenario_snapshot.short_summary}
+            </p>
+          </div>
         )}
       </div>
       <Footer />

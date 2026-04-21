@@ -5,7 +5,7 @@ import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import {
   Sprout, Heart, BookOpen, Rocket, CheckCircle2, RefreshCcw,
-  Sparkles, Loader2, AlertTriangle, ArrowRight, Award, Eye,
+  Sparkles, Loader2, AlertTriangle, ArrowRight, Award,
   Lightbulb, ShieldAlert, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -256,14 +256,6 @@ export default function ScenarioSelection() {
 
             <div className="flex items-center justify-between flex-wrap gap-3 bg-white rounded-2xl p-4 border border-[#E2D8C9]">
               <div className="text-sm text-[#5A677D] font-body inline-flex items-center gap-3 flex-wrap">
-                <span className="inline-flex items-center gap-2">
-                  <Eye className="w-4 h-4" />
-                  مصدر التوليد:{" "}
-                  <span className="font-bold text-[#2D3748]">
-                    {state.generation?.source === "ai" ? "ذكاء اصطناعي (Claude Sonnet 4.5)" :
-                    state.generation?.source === "fallback" ? "نظام احتياطي" : "—"}
-                  </span>
-                </span>
                 <span className="inline-flex items-center gap-1 bg-[#FDFBF7] rounded-full px-3 py-1 text-xs border border-[#E2D8C9]" data-testid="regen-counter">
                   محاولات التوليد: <b className="text-[#4F6B3B]">{state.regeneration_count ?? 0} / {state.max_regenerations ?? 3}</b>
                 </span>

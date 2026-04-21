@@ -8,6 +8,7 @@ from auth import get_current_user, require_admin
 from models import ORDER_STATUS_AR, OrderStatus
 from services.generation_orchestrator import run_asset_generation, retry_single_job
 from services.final_delivery_service import run_final_assembly, retry_single_assembly_job
+from services.progress_service import compute_pipeline_progress
 
 user_router = APIRouter(prefix="/orders", tags=["media-user"])
 admin_router = APIRouter(prefix="/admin", tags=["media-admin"], dependencies=[Depends(require_admin)])
@@ -44,14 +45,17 @@ async def user_media_status(order_id: str, current=Depends(get_current_user)):
     if not order:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     summary = order.get("asset_generation_summary") or {"total": 0, "completed": 0, "failed": 0, "queued": 0, "processing": 0}
-    total = summary.get("total") or 0
-    completed = summary.get("completed") or 0
-    pct = int((completed / total) * 100) if total else 0
+    progress = await compute_pipeline_progress(order)
     return {
         "status": order.get("status"),
         "status_ar": ORDER_STATUS_AR.get(order.get("status"), order.get("status")),
-        "progress_percent": pct,
-        "summary": summary,
+        "progress_percent": progress["percent"],
+        "progress": progress,
+        "summary": {
+            "total": summary.get("total") or 0,
+            "completed": summary.get("completed") or 0,
+            "failed": summary.get("failed") or 0,
+        },
     }
 
 
@@ -187,4 +191,32 @@ async def admin_regenerate_delivery(order_id: str, background: BackgroundTasks, 
         raise HTTPException(status_code=400, detail="يجب أن تكون الوسائط جاهزة قبل التجميع")
     run_id = str(uuid.uuid4())
     background.add_task(run_final_assembly, order_id, run_id)
+    return {"ok": True, "run_id": run_id}
+
+
+@user_router.post("/{order_id}/retry-delivery")
+async def user_retry_delivery(order_id: str, background: BackgroundTasks, current=Depends(get_current_user)):
+    """User-initiated retry after a media_failed state.
+
+    Resumes from whichever phase stopped:
+    * If assets never finished  → re-run the asset pipeline (which auto-kicks assembly).
+    * If assembly failed         → re-run final assembly only.
+    """
+    order = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if not order.get("production_approved"):
+        raise HTTPException(status_code=400, detail="لم يتم اعتماد خطة الإنتاج بعد")
+    # Count completed asset jobs.
+    completed_assets = await db.generation_jobs.count_documents({
+        "order_id": order_id,
+        "job_type": {"$in": ["cover_image", "scene_image", "narration_audio", "book_page_asset"]},
+        "status": "completed",
+    })
+    # Heuristic: if cover + at least scene images finished, try assembly; else retry full pipeline.
+    if completed_assets >= 2:
+        run_id = str(uuid.uuid4())
+        background.add_task(run_final_assembly, order_id, run_id)
+    else:
+        run_id = await trigger_asset_generation(order_id, background)
     return {"ok": True, "run_id": run_id}

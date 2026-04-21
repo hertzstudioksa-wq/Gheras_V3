@@ -175,6 +175,60 @@ def _summary(o: dict) -> dict:
     }
 
 
+# Keys that MUST NEVER be sent to the user (internal prompts, AI snapshots, DB bookkeeping).
+_INTERNAL_ORDER_KEYS = {
+    "ai_prompt_snapshot",
+    "prompt_edited",
+    "scenarios_generation",
+    "production_generation",
+    "asset_generation_run_id",
+    "asset_generation_started_at",
+    "asset_generation_completed_at",
+    "final_assembly_run_id",
+    "final_assembly_started_at",
+    "final_assembly_completed_at",
+    "status_history",
+    "admin_note",
+    "production_plan_id",
+    "current_scenario_batch_id",
+    "selected_scenario_batch_id",
+}
+
+# Fields inside a scenario snapshot that are safe to surface to the user.
+_SAFE_SCENARIO_FIELDS = {
+    "id", "scenario_index", "title", "short_summary",
+    "emotional_angle", "learning_goal", "visual_style_hint",
+    "estimated_scene_count", "why_this_fits",
+}
+
+
+def _sanitize_scenario_snapshot(snap: dict | None) -> dict | None:
+    if not snap:
+        return None
+    return {k: snap[k] for k in _SAFE_SCENARIO_FIELDS if k in snap}
+
+
+def _sanitize_user_order(o: dict) -> dict:
+    clean = {k: v for k, v in o.items() if k not in _INTERNAL_ORDER_KEYS}
+    clean["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
+    if clean.get("selected_scenario_snapshot"):
+        clean["selected_scenario_snapshot"] = _sanitize_scenario_snapshot(
+            clean["selected_scenario_snapshot"]
+        )
+    # Expose only the minimal public summary snapshot (no run ids, no generator source).
+    if clean.get("production_plan_snapshot"):
+        plan_snap = clean["production_plan_snapshot"] or {}
+        clean["production_plan_snapshot"] = {
+            "target_scene_count": plan_snap.get("target_scene_count"),
+            "generated_at": plan_snap.get("generated_at"),
+        }
+    return clean
+
+
+# Scenario fields to publish to the user (strict allow-list).
+_PUBLIC_SCENARIO_KEYS = _SAFE_SCENARIO_FIELDS | {"is_selected"}
+
+
 @router.get("")
 async def my_orders(current=Depends(get_current_user)):
     items = await db.orders.find({"user_id": current["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
@@ -186,8 +240,9 @@ async def order_detail(order_id: str, current=Depends(get_current_user)):
     o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    o["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
-    return o
+    # Strip internal / AI-prep fields from user-facing payload.
+    sanitized = _sanitize_user_order(o)
+    return sanitized
 
 
 # ---------- Scenarios (user-facing) ----------
@@ -206,14 +261,14 @@ async def list_scenarios(order_id: str, current=Depends(get_current_user)):
         {"order_id": order_id, "scenario_batch_id": current_batch},
         {"_id": 0},
     ).sort("scenario_index", 1).to_list(10)
+    # Strict allow-list → avoid leaking internal fields like scenario_batch_id/source.
+    items = [{k: v for k, v in s.items() if k in _PUBLIC_SCENARIO_KEYS} for s in items]
     max_regen = o.get("max_regenerations", MAX_REGENERATIONS)
     used = o.get("regeneration_count", 0)
     return {
         "status": o.get("status"),
         "status_ar": ORDER_STATUS_AR.get(o.get("status"), o.get("status")),
-        "generation": o.get("scenarios_generation"),
         "selected_scenario_id": o.get("selected_scenario_id"),
-        "current_scenario_batch_id": current_batch,
         "regeneration_count": used,
         "max_regenerations": max_regen,
         "regenerations_remaining": max(0, max_regen - used),

@@ -30,6 +30,7 @@ export default function ProductionReady() {
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const pollRef = useRef(null);
 
   const fetchData = async () => {
@@ -37,8 +38,9 @@ export default function ProductionReady() {
       const { data } = await api.get(`/orders/${id}/production-summary`);
       setState(data);
       setLoading(false);
-      const terminal = ["production_ready", "production_approved", "failed", "generating", "completed"];
-      if (terminal.includes(data.status) && pollRef.current) {
+      // Poll while the pipeline is still active; stop on terminal delivered/failed.
+      const stopStates = ["delivered", "failed", "completed"];
+      if (stopStates.includes(data.status) && pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
@@ -79,7 +81,14 @@ export default function ProductionReady() {
   const isMediaFailed = status === "media_failed";
   const isAssembling = status === "assembling";
   const isDelivered = status === "delivered";
-  const [mediaProgress, setMediaProgress] = useState(null);
+  const isPlanning = ["pending", "ready_for_ai", "production_planning", "scenarios_generating",
+                      "scenarios_ready", "scenario_selected"].includes(status);
+  const isFailed = status === "failed";
+  // Unified progress from backend (0..100 across the whole pipeline).
+  const progress = state?.progress;
+  const progressPercent = progress?.percent ?? 0;
+  const progressStage = progress?.stage;
+  const progressMessage = progress?.message_ar;
   const [delivery, setDelivery] = useState(null);
 
   useEffect(() => {
@@ -136,6 +145,21 @@ export default function ProductionReady() {
     }
   };
 
+  // User-initiated retry when media failed (calls admin-like re-assembly through regular flow).
+  const retryDelivery = async () => {
+    setRetrying(true);
+    try {
+      // Ask backend to retry the pipeline — will resume from current state.
+      await api.post(`/orders/${id}/retry-delivery`);
+      toast.success("سنُعيد المحاولة الآن...");
+      await fetchData();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "تعذّرت إعادة المحاولة");
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   if (loading && !state) {
     return (
       <div className="min-h-screen bg-[#FDFBF7]" data-testid="production-ready">
@@ -150,9 +174,6 @@ export default function ProductionReady() {
 
   const summary = state?.summary;
   const approved = !!state?.production_approved;
-  const isPlanning = ["pending", "ready_for_ai", "production_planning", "scenarios_generating",
-                      "scenarios_ready", "scenario_selected"].includes(status);
-  const isFailed = status === "failed";
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] pb-24 md:pb-0" data-testid="production-ready">
@@ -217,7 +238,26 @@ export default function ProductionReady() {
         </div>
 
         {/* PLANNING STATE */}
-        {isPlanning && !summary && <LoadingSkeleton />}
+        {isPlanning && !summary && (
+          <div>
+            <LoadingSkeleton message={progressMessage} />
+            {progress && (
+              <div className="mt-4 bg-white rounded-2xl p-4 border border-[#E2D8C9]" data-testid="planning-progress">
+                <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
+                  <span>{progress.stage_ar}</span>
+                  <span className="font-bold text-[#2D3748]">{progressPercent}%</span>
+                </div>
+                <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-700"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <StagePill stage={progressStage} />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* FAILED STATE */}
         {isFailed && !approved && (
@@ -322,7 +362,7 @@ export default function ProductionReady() {
           </div>
         )}
 
-        {/* MEDIA GENERATING / READY / FAILED */}
+        {/* MEDIA GENERATING / READY / FAILED / ASSEMBLING */}
         {(isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling) && !isDelivered && (
           <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#87A96B] mb-5" data-testid="media-progress-card">
             <div className="flex items-center gap-3 mb-4">
@@ -338,26 +378,44 @@ export default function ProductionReady() {
                    isMediaFailed ? "تعذّر إكمال الوسائط" :
                    "جاري إنتاج الوسائط"}
                 </h2>
-                <p className="font-body text-xs text-[#5A677D]">
-                  {isAssembling ? "ندمج الصور والسرد في فيديو وكتاب..." :
+                <p className="font-body text-xs text-[#5A677D]" data-testid="progress-stage-label">
+                  {progressMessage || (isAssembling ? "ندمج الصور والسرد في فيديو وكتاب..." :
                    isMediaReady ? "بانتظار خطوة التجميع النهائية" :
                    isMediaFailed ? "يُراجع فريقنا الطلب وسنُعيد المحاولة" :
-                   `اكتمل ${mediaProgress?.summary?.completed || 0} من ${mediaProgress?.summary?.total || 0}`}
+                   "جاري إنتاج الوسائط...")}
                 </p>
               </div>
             </div>
-            {mediaProgress && (isGeneratingMedia || isMediaReady) && (
+            {!isMediaFailed && (
               <div className="bg-[#FDFBF7] rounded-2xl p-4 border border-[#E2D8C9]" data-testid="progress-bar-wrap">
                 <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
-                  <span>التقدّم</span>
-                  <span className="font-bold text-[#2D3748]" data-testid="progress-percent">{mediaProgress.progress_percent}%</span>
+                  <span>{progress?.stage_ar || "التقدّم"}</span>
+                  <span className="font-bold text-[#2D3748]" data-testid="progress-percent">{progressPercent}%</span>
                 </div>
                 <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-700"
-                    style={{ width: `${mediaProgress.progress_percent}%` }}
+                    style={{ width: `${progressPercent}%` }}
                   />
                 </div>
+                <StagePill stage={progressStage} />
+              </div>
+            )}
+            {isMediaFailed && (
+              <div className="flex items-center gap-3 mt-3">
+                <button
+                  type="button"
+                  onClick={retryDelivery}
+                  disabled={retrying}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-5 py-2.5 text-sm font-bold disabled:opacity-50"
+                  data-testid="retry-delivery-btn"
+                >
+                  {retrying ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+                  إعادة المحاولة
+                </button>
+                <span className="text-xs text-[#8A9AB0] font-body">
+                  لا تحتاج إلى إعادة إنشاء أي شيء — سنواصل من حيث توقفنا.
+                </span>
               </div>
             )}
           </div>
@@ -596,7 +654,7 @@ function WhatsAppShareCard() {
   );
 }
 
-function LoadingSkeleton() {
+function LoadingSkeleton({ message }) {
   return (
     <div className="space-y-4" data-testid="loading-skeleton">
       <div className="bg-white rounded-3xl p-6 border border-[#E2D8C9]">
@@ -615,7 +673,7 @@ function LoadingSkeleton() {
       </div>
       <div className="text-center text-[#5A677D] font-body text-sm inline-flex items-center gap-2 bg-white rounded-full px-4 py-2 border border-[#E2D8C9] mx-auto">
         <Loader2 className="w-4 h-4 animate-spin text-[#87A96B]" />
-        جاري إعداد الخطة...
+        {message || "جاري إعداد الخطة..."}
       </div>
     </div>
   );

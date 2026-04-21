@@ -12,6 +12,7 @@ from db import db
 from auth import get_current_user, require_admin
 from models import OrderStatus, ORDER_STATUS_AR, SceneEdit, BookPageEdit, CharacterProfileEdit
 from services.production_service import generate_production_plan, build_docs
+from services.progress_service import compute_pipeline_progress
 
 MAX_USER_PRODUCTION_REGENERATIONS = 1
 
@@ -127,7 +128,6 @@ def _user_summary(plan: dict | None, order: dict) -> dict | None:
         "duration_label": plan.get("duration_label"),
         "duration_seconds": plan.get("duration_seconds"),
         "audio_background": plan.get("audio_background") or {"mode": "music"},
-        "source": plan.get("source"),
         "safety_check": plan.get("safety_check"),
         "generated_at": (order.get("production_plan_snapshot") or {}).get("generated_at"),
     }
@@ -144,15 +144,27 @@ async def get_production_summary(order_id: str, current=Depends(get_current_user
             {"id": order["production_plan_id"]}, {"_id": 0, "ai_plan_snapshot_json": 0}
         )
     used = int(order.get("production_regeneration_count", 0))
+    progress = await compute_pipeline_progress(order)
+    # Only surface the plan summary when the plan actually exists; this avoids
+    # the race where the status flips to production_ready before the documents
+    # are written.
+    plan_is_live = bool(plan) and not plan.get("is_archived", False)
+    status = order.get("status")
+    effective_status = status
+    if status == OrderStatus.PRODUCTION_READY.value and not plan_is_live:
+        # Plan not yet visible — show planning UI until next poll.
+        effective_status = OrderStatus.PRODUCTION_PLANNING.value
     return {
-        "status": order.get("status"),
-        "status_ar": ORDER_STATUS_AR.get(order.get("status"), order.get("status")),
-        "summary": _user_summary(plan, order),
+        "status": effective_status,
+        "raw_status": status,
+        "status_ar": ORDER_STATUS_AR.get(effective_status, effective_status),
+        "summary": _user_summary(plan, order) if plan_is_live else None,
         "production_approved": bool(order.get("production_approved", False)),
         "production_approved_at": order.get("production_approved_at"),
         "production_regeneration_count": used,
         "max_user_production_regenerations": MAX_USER_PRODUCTION_REGENERATIONS,
         "production_regenerations_remaining": max(0, MAX_USER_PRODUCTION_REGENERATIONS - used),
+        "progress": progress,
     }
 
 
