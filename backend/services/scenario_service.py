@@ -116,14 +116,21 @@ def _clamp_scene_count(requested: int, target: int) -> int:
     return max(lo, min(hi, r))
 
 
+from services.config_service import resolve_model
+
+
 async def _generate_via_claude(order: dict) -> list[dict]:
     """Try Claude Sonnet 4.5. Raises on any failure."""
     if not EMERGENT_LLM_KEY:
         raise RuntimeError("EMERGENT_LLM_KEY missing")
     session_id = f"scenarios-{order.get('id', uuid.uuid4())}"
+    provider, model_name, source = await resolve_model(
+        "scenario_generation", MODEL_PROVIDER, MODEL_NAME
+    )
+    logger.info(f"[config] stage=scenario_generation source={source} model={provider}/{model_name}")
     chat = (
         LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
-        .with_model(MODEL_PROVIDER, MODEL_NAME)
+        .with_model(provider, model_name)
     )
     response = await chat.send_message(UserMessage(text=_user_prompt(order)))
     text = (response or "").strip()

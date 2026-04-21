@@ -146,6 +146,26 @@ async def get_model_for_stage(stage_key: str) -> dict:
     return default
 
 
+async def resolve_model(stage_key: str, hardcoded_provider: str, hardcoded_model: str) -> tuple[str, str, str]:
+    """Phase B.1 helper: return (provider, model_name, source).
+
+    Prefers the admin-configured active model when present, otherwise falls
+    back to the service's hardcoded values. `source` is either "admin" or
+    "fallback" — handy for debug logs so we can see exactly where the config
+    came from on each call.
+    """
+    try:
+        doc = await db.model_registry.find_one(
+            {"stage_key": stage_key, "active": True},
+            {"_id": 0, "provider": 1, "model_name": 1},
+        )
+    except Exception:  # noqa: BLE001 — never fail the pipeline because of a DB hiccup.
+        doc = None
+    if doc and doc.get("provider") and doc.get("model_name"):
+        return doc["provider"], doc["model_name"], "admin"
+    return hardcoded_provider, hardcoded_model, "fallback"
+
+
 async def get_prompt_for_stage(stage_key: str) -> dict | None:
     """Return the active prompt template for a stage (or None if not configured)."""
     return await db.prompt_templates.find_one(

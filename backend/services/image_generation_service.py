@@ -43,13 +43,20 @@ def _build_image_prompt(scene_prompt: str, style_guide: dict, character_note: st
     return " ".join(parts)
 
 
+from services.config_service import resolve_model
+
+
 async def _generate_via_nano_banana(prompt: str, session_id: str) -> Tuple[bytes, str]:
     if not EMERGENT_LLM_KEY:
         raise RuntimeError("EMERGENT_LLM_KEY missing")
+    provider, model_name, source = await resolve_model(
+        "scene_image_generation", IMAGE_MODEL_PROVIDER, IMAGE_MODEL_NAME
+    )
+    logger.info(f"[config] stage=scene_image_generation source={source} model={provider}/{model_name}")
     chat = (
         LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id,
                 system_message="You are an expert children's book illustrator.")
-        .with_model(IMAGE_MODEL_PROVIDER, IMAGE_MODEL_NAME)
+        .with_model(provider, model_name)
         .with_params(modalities=["image", "text"])
     )
     text, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))

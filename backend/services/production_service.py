@@ -210,13 +210,20 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
 
 
+from services.config_service import resolve_model
+
+
 async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) -> dict:
     if not EMERGENT_LLM_KEY:
         raise RuntimeError("EMERGENT_LLM_KEY missing")
     session_id = f"production-{order.get('id', uuid.uuid4())}-{uuid.uuid4().hex[:6]}"
+    provider, model_name, source = await resolve_model(
+        "production_planning", MODEL_PROVIDER, MODEL_NAME
+    )
+    logger.info(f"[config] stage=production_planning source={source} model={provider}/{model_name}")
     chat = (
         LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
-        .with_model(MODEL_PROVIDER, MODEL_NAME)
+        .with_model(provider, model_name)
     )
     prompt = _build_user_prompt(order, scenario, target_scenes)
     response = await chat.send_message(UserMessage(text=prompt))
