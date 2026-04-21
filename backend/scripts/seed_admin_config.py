@@ -32,28 +32,32 @@ The result must feel like a professional animated children's story character des
 
 DEFAULT_PROMPTS = {
     "scenario_generation": {
-        "name": "توليد 3 سيناريوهات عربية للطفل",
-        "description": "القالب الأساسي لتوليد 3 أفكار قصص من Claude Sonnet 4.5",
-        "template_text": "(يُقرأ من services/scenario_service.py — قالب مُدمج في الكود حالياً. يمكنك نسخه هنا وتعديله لاحقاً في Phase B)",
-        "variables": ["child_name", "age", "category", "subcategory", "tone", "setting"],
+        "name": "توليد 3 سيناريوهات عربية للطفل — قالب فارغ",
+        "description": "قالب فارغ افتراضي (غير مُفعّل). الخدمة تستخدم القالب الـhardcoded. أنشئ v2 من الأدمن لتخصيص القالب.",
+        "template_text": "",
+        "variables": [],
+        "active_by_default": False,
     },
     "production_planning": {
-        "name": "خطة إنتاج كاملة (mega-JSON)",
-        "description": "القالب الأساسي لتوليد production_plan + scenes + book_pages + characters",
-        "template_text": "(يُقرأ من services/production_service.py — قالب مُدمج في الكود حالياً. يمكنك نسخه هنا وتعديله لاحقاً في Phase B)",
-        "variables": ["child", "scenario", "arc_template", "target_scene_count"],
+        "name": "خطة إنتاج كاملة (mega-JSON) — قالب فارغ",
+        "description": "قالب فارغ افتراضي (غير مُفعّل). الخدمة تستخدم القالب الـhardcoded. أنشئ v2 من الأدمن لتخصيص القالب.",
+        "template_text": "",
+        "variables": [],
+        "active_by_default": False,
     },
     "child_character_i2i": {
         "name": "تحويل صورة الطفل لشخصية كرتونية كاملة الجسم",
         "description": "القالب الافتراضي لخطوة I2I — تحويل صورة حقيقية إلى character sheet قابل لإعادة الاستخدام",
         "template_text": CHILD_CHARACTER_I2I_PROMPT,
         "variables": [],
+        "active_by_default": True,
     },
     "scene_image_generation": {
-        "name": "توليد صور المشاهد بـNano Banana",
-        "description": "قالب كل مشهد يُولد حالياً من production_service (image_prompt.prompt_text)",
-        "template_text": "(يُولّد ديناميكياً لكل مشهد من production_service. يمكنك تجاوز ذلك عبر template هنا لاحقاً في Phase B)",
-        "variables": ["scene_index", "beat", "visual_description", "style_guide"],
+        "name": "توليد صور المشاهد بـNano Banana — قالب فارغ",
+        "description": "قالب فارغ افتراضي (غير مُفعّل). الخدمة تُولّد البرومبت ديناميكياً لكل مشهد.",
+        "template_text": "",
+        "variables": [],
+        "active_by_default": False,
     },
 }
 
@@ -103,12 +107,12 @@ async def seed_prompt_templates():
             "template_text": meta["template_text"],
             "variables": meta["variables"],
             "version": 1,
-            "active": True,
+            "active": meta.get("active_by_default", False),
             "created_at": _now(),
             "updated_at": _now(),
         }
         await db.prompt_templates.insert_one(doc)
-        print(f"  [added] prompt_templates[{stage_key} v1 ACTIVE]")
+        print(f"  [added] prompt_templates[{stage_key} v1 active={doc['active']}]")
 
 
 async def seed_pipeline_config():

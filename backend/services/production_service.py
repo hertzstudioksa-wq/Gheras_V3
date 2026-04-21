@@ -210,22 +210,94 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
 
 
-from services.config_service import resolve_model
+from services.config_service import resolve_model, resolve_prompt
+
+
+def _build_production_context(order: dict, scenario: dict, target_scenes: int) -> dict:
+    """Flat variable context for admin-configurable production_planning prompt."""
+    data = order.get("data", {}) or {}
+    enriched = order.get("enriched", {}) or {}
+    duration = order.get("duration", {}) or {}
+    child = data.get("child", {}) or {}
+    goal = data.get("goal", {}) or {}
+    pers = data.get("personalization", {}) or {}
+    chars = data.get("characters", []) or []
+    audio_bg = (data.get("audio_background") or {}).get("mode") or "music"
+    audio_bg_label = {
+        "music": "موسيقى هادئة",
+        "human_rhythm": "إيقاع صوتي بشري بدون موسيقى",
+        "none": "بدون خلفية صوتية",
+    }.get(audio_bg, audio_bg)
+
+    arc = ARC_TEMPLATES.get(target_scenes) or ARC_TEMPLATES[6]
+
+    chars_brief = "، ".join(
+        f"{c.get('type','')}: {c.get('name','')}" for c in chars if c.get("name")
+    ) or "لا يوجد"
+
+    fav_brief = "، ".join(
+        f"{k}: {(v or {}).get('name','')}"
+        for k, v in (pers.get("favorites") or {}).items()
+        if (v or {}).get("selected") and (v or {}).get("name")
+    ) or "لا يوجد"
+
+    return {
+        # Child
+        "child_name":         child.get("name", ""),
+        "child_age":          child.get("age", ""),
+        "child_gender":       "ولد" if child.get("gender") == "male" else "بنت",
+        # Selected scenario
+        "selected_scenario_title":           scenario.get("title", ""),
+        "selected_scenario_summary":         scenario.get("short_summary", ""),
+        "selected_scenario_learning_goal":   scenario.get("learning_goal", ""),
+        "selected_scenario_emotional_angle": scenario.get("emotional_angle", ""),
+        "selected_scenario_visual_style":    scenario.get("visual_style_hint", ""),
+        # Goal
+        "goal_category":      enriched.get("category_name", ""),
+        "goal_subcategory":   enriched.get("subcategory_name") or goal.get("custom_subcategory", ""),
+        "context":            goal.get("context", ""),
+        # Style
+        "story_type":         enriched.get("type_name", "") or "غير محدد",
+        "tone":               enriched.get("tone_name", "") or "غير محدد",
+        "setting":            enriched.get("setting_name", "") or "غير محدد",
+        "language":           enriched.get("language_name", "") or "عربية فصحى مبسطة",
+        "voice":              enriched.get("voice_name", "") or "غير محدد",
+        # Duration
+        "duration_label":     duration.get("label", ""),
+        "duration_seconds":   duration.get("seconds", ""),
+        "scene_target":       target_scenes,
+        "arc_beats_csv":      ", ".join(arc),
+        # Extras
+        "favorites_summary":  fav_brief,
+        "characters_summary": chars_brief,
+        "extra_notes":        pers.get("custom_notes", "") or "لا يوجد",
+        "audio_background_mode": audio_bg_label,
+    }
 
 
 async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) -> dict:
     if not EMERGENT_LLM_KEY:
         raise RuntimeError("EMERGENT_LLM_KEY missing")
     session_id = f"production-{order.get('id', uuid.uuid4())}-{uuid.uuid4().hex[:6]}"
-    provider, model_name, source = await resolve_model(
+    provider, model_name, model_src = await resolve_model(
         "production_planning", MODEL_PROVIDER, MODEL_NAME
     )
-    logger.info(f"[config] stage=production_planning source={source} model={provider}/{model_name}")
+    logger.info(f"[config] stage=production_planning source={model_src} model={provider}/{model_name}")
+
+    # Prompt: admin template if it renders cleanly, else hardcoded fallback.
+    ctx = _build_production_context(order, scenario, target_scenes)
+    admin_prompt, prompt_src, reason = await resolve_prompt("production_planning", ctx)
+    if prompt_src == "admin":
+        logger.info(f"[config] stage=production_planning prompt_source=admin {reason}")
+        prompt = admin_prompt
+    else:
+        logger.info(f"[config] stage=production_planning prompt_source=default reason={reason}")
+        prompt = _build_user_prompt(order, scenario, target_scenes)
+
     chat = (
         LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
         .with_model(provider, model_name)
     )
-    prompt = _build_user_prompt(order, scenario, target_scenes)
     response = await chat.send_message(UserMessage(text=prompt))
     text = (response or "").strip()
     if text.startswith("```"):
