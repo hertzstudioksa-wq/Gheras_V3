@@ -33,7 +33,8 @@ export default function ProductionReady() {
   const [retrying, setRetrying] = useState(false);
   const pollRef = useRef(null);
 
-  const fetchData = async () => {
+  const fetchData = async (opts = {}) => {
+    const { silent = false } = opts;
     try {
       const { data } = await api.get(`/orders/${id}/production-summary`);
       setState(data);
@@ -45,14 +46,21 @@ export default function ProductionReady() {
         pollRef.current = null;
       }
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "تعذّر تحميل الخطة");
+      // Only toast on the very first load (before any data arrived). Transient
+      // polling errors are silenced to avoid spamming the user — we'll just
+      // retry on the next interval.
+      if (!silent) {
+        toast.error(e?.response?.data?.detail || "تعذّر تحميل الخطة");
+      }
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    // First call: surface errors (it's the initial load).
     fetchData();
-    pollRef.current = setInterval(fetchData, 3500);
+    // Subsequent polls: silent so transient 502s/504s don't spam toasts.
+    pollRef.current = setInterval(() => fetchData({ silent: true }), 3500);
     return () => pollRef.current && clearInterval(pollRef.current);
     // eslint-disable-next-line
   }, [id]);
@@ -136,7 +144,7 @@ export default function ProductionReady() {
     try {
       await api.post(`/orders/${id}/production/regenerate`);
       setState((s) => ({ ...s, status: "production_planning" }));
-      if (!pollRef.current) pollRef.current = setInterval(fetchData, 3500);
+      if (!pollRef.current) pollRef.current = setInterval(() => fetchData({ silent: true }), 3500);
       toast.success("جاري إعداد خطة جديدة...");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "فشل");
