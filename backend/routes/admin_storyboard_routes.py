@@ -12,7 +12,7 @@ RULES (enforced here):
   5. Admin API keys are never returned. Prompt text IS returned (admin only).
 """
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -647,8 +647,10 @@ async def _stage_narration(order: dict, pipeline_cfg: dict) -> dict:
 
 
 async def _stage_book_assets(order: dict, pipeline_cfg: dict) -> dict:
-    # Not in default pipeline_config — fall back to enabled if production_approved.
-    enabled = True
+    # book_assets is not tracked as a distinct stage in pipeline_config; treat as
+    # enabled unless explicitly disabled in the future config.
+    stage_flags = pipeline_cfg.get("stages", {}).get("book_assets_generation") or {}
+    enabled = stage_flags.get("enabled", True)
     jobs = await db.generation_jobs.find(
         {"order_id": order["id"], "job_type": "book_page_asset"}, {"_id": 0}
     ).sort("created_at", 1).to_list(200)
@@ -760,7 +762,7 @@ async def _stage_assembly(order: dict, job_type: str, doc_collection: str,
         "attempts": sum((j.get("attempt_count") or 0) for j in jobs),
         "provider": (doc or {}).get("provider") or ("ffmpeg" if job_type == "final_video_assembly" else "reportlab"),
         "model_name": "local-assembly" if job_type == "final_video_assembly" else "local-reportlab",
-        "model_source": "fallback",
+        "model_source": "local",
         "prompt_source": "n/a",
         "prompt_template_id": None,
         "prompt_template_version": None,
@@ -851,7 +853,7 @@ async def get_storyboard(order_id: str) -> dict[str, Any]:
             "order":  pipeline_cfg.get("order", []),
         },
         "meta": {
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "latency_values_are_estimates": True,
             "data_source": "read-only aggregation (no new collections)",
         },

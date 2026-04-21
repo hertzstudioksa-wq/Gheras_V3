@@ -182,6 +182,22 @@ generating (Phase 6) → completed
 - Pipeline config info banner updated to reflect mock/dry-run phase.
 - Tests: 8/8 pytest cases green (`/app/backend/tests/test_child_character.py`).
 
+### Phase D — Admin Storyboard / Pipeline Trace (Feb 22, 2026) — READ-ONLY debug view
+- New endpoint: `GET /api/admin/orders/{id}/storyboard` aggregates 8 pipeline stages
+  (scenario → production → child_character → scene_images → narration → book_assets →
+  video_assembly → pdf_assembly) into a single response.
+- Per stage: status, latency_ms_estimate (+`latency_is_estimate=true`), attempts, provider,
+  model_name, model_source (admin|fallback|local|n/a), prompt_source, prompt_template_id/version,
+  prompt_used, prompt_hash (sha256:<16>), fallback_used, error_message, mock_mode,
+  input_summary, output_summary, events (from status_history + job errors), actions.
+- Scene-level debug array per image (prompt_hash, provider, fallback_used, latency, attempts).
+- Rules enforced: NO invented fields (`request_id` absent), NO new collections, NO business-
+  logic changes. Disabled stages show `status="skipped"` (never hidden).
+- New frontend page `/admin/orders/:orderId/storyboard` + "Storyboard" button in admin order
+  modal (opens in new tab). Timeline bar at top with clickable nodes; expand/collapse per
+  stage card with copy-prompt, download, and per-stage regenerate actions.
+- Tests: 17/17 pytest cases green (`/app/backend/tests/test_storyboard.py`) + frontend smoke pass.
+
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
 - Video animation (Sora 2 or equivalent) using `animation_prompt`.

@@ -221,7 +221,7 @@ function StageCard({ stage, expanded, onToggle, innerRef, onReload }) {
       {/* Header */}
       <button
         onClick={onToggle}
-        className={`w-full text-start px-4 py-3 flex items-center justify-between gap-3 flex-wrap hover:bg-[#FDFBF7] transition border-r-4 border-${s.fg}`}
+        className="w-full text-start px-4 py-3 flex items-center justify-between gap-3 flex-wrap hover:bg-[#FDFBF7] transition border-r-4"
         style={{ borderRightColor: s.fg.includes("3F5B2E") ? "#87A96B" :
                                    s.fg.includes("B8612F") ? "#E07A5F" :
                                    s.fg.includes("8B5A2B") ? "#D4A373" : "#C6CEDA" }}
