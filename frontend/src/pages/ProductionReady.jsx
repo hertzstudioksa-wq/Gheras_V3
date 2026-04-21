@@ -435,22 +435,14 @@ export default function ProductionReady() {
               </div>
             </div>
             {!isMediaFailed && (
-              <div className="bg-[#FDFBF7] rounded-2xl p-4 border border-[#E2D8C9]" data-testid="progress-bar-wrap">
-                <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
-                  <span>{progress?.stage_ar || "التقدّم"}</span>
-                  <span className="font-bold text-[#2D3748]" data-testid="progress-percent">{progressPercent}%</span>
-                </div>
-                <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-700"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-                <StagePill stage={progressStage} />
-              </div>
+              <p className="font-body text-sm text-[#5A677D]" data-testid="media-hint">
+                {isAssembling ? "قد يستغرق هذا دقيقة إلى دقيقتين. يمكنك تصفح بقية التطبيق والعودة لاحقاً." :
+                 isMediaReady ? "تمت هذه الخطوة. جارٍ تحضير الفيديو والكتاب..." :
+                 "تصفح بقية التطبيق — سنحدّث هذه الصفحة تلقائياً حال الانتهاء."}
+              </p>
             )}
             {isMediaFailed && (
-              <div className="flex items-center gap-3 mt-3">
+              <div className="flex items-center gap-3 mt-3 flex-wrap">
                 <button
                   type="button"
                   onClick={retryDelivery}
