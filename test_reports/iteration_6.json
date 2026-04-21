@@ -1,0 +1,31 @@
+{
+  "summary": "Phase D — Admin Storyboard / Pipeline Trace verified end-to-end. Backend: 17/17 pytest cases passed in /app/backend/tests/test_storyboard.py covering response schema (order/timeline[8]/stages[8]/pipeline_config/meta), all 8 stage_keys present in canonical order, every required field on each stage (incl. latency_is_estimate=true, prompt_hash format, mock_mode, fallback_used, events, actions), timeline aligned 1:1 with stages, admin auth (401 without token), 404 on unknown order, child_character_i2i status='skipped' when disabled (NOT hidden) and mock_mode propagation when asset.mock=true, delivered order ebaa164d has scenes[] with full per-scene fields and video_url/pdf_url completed, prompt_hash exactly equals 'sha256:'+hashlib.sha256(prompt_used).hexdigest()[:16], no invented fields (request_id absent), and regression on /admin/orders/{id}, /admin/pipeline-config GET, and /admin/orders/{id}/child-character. Frontend: admin login → direct nav to /admin/orders/ebaa164d.../storyboard renders admin-storyboard-page, storyboard-estimate-banner visible, all 8 timeline-node-* and stage-card-* present, storyboard-toggle-all expands all bodies, storyboard-scene-grid renders 6 scene items with sha256: prompt_hash chips, navigator.clipboard spy captured the prompt text on stage-copy-prompt-* click (698 chars), MOCK badge visible inside child_character_i2i card and storyboard-child-character-output. Admin Orders modal → Storyboard button rendered with data-testid='open-storyboard-btn', href=/admin/orders/{id}/storyboard, target=_blank. 0 console errors / 0 pageerrors throughout.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_storyboard.py",
+    "/app/test_reports/pytest/storyboard.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin_storyboard_routes.py is 858 lines — exceeds the 700-line guideline. Recommend splitting per-stage builders into /app/backend/services/storyboard/stages/*.py (one file per stage_key) and keeping the router thin. This will also make per-stage unit tests easier later.",
+    "STAGE_ORDER is hardcoded inside admin_storyboard_routes.py while pipeline_config also exposes an `order` array. They are returned alongside each other but never cross-validated. If an admin reorders the pipeline via PATCH /admin/pipeline-config, the storyboard timeline will still render in STAGE_ORDER (not the configured order). Either honor pipeline_config.order, or document that storyboard order is intentionally fixed (debug view).",
+    "_stage_book_assets sets `enabled = True` unconditionally with the comment '# Not in default pipeline_config'. If book_assets_generation is later added to pipeline_config and disabled, storyboard will incorrectly show it as enabled. Consider reading the toggle the same way as other stages and defaulting True only when missing.",
+    "_stage_assembly hardcodes provider='ffmpeg'/'reportlab' as fallback when doc.provider is missing. This is fine for dev but creates an inverted source-of-truth: model_source='fallback' is reported even when the assembly actually completed. Consider model_source='inferred' or 'local' to avoid confusing it with the LLM 'fallback' semantics used elsewhere in the response.",
+    "_resolve_model_current and _resolve_prompt_current are awaited per-stage (8 sequential round-trips to MongoDB on every storyboard render). For a debug view this is acceptable, but each render fires ~16 queries minimum. asyncio.gather across stages would cut latency considerably.",
+    "datetime.utcnow() is deprecated in Py3.12+. Switch to datetime.now(datetime.UTC). Minor.",
+    "Frontend AdminStoryboard.jsx is 647 lines (single file). Multiple sub-components (Timeline, StageCard, StageOutput, OutSceneImages, etc.) could be moved to /pages/admin/storyboard/*.jsx for maintainability — same 700-line guideline applies on FE.",
+    "StageCard header uses dynamic Tailwind class `border-${s.fg}` which is then overridden by inline style. The dynamic class will be purged by Tailwind JIT and never produces any CSS — the inline style is the only thing actually working. Drop the className fragment to avoid confusion.",
+    "RegenerateButton uses window.confirm() — works but breaks the sonner-driven UX of the rest of the app. Consider an AlertDialog/AlertModal for consistency with the admin design system."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_storyboard.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% (all FE assertions passed, 0 console errors)"},
+  "test_credentials": "admin@gheras.com / Admin@1234. Real delivered order: ebaa164d-4375-4728-9586-bfc325d0a4bf. Production-ready order with mock child_character asset: 61c44457-2a80-454d-b3bc-5d2625085aba.",
+  "seed_data_creation": "None. Reused existing orders. No DB writes from the storyboard endpoint.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: `export $(grep -v '^#' /app/frontend/.env | xargs) && pytest /app/backend/tests/test_storyboard.py -v`. ~3s. The TestFallback class is gated behind admin orders sample and will pytest.skip if no production_generation.source='fallback' order is in the first 10. The TestChildCharacter.test_disabled_stage relies on pipeline_config.child_character_i2i.enabled=false (default state from Phase C teardown). prompt_hash test uses live hashlib.sha256 against returned prompt_used so any change to prompt persistence will be caught.",
+  "rca of the issue": "N/A — no bugs found. Implementation matches the entire spec: read-only aggregation, no invented fields (request_id confirmed absent), all 8 stages present even when skipped, latency surfaced as estimate with the dedicated boolean flag, prompt_hash live-computed with correct sha256 prefix, MOCK badge correctly propagated from child_character_assets.mock through stage.mock_mode and output_summary.mock to both the stage header and the storyboard-child-character-output block, and the admin modal Storyboard link correctly carries target=_blank with the canonical URL."
+}

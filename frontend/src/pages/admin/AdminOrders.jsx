@@ -180,7 +180,19 @@ export default function AdminOrders() {
                 <h2 className="font-heading text-2xl font-bold text-[#2D3748]">قصة {detail.data?.child?.name}</h2>
                 <p className="font-body text-xs text-[#8A9AB0]">{detail.id} • {detail.user_email}</p>
               </div>
-              <button onClick={() => setDetail(null)} className="text-[#8A9AB0]"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/admin/orders/${detail.id}/storyboard`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-3 py-1.5 text-xs font-bold hover:bg-[#F2E8DA]"
+                  data-testid="open-storyboard-btn"
+                  title="افتح Storyboard (تتبّع خط الإنتاج) في تبويب جديد"
+                >
+                  <Lightbulb className="w-3 h-3" /> Storyboard
+                </a>
+                <button onClick={() => setDetail(null)} className="text-[#8A9AB0]"><X className="w-5 h-5" /></button>
+              </div>
             </div>
 
             <div className="flex gap-2 mb-5 border-b border-[#E2D8C9] overflow-x-auto">

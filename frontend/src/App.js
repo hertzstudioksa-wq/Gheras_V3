@@ -20,6 +20,7 @@ import ProductionReady from "./pages/ProductionReady";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminOverview from "./pages/admin/AdminOverview";
 import AdminOrders from "./pages/admin/AdminOrders";
+import AdminStoryboard from "./pages/admin/AdminStoryboard";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminCategories from "./pages/admin/AdminCategories";
 import AdminStoryOptions from "./pages/admin/AdminStoryOptions";
@@ -98,6 +99,7 @@ function App() {
             >
               <Route index element={<AdminOverview />} />
               <Route path="orders" element={<AdminOrders />} />
+              <Route path="orders/:orderId/storyboard" element={<AdminStoryboard />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="categories" element={<AdminCategories />} />
               <Route path="styles" element={<AdminStoryOptions />} />
