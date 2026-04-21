@@ -10,6 +10,7 @@ from services.generation_orchestrator import run_asset_generation, retry_single_
 from services.final_delivery_service import run_final_assembly, retry_single_assembly_job
 from services.progress_service import compute_pipeline_progress
 from services.child_character_service import safe_run as run_child_character_stage, get_asset as get_child_character_asset
+from services.config_service import get_pipeline_config
 
 user_router = APIRouter(prefix="/orders", tags=["media-user"])
 admin_router = APIRouter(prefix="/admin", tags=["media-admin"], dependencies=[Depends(require_admin)])
@@ -134,8 +135,8 @@ async def admin_get_child_character(order_id: str):
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     asset = await get_child_character_asset(order_id)
     child = (order.get("data") or {}).get("child") or {}
-    # Read stage enabled flag (source of truth)
-    pipeline_cfg = await db.pipeline_config.find_one({"id": "default"}, {"_id": 0})
+    # Use the resolver so defaults/merge stay consistent with the orchestrator.
+    pipeline_cfg = await get_pipeline_config()
     stage_cfg = ((pipeline_cfg or {}).get("stages") or {}).get("child_character_i2i") or {}
     return {
         "order_id": order_id,

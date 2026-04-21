@@ -159,26 +159,28 @@ generating (Phase 6) → completed
   (1) `ffmpeg` was missing from the container (auto-reinstalled via `apt install ffmpeg`).
   (2) Amiri font file was an HTML error page (TTFError on PDF assembly). Replaced with
       `fonts-hosny-amiri` Debian package; valid TTF now lives at `/app/backend/fonts/`.
-- Added `services/progress_service.py` — unified 0..100 progress across the whole pipeline
-  (plan 0-20 → assets 20-80 → assembly 80-100 → delivered 100). All user endpoints
-  (`/production-summary`, `/media-status`, `/delivery`) expose the same `{stage, stage_ar, percent, message_ar}` object.
-- User-endpoint sanitization: `order_routes._sanitize_user_order` + `_PUBLIC_SCENARIO_KEYS`
-  strip `ai_prompt_snapshot`, `prompt_edited`, `scenarios_generation`, `production_generation`,
-  `status_history`, `admin_note`, `*_run_id`, `production_plan_id`, and internal batch ids.
-  Scenario snapshot is trimmed to a strict allow-list (title/summary/angles/…).
-- Race-condition guard in `get_production_summary`: when `status == production_ready` but
-  the plan document isn't saved yet, the endpoint downgrades to `production_planning` so the
-  UI never shows a "ready" header with a null summary.
-- Video assembly hardening (`_make_placeholder_png` in `video_assembly_service.py`):
-  missing scene images are substituted with a warm-toned placeholder PNG so the pipeline
-  NEVER fails because of one missing frame. `assembly_metadata.placeholder_frames` reports how many.
-- New user endpoint `POST /api/orders/{id}/retry-delivery` — resumes from whichever phase
-  failed (assets vs assembly). Requires cover + ≥1 scene image to retry assembly-only;
-  else retries full pipeline.
-- Frontend `ProductionReady.jsx`: unified progress bar + `StagePill` indicator,
-  retry button on `media_failed`, skeleton respects unified message.
-- Frontend `ScenarioSelection.jsx`: removed "مصدر التوليد" banner (was leaking internal info).
-- Test suite `/app/backend/tests/test_stabilization.py` — 9/9 green.
+- Added `services/progress_service.py` — unified 0..100 progress across the whole pipeline.
+- User-endpoint sanitization + race-condition guard + video/PDF assembly hardening.
+- Phase A/B admin config layer (models + pipeline + prompts) with safe `string.Template` rendering.
+
+### Phase C — child_character_i2i execution (Feb 22, 2026) — MOCK-only
+- New service `/app/backend/services/child_character_service.py` — dry-run I2I provider:
+  `generated_image_url` mirrors source image; provider=`mock`, model=`dry-run`.
+- New collection `child_character_assets` (one doc per order): id, order_id, source_image_url,
+  generated_image_url, provider, model_name, prompt_used, prompt_source, status (queued/processing/
+  completed/failed), fallback_used, mock, error_message, created_at, updated_at.
+- Orchestrator hook: runs **before** scene_image_generation inside a `try/except`. If the stage
+  is disabled (DEFAULT) OR the order has no child photo OR it fails → pipeline continues
+  unchanged. Zero regression guaranteed.
+- Prompt resolution via `config_service.resolve_prompt("child_character_i2i", ctx)` with a
+  hardcoded English default ($-Template style). No eval/f-strings.
+- New admin endpoints:
+  - `GET  /api/admin/orders/{id}/child-character`  → `{stage_enabled, stage_config, source_image_url, child_name, asset}`
+  - `POST /api/admin/orders/{id}/child-character/regenerate` → queues a dry-run; safe when disabled.
+- Admin UI: new "شخصية الطفل (Phase C — I2I)" card in AdminOrders media tab with status badge,
+  source + generated images side-by-side, prompt details, and regenerate button.
+- Pipeline config info banner updated to reflect mock/dry-run phase.
+- Tests: 8/8 pytest cases green (`/app/backend/tests/test_child_character.py`).
 
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
