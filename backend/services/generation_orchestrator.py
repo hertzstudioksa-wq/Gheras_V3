@@ -21,6 +21,7 @@ from models import OrderStatus, ORDER_STATUS_AR
 from storage import put_object, APP_NAME
 from services.image_generation_service import generate_image
 from services.audio_generation_service import generate_audio, estimate_duration_seconds
+from services.config_service import resolve_prompt
 
 logger = logging.getLogger("generation_orchestrator")
 
@@ -158,12 +159,93 @@ async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str,
     return url, meta
 
 
+def _build_scene_image_context(order: dict, plan: dict, scene: dict) -> dict:
+    """Flat variable context for admin-configurable scene_image_generation prompt.
+
+    Only fields that are actually available are exposed — no invented values.
+    Lists are joined into comma-separated strings so $vars always stringify cleanly.
+    """
+    data = order.get("data", {}) or {}
+    enriched = order.get("enriched", {}) or {}
+    duration = order.get("duration", {}) or {}
+    child = data.get("child", {}) or {}
+    pers = data.get("personalization", {}) or {}
+    chars = data.get("characters", []) or []
+    audio_bg = (data.get("audio_background") or {}).get("mode") or "music"
+
+    img_prompt_obj = scene.get("image_prompt") or {}
+
+    return {
+        # Child
+        "child_name":         child.get("name", ""),
+        "child_age":          child.get("age", ""),
+        "child_gender":       "ولد" if child.get("gender") == "male" else "بنت",
+        # Scene
+        "scene_index":        scene.get("scene_index", ""),
+        "scene_title":        scene.get("title", ""),
+        "scene_goal":         scene.get("scene_goal", ""),
+        "narration_text":     scene.get("narration_text", ""),
+        "book_text":          scene.get("book_text", ""),
+        "emotional_tone":     scene.get("emotional_tone", ""),
+        "visual_description": scene.get("visual_description", ""),
+        "background_setting": scene.get("background_setting", ""),
+        "key_objects":        ", ".join(scene.get("key_objects", []) or []) or "لا يوجد",
+        "continuity_notes":   scene.get("continuity_notes", ""),
+        # Plan-level
+        "selected_scenario_title":           plan.get("title", ""),
+        "selected_scenario_emotional_angle": plan.get("emotional_angle", "") or "",
+        "selected_scenario_visual_style":    (plan.get("style_guide") or {}).get("art_direction", ""),
+        "style_guide":                       ", ".join(f"{k}:{v}" for k, v in (plan.get("style_guide") or {}).items()) or "",
+        "character_reference_note":          img_prompt_obj.get("character_reference_note", ""),
+        # Style
+        "story_type":  enriched.get("type_name", "") or "",
+        "tone":        enriched.get("tone_name", "") or "",
+        "setting":     enriched.get("setting_name", "") or "",
+        "language":    enriched.get("language_name", "") or "",
+        "voice":       enriched.get("voice_name", "") or "",
+        # Duration
+        "duration_label":   duration.get("label", ""),
+        "duration_seconds": duration.get("seconds", ""),
+        "scene_target":     duration.get("scene_target", ""),
+        # Extras
+        "favorites_summary":  "، ".join(
+            f"{k}:{(v or {}).get('name','')}"
+            for k, v in (pers.get("favorites") or {}).items() if (v or {}).get("selected")
+        ) or "لا يوجد",
+        "characters_summary": "، ".join(
+            f"{c.get('type','')}:{c.get('name','')}" for c in chars if c.get("name")
+        ) or "لا يوجد",
+        "audio_background_mode": audio_bg,
+    }
+
+
+async def _resolve_scene_image_prompt(order: dict, plan: dict, scene: dict) -> tuple[str | None, str, str]:
+    """Try admin template; returns (rendered, source, reason). On any failure
+    the caller uses the hardcoded `scene.image_prompt.prompt_text` from DB.
+    """
+    try:
+        ctx = _build_scene_image_context(order, plan, scene)
+    except Exception as e:  # noqa: BLE001 — never crash the pipeline
+        return None, "default", f"context_error:{type(e).__name__}"
+    return await resolve_prompt("scene_image_generation", ctx)
+
+
 async def _execute_scene_image(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
     scene = await db.scene_plans.find_one({"id": job["target_id"]}, {"_id": 0})
     if not scene:
         raise ValueError(f"scene_plan {job['target_id']} not found")
-    img_prompt = (scene.get("image_prompt") or {}).get("prompt_text") or scene.get("visual_description") or ""
+    default_prompt = (scene.get("image_prompt") or {}).get("prompt_text") or scene.get("visual_description") or ""
     char_note = (scene.get("image_prompt") or {}).get("character_reference_note") or ""
+
+    # Phase B.3 — admin prompt override (scene-level, falls back cleanly).
+    admin_prompt, prompt_src, reason = await _resolve_scene_image_prompt(order, plan, scene)
+    if prompt_src == "admin":
+        logger.info(f"[config] stage=scene_image_generation prompt_source=admin {reason}")
+        img_prompt = admin_prompt
+    else:
+        logger.info(f"[config] stage=scene_image_generation prompt_source=default reason={reason}")
+        img_prompt = default_prompt
+
     image_bytes, mime, meta = await generate_image(
         scene_prompt=img_prompt,
         style_guide=plan.get("style_guide"),
