@@ -106,12 +106,39 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - characters_in_scene: استخدم type (child/mother/...) وليس name — سيتم ربطها داخلياً.
 - visual_description، style_guide، prompts كلها بالإنجليزية.
 - narration_text و book_text و scene_goal و title بالعربية.
+- **كل مشهد يجب أن يحمل narration_text و book_text فريدين ومختلفين جذرياً عن المشاهد الأخرى** — لا تكرار! كل مشهد يمثّل بيت قصصي مختلف (مقدمة / مشكلة / تصعيد / لحظة تعلّم / حل / نهاية).
+- اقرأ الـ arc_template واكتب محتوى يعكس كل arc_beat بدقة. التكرار يفسد القصة.
 - safety_check: "ok" في الحالة الطبيعية. استخدم "review" فقط لو هناك موضوع حسّاس.
 """
 
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _dedupe_scene_texts(scenes: list[dict]) -> None:
+    """In-place: guarantee narration_text and book_text are unique per scene.
+
+    If the LLM or fallback accidentally returns identical narration/book text
+    across scenes, we prepend a scene marker so each scene stays distinct. We
+    also log a warning so we can track how often it happens.
+    """
+    n_seen: dict[str, int] = {}
+    b_seen: dict[str, int] = {}
+    for s in scenes:
+        idx = s.get("scene_index") or 0
+        n = str(s.get("narration_text") or "").strip()
+        if n and n in n_seen:
+            logger.warning(f"Duplicate narration_text detected at scene {idx}; de-duplicating.")
+            s["narration_text"] = f"(المشهد {idx}) {n}"
+        else:
+            n_seen[n] = idx
+        b = str(s.get("book_text") or "").strip()
+        if b and b in b_seen:
+            logger.warning(f"Duplicate book_text detected at scene {idx}; de-duplicating.")
+            s["book_text"] = f"{b} (صفحة {idx})"
+        else:
+            b_seen[b] = idx
 
 
 def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
@@ -268,36 +295,89 @@ def _fallback_payload(order: dict, scenario: dict, target_scenes: int) -> dict:
         "reflection": "لحظة التأمّل",
         "positive_ending": "النهاية الجميلة",
     }
+
+    # Per-beat unique narration + book text snippets (Arabic) so fallback
+    # never returns duplicate content across scenes.
+    beat_narration = {
+        "setup":            f"في بدايتنا نلتقي بـ{name_ar} في عالمه المألوف، والأجواء هادئة.",
+        "introduction":     f"يخطو {name_ar} أول خطواته في رحلة جديدة تفتح قلبه للتعلّم.",
+        "problem":          f"فجأة يُواجه {name_ar} موقفاً صعباً يحتاج إلى التفكير بهدوء.",
+        "turning_point":    f"يتوقف {name_ar} للحظة ويبدأ في رؤية الأمر من زاوية جديدة.",
+        "escalation":       f"تتعقد الأمور حول {name_ar} ويحاول إيجاد طريقة أفضل للتعامل.",
+        "escalation_1":     f"يجرّب {name_ar} حلاً ويكتشف أن الأمر يحتاج إلى صبر أكبر.",
+        "escalation_2":     f"تزداد التحديات وتختبر {name_ar} في لحظات مهمة.",
+        "climax":           f"تأتي اللحظة الفاصلة حيث يتخذ {name_ar} قراره الشجاع.",
+        "resolution":       f"يجد {name_ar} أخيراً الطريق الصحيح ويشعر بالارتياح.",
+        "reflection":       f"يتأمّل {name_ar} ما تعلّمه اليوم ويبتسم للقيمة الجميلة.",
+        "positive_ending":  f"تنتهي الرحلة بابتسامة دافئة لـ{name_ar} وقلب مليء بالفخر.",
+    }
+    beat_book = {
+        "setup":            f"هذا {name_ar}، يعيش يوماً جميلاً.",
+        "introduction":     f"بدأ {name_ar} يوماً مليئاً بالمفاجآت.",
+        "problem":          f"واجه {name_ar} مشكلة صغيرة.",
+        "turning_point":    f"فكّر {name_ar} قليلاً وابتسم.",
+        "escalation":       f"حاول {name_ar} أن يجد حلاً.",
+        "escalation_1":     f"جرّب {name_ar} طريقة جديدة.",
+        "escalation_2":     f"لم يستسلم {name_ar} أبداً.",
+        "climax":           f"اختار {name_ar} أن يكون شجاعاً.",
+        "resolution":       f"وجد {name_ar} الحلّ الصحيح.",
+        "reflection":       f"تعلّم {name_ar} عن {learning}.",
+        "positive_ending":  f"فرح {name_ar} وابتسم بفخر.",
+    }
+    # Per-beat visual descriptor (English) for image prompts.
+    beat_visual = {
+        "setup":            "in a calm home setting, soft morning light, relaxed pose",
+        "introduction":     "stepping outside into a warm, inviting environment, curious expression",
+        "problem":          "noticing a small challenge ahead, thoughtful expression",
+        "turning_point":    "pausing mid-action, eyes widening with realization",
+        "escalation":       "actively trying to solve a growing problem, focused expression",
+        "escalation_1":     "attempting a new approach with determination",
+        "escalation_2":     "facing a harder challenge, breathing in deeply",
+        "climax":           "standing tall, making a brave decision, golden backlight",
+        "resolution":       "smiling gently, relieved shoulders, warm soft lighting",
+        "reflection":       "sitting peacefully, looking up with a proud smile",
+        "positive_ending":  "hugging a loved one, surrounded by warm sunset hues",
+    }
+
+    scenes_out = []
+    book_pages_out = []
     for i, beat in enumerate(arc, start=1):
         title_ar = f"{beat_to_ar.get(beat, 'مشهد')} — {name_ar}"
-        narration_ar = f"في هذا المشهد، يعيش {name_ar} لحظة تقرّبه من {learning}. "
-        book_ar = f"{name_ar} يتعلّم شيئاً جميلاً عن {learning}."
+        narration_ar = beat_narration.get(beat, f"مشهد {i} من قصة {name_ar}.")
+        # Add beat+index suffix so even if beats repeat, texts differ.
+        if arc.count(beat) > 1:
+            narration_ar = f"[{i}] {narration_ar}"
+        book_ar = beat_book.get(beat, f"{name_ar} يعيش لحظة جميلة.")
+        if arc.count(beat) > 1:
+            book_ar = f"{book_ar} (لحظة {i})"
+        visual_ar = beat_visual.get(beat, f"{name_en} in a meaningful moment")
         scene = {
             "scene_index": i,
             "arc_beat": beat,
             "title": title_ar,
-            "scene_goal": f"إظهار {beat} للشخصية بشكل يناسب عمر الطفل",
+            "scene_goal": f"مشهد رقم {i}: إظهار {beat_to_ar.get(beat, beat)} بشكل يناسب عمر الطفل",
             "narration_text": narration_ar,
             "book_text": book_ar,
             "emotional_tone": "gentle and warm",
-            "visual_description": f"{name_en} in a cozy setting, soft warm lighting, facing forward",
+            "visual_description": f"{name_en} {visual_ar}",
             "characters_in_scene": ["child"] + [c.get("type") for c in chars[:1]],
             "key_objects": [],
             "background_setting": "warm, familiar home environment with soft natural light",
             "continuity_notes": f"Maintain {name_en}'s appearance and outfit consistent with previous scenes",
             "image_prompt": {
                 "prompt_text": (
-                    f"Use the same child from the reference image. {name_en}, a {child.get('age','5')}-year-old "
-                    f"{'boy' if child.get('gender')=='male' else 'girl'}, "
-                    f"in a {beat.replace('_',' ')} moment. Warm earth tones, soft golden lighting, "
-                    f"whimsical watercolor illustration, gentle expression. Storybook composition."
+                    f"Use the same child from the reference image. Scene {i} of {len(arc)}: "
+                    f"{name_en}, a {child.get('age','5')}-year-old "
+                    f"{'boy' if child.get('gender')=='male' else 'girl'}, {visual_ar}. "
+                    f"Warm earth tones, soft golden lighting, whimsical watercolor illustration. "
+                    f"Storybook composition, aspect 16:9."
                 ),
                 "style_reference": style_guide["art_direction"],
-                "character_reference_note": f"Use the reference image of {name_en} exactly as provided. Preserve face, hair, and clothing.",
+                "character_reference_note": f"Use the reference image of {name_en} exactly as provided. Preserve face, hair, and clothing across all {len(arc)} scenes.",
             },
             "animation_prompt": {
-                "start_frame_description": f"{name_en} is in the middle of the frame, calm expression",
-                "end_frame_description": f"{name_en} reacts softly to the moment",
+                "start_frame_description": f"Scene {i} start: {name_en} — {visual_ar}",
+                "end_frame_description":   f"Scene {i} end: {name_en} reacts to the moment in an age-appropriate way.",
                 "motion_hint": "gentle slow zoom-in, subtle parallax",
                 "camera_style": "smooth static with soft dolly-in",
             },
@@ -308,8 +388,8 @@ def _fallback_payload(order: dict, scenario: dict, target_scenes: int) -> dict:
             "scene_index": i,
             "text": book_ar,
             "illustration_prompt": (
-                f"Use the reference image of {name_en}. Simple picture-book illustration of {name_en} "
-                f"in a {beat.replace('_',' ')} moment, warm earth tones, whimsical watercolor style."
+                f"Use the reference image of {name_en}. Page {i}: simple picture-book illustration of {name_en} {visual_ar}, "
+                f"warm earth tones, whimsical watercolor style."
             ),
         })
 
@@ -436,6 +516,11 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             "is_archived": False,
             "created_at": now,
         })
+
+    # Sanity: ensure no duplicate narration/book texts between scenes.
+    # If the LLM (or fallback) emitted duplicates for any reason, we append a
+    # uniqueness marker so every scene tells its own micro-beat.
+    _dedupe_scene_texts(scenes)
 
     book_pages: list[dict] = []
     # Map scene_index → scene.id for scene_reference

@@ -1,7 +1,9 @@
 import React, { useRef, useState } from "react";
 import { uploadImage, fileSrc } from "../../lib/api";
-import { UploadCloud, X, Loader2, ImagePlus } from "lucide-react";
+import { X, Loader2, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 export default function ImageUploader({
   value,
@@ -12,6 +14,8 @@ export default function ImageUploader({
   size = "md", // 'sm' | 'md' | 'lg'
   testId = "image-uploader",
 }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,12 +25,29 @@ export default function ImageUploader({
     lg: "h-48 w-48",
   }[size];
 
-  const pick = () => inputRef.current?.click();
+  const pick = () => {
+    // Pre-flight auth check — gives a clean UX instead of failing mid-upload.
+    if (!user) {
+      toast.error("يرجى تسجيل الدخول أولاً لرفع الصورة", {
+        action: {
+          label: "تسجيل الدخول",
+          onClick: () => navigate("/login", { state: { from: { pathname: window.location.pathname } } }),
+        },
+      });
+      return;
+    }
+    inputRef.current?.click();
+  };
 
   const handleFile = async (f) => {
     if (!f) return;
     if (f.size > 6 * 1024 * 1024) {
       toast.error("حجم الصورة يجب ألا يتجاوز 6MB");
+      return;
+    }
+    const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"];
+    if (f.type && !allowed.includes(f.type.toLowerCase())) {
+      toast.error("نوع الملف غير مدعوم. استخدم PNG أو JPG أو WEBP.");
       return;
     }
     setBusy(true);
@@ -35,7 +56,16 @@ export default function ImageUploader({
       onChange(res.url);
       toast.success("تم رفع الصورة");
     } catch (e) {
-      toast.error(e.message || "فشل الرفع");
+      if (e?.code === "AUTH_REQUIRED") {
+        toast.error(e.message, {
+          action: {
+            label: "تسجيل الدخول",
+            onClick: () => navigate("/login", { state: { from: { pathname: window.location.pathname } } }),
+          },
+        });
+      } else {
+        toast.error(e.message || "تعذّر رفع الصورة، حاول مرة أخرى");
+      }
     } finally {
       setBusy(false);
     }

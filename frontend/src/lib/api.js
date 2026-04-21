@@ -50,9 +50,14 @@ export function fileSrc(urlOrPath) {
   return `${BACKEND_URL}${path}${sep}auth=${encodeURIComponent(token || "")}`;
 }
 
-/** Upload an image and return {id, url}. */
+/** Upload an image and return {id, url}. Throws Error with a clear Arabic message on failure. */
 export async function uploadImage(file, scope = "child") {
   const token = localStorage.getItem("gheras_token");
+  if (!token) {
+    const err = new Error("يرجى تسجيل الدخول أولاً لرفع الصورة");
+    err.code = "AUTH_REQUIRED";
+    throw err;
+  }
   const form = new FormData();
   form.append("file", file);
   form.append("scope", scope);
@@ -61,9 +66,26 @@ export async function uploadImage(file, scope = "child") {
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "فشل الرفع" }));
-    throw new Error(err.detail || "فشل الرفع");
+  if (res.ok) return res.json();
+  // Map backend error detail → user-friendly Arabic message.
+  let detail = "";
+  try {
+    const body = await res.json();
+    detail = body?.detail || "";
+  } catch { /* non-JSON body */ }
+  if (res.status === 401 || res.status === 403) {
+    const err = new Error("يرجى تسجيل الدخول أولاً لرفع الصورة");
+    err.code = "AUTH_REQUIRED";
+    throw err;
   }
-  return res.json();
+  if (res.status === 413 || /كبير|حجم/i.test(detail)) {
+    throw new Error(detail || "حجم الصورة كبير جداً (الحد الأقصى 6MB)");
+  }
+  if (res.status === 415 || /امتداد|نوع/i.test(detail)) {
+    throw new Error(detail || "نوع الملف غير مدعوم. استخدم PNG أو JPG أو WEBP.");
+  }
+  if (res.status === 400) {
+    throw new Error(detail || "الصورة غير صالحة");
+  }
+  throw new Error(detail || "تعذّر رفع الصورة، حاول مرة أخرى");
 }
