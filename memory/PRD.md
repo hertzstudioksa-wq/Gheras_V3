@@ -154,6 +154,32 @@ generating (Phase 6) → completed
 - Plan regeneration archives all previous scenes/pages/characters (via `is_archived=true`), not deleted.
 - Scenes/pages/characters are served filtered by `is_archived=false` in admin view.
 
+### Stabilization pass — Feb 2026
+- Root-caused 2 production bugs in the delivery pipeline:
+  (1) `ffmpeg` was missing from the container (auto-reinstalled via `apt install ffmpeg`).
+  (2) Amiri font file was an HTML error page (TTFError on PDF assembly). Replaced with
+      `fonts-hosny-amiri` Debian package; valid TTF now lives at `/app/backend/fonts/`.
+- Added `services/progress_service.py` — unified 0..100 progress across the whole pipeline
+  (plan 0-20 → assets 20-80 → assembly 80-100 → delivered 100). All user endpoints
+  (`/production-summary`, `/media-status`, `/delivery`) expose the same `{stage, stage_ar, percent, message_ar}` object.
+- User-endpoint sanitization: `order_routes._sanitize_user_order` + `_PUBLIC_SCENARIO_KEYS`
+  strip `ai_prompt_snapshot`, `prompt_edited`, `scenarios_generation`, `production_generation`,
+  `status_history`, `admin_note`, `*_run_id`, `production_plan_id`, and internal batch ids.
+  Scenario snapshot is trimmed to a strict allow-list (title/summary/angles/…).
+- Race-condition guard in `get_production_summary`: when `status == production_ready` but
+  the plan document isn't saved yet, the endpoint downgrades to `production_planning` so the
+  UI never shows a "ready" header with a null summary.
+- Video assembly hardening (`_make_placeholder_png` in `video_assembly_service.py`):
+  missing scene images are substituted with a warm-toned placeholder PNG so the pipeline
+  NEVER fails because of one missing frame. `assembly_metadata.placeholder_frames` reports how many.
+- New user endpoint `POST /api/orders/{id}/retry-delivery` — resumes from whichever phase
+  failed (assets vs assembly). Requires cover + ≥1 scene image to retry assembly-only;
+  else retries full pipeline.
+- Frontend `ProductionReady.jsx`: unified progress bar + `StagePill` indicator,
+  retry button on `media_failed`, skeleton respects unified message.
+- Frontend `ScenarioSelection.jsx`: removed "مصدر التوليد" banner (was leaking internal info).
+- Test suite `/app/backend/tests/test_stabilization.py` — 9/9 green.
+
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
 - Video animation (Sora 2 or equivalent) using `animation_prompt`.

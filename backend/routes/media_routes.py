@@ -207,14 +207,15 @@ async def user_retry_delivery(order_id: str, background: BackgroundTasks, curren
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     if not order.get("production_approved"):
         raise HTTPException(status_code=400, detail="لم يتم اعتماد خطة الإنتاج بعد")
-    # Count completed asset jobs.
-    completed_assets = await db.generation_jobs.count_documents({
-        "order_id": order_id,
-        "job_type": {"$in": ["cover_image", "scene_image", "narration_audio", "book_page_asset"]},
-        "status": "completed",
+    # If cover + at least one scene image completed, we can safely retry final assembly.
+    # Otherwise restart the full asset pipeline (which auto-kicks assembly when done).
+    cover_done = await db.generation_jobs.count_documents({
+        "order_id": order_id, "job_type": "cover_image", "status": "completed",
     })
-    # Heuristic: if cover + at least scene images finished, try assembly; else retry full pipeline.
-    if completed_assets >= 2:
+    scene_done = await db.generation_jobs.count_documents({
+        "order_id": order_id, "job_type": "scene_image", "status": "completed",
+    })
+    if cover_done >= 1 and scene_done >= 1:
         run_id = str(uuid.uuid4())
         background.add_task(run_final_assembly, order_id, run_id)
     else:
