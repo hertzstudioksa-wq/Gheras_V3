@@ -29,15 +29,32 @@ Arabic-first (RTL) AI storytelling platform for children. Multi-step Story Build
 - Admin panel tab: **خطة الإنتاج** (view plan, view/edit scenes incl. narration + prompts, regenerate).
 
 ### Phase 6A.1 — Audio Background Preference (Apr 21, 2026)
-- User-facing selector in Story Builder Step 5: "الخلفية الصوتية" with 3 options:
-  - `music` → "موسيقى هادئة"
-  - `human_rhythm` → "إيقاع صوتي بشري" (vocal rhythm/nasheed style, no instruments)
-  - `none` → "من دون خلفية صوتية" (narration only)
-- Helper text: "يمكنك اختيار ما يناسب أسرتك، وسيتم اعتماد ذلك في النسخة النهائية من القصة."
-- Stored in `order.data.audio_background: {mode}` (default `music`).
-- Propagated to Claude production prompt + stored on `production_plans.audio_background`.
-- Visible in: Story Builder Review, Admin Production Plan tab, User Production Summary page (detail card).
-- Will be consumed during Phase 6B final assembly (video/audio track mixing).
+- User-facing selector in Story Builder Step 5: "الخلفية الصوتية" with 3 options (`music` / `human_rhythm` / `none`). Default `music`.
+- Stored in `order.data.audio_background.mode` + propagated to Claude prompt + `production_plans.audio_background` + visible in admin production tab + user summary.
+
+### Phase 6B — Final Assembly & Delivery (Apr 21, 2026)
+- **Trigger**: After `user_approve_production`, once asset pipeline reaches `assets_ready`, final assembly auto-fires → `assembling` → `delivered` | `media_failed`.
+- **Tools**:
+  - Video: **ffmpeg** (installed system-wide). Concatenates cover (2s) + N scene clips (duration from narration word count). 1280×720, H.264, silent audio track (placeholder).
+  - PDF: **reportlab + arabic-reshaper + python-bidi**. A5 landscape, Arabic RTL, cover page + per-scene image+text pages + back page with main_message.
+- **Assembly jobs**: `final_video_assembly`, `final_pdf_assembly` (same `generation_jobs` collection, retry 3×, backoff [1,3,7]s).
+- **Audio background respected**: `music` / `human_rhythm` / `none` stored on `final_videos.audio_background_mode` + in `assembly_metadata`. Real music mixing deferred.
+- **User page** `/orders/{id}/production-ready` handles `assembling` (progress card) + `delivered` (video player + PDF download + completion card).
+- **Admin media tab**: "التسليم النهائي" section at top shows inline video player + PDF link + job statuses + "إعادة تجميع" button.
+- **Sample output**: ~2MB 65s MP4 + ~10MB 9-page Arabic RTL PDF generated in < 20 seconds each for a 7-scene story.
+
+## New Collections (Phase 6B)
+- `final_videos`: id, order_id, production_plan_id, generation_job_id, video_url, thumbnail_url, duration_seconds, audio_background_mode, provider, source_type, assembly_metadata, created_at.
+- `final_pdfs`: id, order_id, production_plan_id, generation_job_id, pdf_url, page_count, cover_image_url, provider, assembly_metadata, created_at.
+
+## New Endpoints (Phase 6B)
+### User
+- `GET /api/orders/{id}/delivery` → status, progress, plan brief + `{video, pdf}` URLs (only for the owner).
+
+### Admin
+- `GET /api/admin/orders/{id}/delivery` → full video + PDF records + assembly jobs.
+- `POST /api/admin/orders/{id}/delivery/regenerate` → re-run final assembly from existing assets.
+- `POST /api/admin/jobs/{id}/retry` now routes assembly jobs to `retry_single_assembly_job`.
 
 ### Phase 5.1 — User-Facing Approval Page (Apr 21, 2026)
 - New route: `/orders/{id}/production-ready` (`ProductionReady.jsx`).

@@ -53,7 +53,8 @@ export default function Dashboard() {
               const target =
                 o.status === "scenarios_ready" || o.status === "scenarios_generating"
                   ? `/orders/${o.id}/scenarios`
-                  : ["production_ready", "production_planning", "production_approved", "ready_for_ai"].includes(o.status)
+                  : ["production_ready", "production_planning", "production_approved", "ready_for_ai",
+                     "assets_generating", "assets_ready", "assembling", "delivered", "media_failed"].includes(o.status)
                   ? `/orders/${o.id}/production-ready`
                   : `/orders/${o.id}`;
               return (

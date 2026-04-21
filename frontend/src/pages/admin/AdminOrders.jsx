@@ -458,15 +458,21 @@ function AlertBadge() {
 
 function AdminMediaTab({ orderId }) {
   const [data, setData] = useState(null);
+  const [delivery, setDelivery] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const pollRef = React.useRef(null);
 
   const load = async () => {
     try {
-      const { data: d } = await api.get(`/admin/orders/${orderId}/media`);
-      setData(d);
-      if (d.status !== "assets_generating" && pollRef.current) {
+      const [mediaRes, deliveryRes] = await Promise.all([
+        api.get(`/admin/orders/${orderId}/media`),
+        api.get(`/admin/orders/${orderId}/delivery`).catch(() => ({ data: null })),
+      ]);
+      setData(mediaRes.data);
+      setDelivery(deliveryRes.data);
+      const terminal = !["assets_generating", "assembling"].includes(mediaRes.data.status);
+      if (terminal && pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
@@ -522,6 +528,74 @@ function AdminMediaTab({ orderId }) {
 
   return (
     <div data-testid="admin-media-tab" className="space-y-5">
+      {/* Final delivery (when assembled) */}
+      {delivery && (delivery.video || delivery.pdf || (delivery.jobs || []).length > 0) && (
+        <section className="bg-[#E8F0E1]/40 rounded-2xl p-4 border-2 border-[#87A96B]/40" data-testid="admin-final-delivery">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h4 className="font-heading font-bold text-[#2D3748] inline-flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#4F6B3B]" /> التسليم النهائي
+            </h4>
+            <div className="flex gap-2 items-center">
+              {(delivery.jobs || []).map((j) => (
+                <span key={j.id} className={
+                  j.status === "completed" ? "bg-[#DEEBCF] text-[#3F5B2E] rounded-full px-2 py-0.5 text-[10px] font-bold" :
+                  j.status === "failed" ? "bg-[#FCE6D4] text-[#B8612F] rounded-full px-2 py-0.5 text-[10px] font-bold" :
+                  "bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-2 py-0.5 text-[10px] font-bold"
+                }>
+                  {j.job_type === "final_video_assembly" ? "فيديو" : "PDF"}: {j.status}
+                </span>
+              ))}
+              <button
+                onClick={async () => {
+                  if (!window.confirm("إعادة تجميع الفيديو والـ PDF من الأصول الحالية؟")) return;
+                  try {
+                    await api.post(`/admin/orders/${orderId}/delivery/regenerate`);
+                    toast.success("بدأ التجميع النهائي");
+                    if (!pollRef.current) pollRef.current = setInterval(load, 4000);
+                    load();
+                  } catch (e) {
+                    toast.error(e?.response?.data?.detail || "فشل");
+                  }
+                }}
+                className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-3 py-1 text-xs font-bold inline-flex items-center gap-1 hover:bg-[#F2E8DA]"
+                data-testid="admin-regen-delivery-btn"
+              >
+                <RefreshCw className="w-3 h-3" /> إعادة تجميع
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {delivery.video && (
+              <div className="bg-white rounded-xl p-2 border border-[#E2D8C9]" data-testid="admin-final-video">
+                <video
+                  controls
+                  className="w-full aspect-video rounded-lg bg-black"
+                  poster={delivery.video.thumbnail_url ? fileSrc(delivery.video.thumbnail_url) : undefined}
+                  src={fileSrc(delivery.video.video_url)}
+                />
+                <div className="flex items-center justify-between mt-2 text-[11px] text-[#5A677D] font-body">
+                  <span>⏱ {Math.round(delivery.video.duration_seconds || 0)}ث • 🎵 {delivery.video.audio_background_mode}</span>
+                  <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5 font-bold">{delivery.video.provider} / {delivery.video.source_type}</span>
+                </div>
+              </div>
+            )}
+            {delivery.pdf && (
+              <div className="bg-white rounded-xl p-3 border border-[#E2D8C9] flex flex-col gap-2" data-testid="admin-final-pdf">
+                <div className="flex items-center gap-2">
+                  <FileTextIcon className="w-5 h-5 text-[#8B5A2B]" />
+                  <div className="font-heading font-bold text-sm text-[#2D3748]">قصة مصوّرة PDF</div>
+                </div>
+                <div className="text-[11px] text-[#5A677D] font-body">{delivery.pdf.page_count} صفحة</div>
+                <a href={fileSrc(delivery.pdf.pdf_url)} target="_blank" rel="noreferrer"
+                  className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-3 py-1.5 text-xs font-bold inline-flex items-center gap-1 self-start">
+                  فتح PDF
+                </a>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2 flex-wrap text-sm font-body">

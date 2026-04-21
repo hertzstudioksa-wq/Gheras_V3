@@ -38,5 +38,7 @@ async def ensure_indexes():
     await db.scene_images.create_index("scene_plan_id")
     await db.narration_assets.create_index([("order_id", 1), ("scene_index", 1)])
     await db.book_assets.create_index([("order_id", 1), ("page_number", 1)])
+    await db.final_videos.create_index("order_id")
+    await db.final_pdfs.create_index("order_id")
     await db.files.create_index("storage_path")
     await db.files.create_index("user_id")

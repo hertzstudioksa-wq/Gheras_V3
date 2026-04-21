@@ -6,8 +6,9 @@ import Footer from "../components/gheras/Footer";
 import {
   Sprout, Sparkles, CheckCircle2, Loader2, ArrowRight, Clock, BookOpen,
   Heart, RefreshCcw, ShieldAlert, AlertTriangle, Film, Award, Lightbulb,
-  PartyPopper, Music, Mic, VolumeX,
+  PartyPopper, Music, Mic, VolumeX, Download, Play,
 } from "lucide-react";
+import { fileSrc } from "../lib/api";
 import { toast } from "sonner";
 
 const audioBgLabel = (mode) => ({
@@ -76,11 +77,14 @@ export default function ProductionReady() {
   const isGeneratingMedia = status === "assets_generating";
   const isMediaReady = status === "assets_ready";
   const isMediaFailed = status === "media_failed";
+  const isAssembling = status === "assembling";
+  const isDelivered = status === "delivered";
   const [mediaProgress, setMediaProgress] = useState(null);
+  const [delivery, setDelivery] = useState(null);
 
   useEffect(() => {
     let iv;
-    if (isGeneratingMedia || isMediaReady || isMediaFailed) {
+    if (isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling || isDelivered) {
       const fetchMedia = async () => {
         try {
           const { data } = await api.get(`/orders/${id}/media-status`);
@@ -89,6 +93,22 @@ export default function ProductionReady() {
       };
       fetchMedia();
       iv = setInterval(fetchMedia, 4000);
+    }
+    return () => iv && clearInterval(iv);
+    // eslint-disable-next-line
+  }, [status, id]);
+
+  useEffect(() => {
+    let iv;
+    if (isAssembling || isDelivered || isMediaFailed) {
+      const fetchDelivery = async () => {
+        try {
+          const { data } = await api.get(`/orders/${id}/delivery`);
+          setDelivery(data);
+        } catch { /* ignore */ }
+      };
+      fetchDelivery();
+      if (!isDelivered) iv = setInterval(fetchDelivery, 5000);
     }
     return () => iv && clearInterval(iv);
     // eslint-disable-next-line
@@ -156,8 +176,12 @@ export default function ProductionReady() {
               <Sparkles className="w-3 h-3" /> الخطوة 8 من 8
             </div>
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
-              {isMediaReady
-                ? "وسائط قصتك جاهزة 🌱"
+              {isDelivered
+                ? "قصتك أصبحت جاهزة 🌱"
+                : isAssembling
+                ? "جاري تجميع قصة طفلك..."
+                : isMediaReady
+                ? "وسائط قصتك جاهزة"
                 : isGeneratingMedia
                 ? "جاري إعداد قصة طفلك..."
                 : isMediaFailed
@@ -171,18 +195,22 @@ export default function ProductionReady() {
                 : "الخطة جاهزة لاعتمادك"}
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
-              {isMediaReady
-                ? "تم إعداد جميع صور ومواد القصة. الخطوة التالية: تجميعها في فيديو وكتاب."
+              {isDelivered
+                ? "يمكنك الآن مشاهدة الفيديو وتحميل القصة المصوّرة."
+                : isAssembling
+                ? "نجمع الصور والسرد في فيديو وكتاب نهائيين."
+                : isMediaReady
+                ? "تم إعداد جميع الصور. جاري الآن التجميع النهائي."
                 : isGeneratingMedia
                 ? "نُنتج الصور والسرد الصوتي لكل مشهد. هذا يستغرق دقائق قليلة."
                 : isMediaFailed
-                ? "لم تكتمل بعض الوسائط. فريقنا سيُراجع الطلب ويُصلح المشكلة."
+                ? "لم تكتمل بعض الوسائط. فريقنا سيُراجع الطلب."
                 : approved
                 ? "سنبدأ إعداد قصة طفلك قريباً وسنُعلمك فور جاهزيتها."
                 : isFailed
                 ? "حدث خلل بسيط أثناء إعداد الخطة. يمكنك إعادة المحاولة."
                 : isPlanning
-                ? "نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية. هذا يستغرق دقيقة تقريباً."
+                ? "نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية."
                 : "اطلع على ملخص الخطة، ثم اعتمدها لنبدأ إعداد قصة طفلك."}
             </p>
           </div>
@@ -213,8 +241,86 @@ export default function ProductionReady() {
           </div>
         )}
 
+        {/* DELIVERED STATE — final outputs */}
+        {isDelivered && delivery && (
+          <div className="space-y-5" data-testid="delivered-state">
+            {/* Video player */}
+            {delivery.video?.video_url && (
+              <div className="bg-white rounded-[2rem] p-5 md:p-6 border-2 border-[#87A96B] overflow-hidden" data-testid="final-video-card">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-[#E8F0E1] grid place-content-center">
+                    <Film className="w-6 h-6 text-[#4F6B3B]" />
+                  </div>
+                  <div>
+                    <h2 className="font-heading text-xl font-bold text-[#2D3748]">فيديو القصة</h2>
+                    <p className="font-body text-xs text-[#5A677D]">
+                      {Math.round(delivery.video.duration_seconds || 0)}ث •{" "}
+                      {audioBgLabel(delivery.video.audio_background_mode)}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-2xl overflow-hidden bg-black">
+                  <video
+                    controls
+                    className="w-full aspect-video"
+                    poster={delivery.video.thumbnail_url ? fileSrc(delivery.video.thumbnail_url) : undefined}
+                    src={fileSrc(delivery.video.video_url)}
+                    data-testid="final-video-player"
+                  >
+                    متصفحك لا يدعم تشغيل الفيديو.
+                  </video>
+                </div>
+                <a
+                  href={fileSrc(delivery.video.video_url)}
+                  download
+                  className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-4 py-2 text-sm font-bold hover:bg-[#D4E3C1]"
+                  data-testid="video-download-btn"
+                >
+                  <Download className="w-4 h-4" /> تحميل الفيديو
+                </a>
+              </div>
+            )}
+
+            {/* PDF download */}
+            {delivery.pdf?.pdf_url && (
+              <div className="bg-white rounded-[2rem] p-5 md:p-6 border-2 border-[#D4A373]" data-testid="final-pdf-card">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-2xl bg-[#F8F1E7] grid place-content-center">
+                    <BookOpen className="w-6 h-6 text-[#8B5A2B]" />
+                  </div>
+                  <div>
+                    <h2 className="font-heading text-xl font-bold text-[#2D3748]">القصة المصوّرة (PDF)</h2>
+                    <p className="font-body text-xs text-[#5A677D]">
+                      {delivery.pdf.page_count} صفحات • ملائم للقراءة مع طفلك
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={fileSrc(delivery.pdf.pdf_url)}
+                  download
+                  className="btn-primary inline-flex items-center gap-2 w-full md:w-auto justify-center"
+                  data-testid="pdf-download-btn"
+                >
+                  <Download className="w-4 h-4" /> تحميل القصة المصوّرة
+                </a>
+              </div>
+            )}
+
+            {/* Completion card */}
+            <div className="bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[2rem] p-6 border border-[#87A96B]/40 text-center">
+              <PartyPopper className="w-10 h-10 text-[#4F6B3B] mx-auto mb-2" />
+              <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-1">
+                {delivery.plan?.title || "قصة طفلك"}
+              </h3>
+              <p className="font-body text-sm text-[#5A677D]">
+                نتمنى أن تترك القصة أثراً جميلاً في قلب طفلك 🌱
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* MEDIA GENERATING / READY / FAILED */}
-        {(isGeneratingMedia || isMediaReady || isMediaFailed) && (
+        {(isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling) && !isDelivered && (
           <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#87A96B] mb-5" data-testid="media-progress-card">
             <div className="flex items-center gap-3 mb-4">
               <div className={`w-12 h-12 rounded-2xl grid place-content-center ${isMediaReady ? "bg-[#E8F0E1]" : isMediaFailed ? "bg-[#FCE6D4]" : "bg-[#F8F1E7]"}`}>
@@ -224,10 +330,14 @@ export default function ProductionReady() {
               </div>
               <div>
                 <h2 className="font-heading text-xl font-bold text-[#2D3748]">
-                  {isMediaReady ? "الوسائط جاهزة" : isMediaFailed ? "تعذّر إكمال الوسائط" : "جاري إنتاج الوسائط"}
+                  {isAssembling ? "جاري التجميع النهائي" :
+                   isMediaReady ? "الوسائط جاهزة" :
+                   isMediaFailed ? "تعذّر إكمال الوسائط" :
+                   "جاري إنتاج الوسائط"}
                 </h2>
                 <p className="font-body text-xs text-[#5A677D]">
-                  {isMediaReady ? "بانتظار خطوة التجميع النهائية" :
+                  {isAssembling ? "ندمج الصور والسرد في فيديو وكتاب..." :
+                   isMediaReady ? "بانتظار خطوة التجميع النهائية" :
                    isMediaFailed ? "يُراجع فريقنا الطلب وسنُعيد المحاولة" :
                    `اكتمل ${mediaProgress?.summary?.completed || 0} من ${mediaProgress?.summary?.total || 0}`}
                 </p>
@@ -247,21 +357,11 @@ export default function ProductionReady() {
                 </div>
               </div>
             )}
-            {isMediaReady && (
-              <div className="bg-gradient-to-br from-[#F8F1E7] to-[#E8F0E1] rounded-2xl p-4 border border-[#D4A373]/30 mt-3">
-                <div className="flex items-center gap-2 mb-1 text-[#8B5A2B] font-body font-bold text-sm">
-                  <Sprout className="w-4 h-4" /> الخطوة التالية
-                </div>
-                <p className="font-body text-sm text-[#2D3748]">
-                  سنقوم بتجميع القصة في فيديو وكتاب، وسنُعلمك فور جاهزيتها.
-                </p>
-              </div>
-            )}
           </div>
         )}
 
         {/* APPROVED (SUCCESS) STATE — only when NOT yet in media flow */}
-        {approved && !isGeneratingMedia && !isMediaReady && !isMediaFailed && summary && (
+        {approved && !isGeneratingMedia && !isMediaReady && !isMediaFailed && !isAssembling && !isDelivered && summary && (
           <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#87A96B] mb-6 relative overflow-hidden" data-testid="approved-state">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-2xl bg-[#E8F0E1] grid place-content-center">
