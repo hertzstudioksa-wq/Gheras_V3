@@ -49,10 +49,17 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="orders-grid">
-            {orders.map((o, i) => (
+            {orders.map((o, i) => {
+              const target =
+                o.status === "scenarios_ready" || o.status === "scenarios_generating"
+                  ? `/orders/${o.id}/scenarios`
+                  : ["production_ready", "production_planning", "production_approved", "ready_for_ai"].includes(o.status)
+                  ? `/orders/${o.id}/production-ready`
+                  : `/orders/${o.id}`;
+              return (
               <Link
                 key={o.id}
-                to={`/orders/${o.id}`}
+                to={target}
                 className="bg-white rounded-3xl p-6 border border-[#E2D8C9] card-lift block animate-grow"
                 style={{ animationDelay: `${i * 0.05}s` }}
                 data-testid={`order-card-${o.id}`}
@@ -73,7 +80,8 @@ export default function Dashboard() {
                   {new Date(o.created_at).toLocaleDateString("ar-EG")}
                 </div>
               </Link>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

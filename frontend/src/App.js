@@ -15,6 +15,7 @@ import StoryBuilder from "./pages/StoryBuilder";
 import Dashboard from "./pages/Dashboard";
 import OrderDetail from "./pages/OrderDetail";
 import ScenarioSelection from "./pages/ScenarioSelection";
+import ProductionReady from "./pages/ProductionReady";
 
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminOverview from "./pages/admin/AdminOverview";
@@ -72,6 +73,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ScenarioSelection />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/orders/:id/production-ready"
+              element={
+                <ProtectedRoute>
+                  <ProductionReady />
                 </ProtectedRoute>
               }
             />

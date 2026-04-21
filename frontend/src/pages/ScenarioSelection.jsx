@@ -81,7 +81,7 @@ export default function ScenarioSelection() {
     try {
       await api.post(`/orders/${id}/scenarios/${sid}/select`);
       toast.success("تم اختيار السيناريو 🌱");
-      navigate(`/orders/${id}`);
+      navigate(`/orders/${id}/production-ready`);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "فشل الاختيار");
     } finally {

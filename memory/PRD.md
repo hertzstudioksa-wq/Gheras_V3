@@ -28,6 +28,16 @@ Arabic-first (RTL) AI storytelling platform for children. Multi-step Story Build
 - User regen = 1 attempt; admin regen = unlimited.
 - Admin panel tab: **خطة الإنتاج** (view plan, view/edit scenes incl. narration + prompts, regenerate).
 
+### Phase 5.1 — User-Facing Approval Page (Apr 21, 2026)
+- New route: `/orders/{id}/production-ready` (`ProductionReady.jsx`).
+- Arabic RTL, mobile-first, sticky bottom action bar on mobile.
+- States: loading, `production_planning` skeleton, `production_ready` (summary+actions), `production_approved` (success), `failed` (retry guidance).
+- Shows: title, story_summary, main_message, duration, scene_count, image_count, safety_check.
+- Hides: all prompts, scenes, IDs, admin-only details.
+- Actions: "موافق على الخطة" (with loader) + "إعادة إعداد الخطة" (1 attempt + confirm dialog).
+- After scenario selection, users are now redirected to this page automatically.
+- Dashboard deep-links directly to the right route based on status.
+
 ## Order Status Machine
 ```
 draft → pending → (scenarios_generating ↔ scenarios_ready) → scenario_selected →
