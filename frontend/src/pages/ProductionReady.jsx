@@ -89,12 +89,17 @@ export default function ProductionReady() {
   const limitReached = remaining <= 0;
 
   const status = state?.status;
+  const summary = state?.summary;
+  // Frontend guard: treat "production_ready" without a summary as still planning.
+  // The backend already does this, but we defend in depth to prevent any flicker.
+  const planReady = status === "production_ready" && !!summary;
+  const isPlanStillLoading = status === "production_ready" && !summary;
   const isGeneratingMedia = status === "assets_generating";
   const isMediaReady = status === "assets_ready";
   const isMediaFailed = status === "media_failed";
   const isAssembling = status === "assembling";
   const isDelivered = status === "delivered";
-  const isPlanning = ["pending", "ready_for_ai", "production_planning", "scenarios_generating",
+  const isPlanning = isPlanStillLoading || ["pending", "ready_for_ai", "production_planning", "scenarios_generating",
                       "scenarios_ready", "scenario_selected"].includes(status);
   const isFailed = status === "failed";
   // Unified progress from backend (0..100 across the whole pipeline).
@@ -103,22 +108,6 @@ export default function ProductionReady() {
   const progressStage = progress?.stage;
   const progressMessage = progress?.message_ar;
   const [delivery, setDelivery] = useState(null);
-
-  useEffect(() => {
-    let iv;
-    if (isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling || isDelivered) {
-      const fetchMedia = async () => {
-        try {
-          const { data } = await api.get(`/orders/${id}/media-status`);
-          setMediaProgress(data);
-        } catch { /* ignore */ }
-      };
-      fetchMedia();
-      iv = setInterval(fetchMedia, 4000);
-    }
-    return () => iv && clearInterval(iv);
-    // eslint-disable-next-line
-  }, [status, id]);
 
   useEffect(() => {
     let iv;
@@ -215,7 +204,6 @@ export default function ProductionReady() {
     );
   }
 
-  const summary = state?.summary;
   const approved = !!state?.production_approved;
 
   return (
@@ -256,7 +244,9 @@ export default function ProductionReady() {
                 ? "تعذّر إعداد الخطة"
                 : isPlanning
                 ? "نُعِدّ خطة القصة لطفلك..."
-                : "الخطة جاهزة لاعتمادك"}
+                : planReady
+                ? "الخطة جاهزة لاعتمادك"
+                : "نُعِدّ خطة القصة لطفلك..."}
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
               {isDelivered
@@ -275,7 +265,9 @@ export default function ProductionReady() {
                 ? "حدث خلل بسيط أثناء إعداد الخطة. يمكنك إعادة المحاولة."
                 : isPlanning
                 ? "نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية."
-                : "اطلع على ملخص الخطة، ثم اعتمدها لنبدأ إعداد قصة طفلك."}
+                : planReady
+                ? "اطلع على ملخص الخطة، ثم اعتمدها لنبدأ إعداد قصة طفلك."
+                : "نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية."}
             </p>
 
             {/* Unified pipeline progress bar — always visible from planning to delivery */}
@@ -491,7 +483,7 @@ export default function ProductionReady() {
         )}
 
         {/* READY — SUMMARY + ACTIONS */}
-        {!approved && !isFailed && summary && status === "production_ready" && (
+        {!approved && !isFailed && planReady && (
           <>
             {/* Summary card */}
             <div className="bg-white rounded-[2rem] p-6 md:p-8 border border-[#E2D8C9] mb-5" data-testid="summary-card">
@@ -608,7 +600,7 @@ export default function ProductionReady() {
       </div>
 
       {/* Sticky mobile action bar (only on ready state) */}
-      {!approved && !isFailed && summary && status === "production_ready" && (
+      {!approved && !isFailed && planReady && (
         <div
           className="md:hidden fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur border-t border-[#E2D8C9] p-3 flex items-center gap-2 z-30"
           data-testid="mobile-actions"

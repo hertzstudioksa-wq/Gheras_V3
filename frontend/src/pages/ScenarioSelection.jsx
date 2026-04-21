@@ -29,22 +29,35 @@ export default function ScenarioSelection() {
   const [regenerating, setRegenerating] = useState(false);
   const pollRef = useRef(null);
 
-  const fetchData = async () => {
+  const errorShownRef = useRef(false);
+
+  const fetchData = async (opts = {}) => {
+    const { silent = false } = opts;
     try {
       const { data } = await api.get(`/orders/${id}/scenarios`);
       setState(data);
+      errorShownRef.current = false;
       const terminal = ["scenarios_ready", "scenario_selected", "ready_for_ai", "generating", "completed", "failed"];
       if (terminal.includes(data.status)) setPolling(false);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "تعذّر تحميل السيناريوهات");
-      setPolling(false);
+      // Only surface PERMANENT errors (404/403/401) once. Transient errors
+      // (network/502/504) are silenced; the polling loop will retry.
+      const s = e?.response?.status;
+      const isPermanent = s === 404 || s === 403 || s === 401;
+      if (isPermanent && !silent && !errorShownRef.current) {
+        toast.error(e?.response?.data?.detail || "تعذّر تحميل السيناريوهات");
+        errorShownRef.current = true;
+      }
+      if (isPermanent) setPolling(false);
     }
   };
 
   useEffect(() => {
+    // Initial fetch: allow toast for permanent errors.
     fetchData();
+    // Polling: silent — never toast.
     pollRef.current = setInterval(() => {
-      if (polling) fetchData();
+      if (polling) fetchData({ silent: true });
     }, 2500);
     return () => clearInterval(pollRef.current);
     // eslint-disable-next-line
@@ -119,10 +132,10 @@ export default function ScenarioSelection() {
               <Sparkles className="w-3 h-3" /> الخطوة 7 من 8
             </div>
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
-              {isLoading ? "نُعِدّ الآن 3 أفكار مناسبة لطفلك" : isFailed ? "حدث تعطّل بسيط" : "اختر السيناريو الذي يناسبك"}
+              {isLoading ? "جاري تجهيز أفكار القصة لطفلك..." : isFailed ? "حدث تعطّل بسيط" : "اختر السيناريو الذي يناسبك"}
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
-              {isLoading ? "كاتبنا يصمّم 3 زوايا مختلفة لقصة طفلك. هذا يستغرق ثوانٍ قليلة..."
+              {isLoading ? "نقوم الآن بإعداد 3 سيناريوهات مخصصة"
               : isFailed ? "لم نتمكن من إنشاء السيناريوهات. جرّب إعادة التوليد."
               : "كل سيناريو له شخصية مختلفة. اختر الزاوية التي تشعر أنها الأقرب لطفلك."}
             </p>
@@ -134,8 +147,33 @@ export default function ScenarioSelection() {
                 <span>~{state.duration.scene_target} مشاهد</span>
               </div>
             )}
+
+            {/* Indeterminate progress bar while generating */}
+            {isLoading && (
+              <div className="mt-5 bg-white/70 backdrop-blur rounded-2xl p-4 border border-[#E2D8C9]" data-testid="scenarios-progress">
+                <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#87A96B]" />
+                    الكاتب يصمّم 3 زوايا مختلفة لقصة طفلك...
+                  </span>
+                </div>
+                <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden relative">
+                  <div
+                    className="absolute inset-y-0 bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full"
+                    style={{ width: "33%", animation: "gheras-indet 1.4s ease-in-out infinite" }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
+
+        <style>{`
+          @keyframes gheras-indet {
+            0%   { left: -33%; }
+            100% { left: 100%; }
+          }
+        `}</style>
 
         {isLoading && <LoadingSkeleton />}
 
