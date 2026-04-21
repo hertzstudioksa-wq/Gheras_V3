@@ -22,6 +22,7 @@ from storage import put_object, APP_NAME
 from services.image_generation_service import generate_image
 from services.audio_generation_service import generate_audio, estimate_duration_seconds
 from services.config_service import resolve_prompt
+from services.child_character_service import safe_run as run_child_character_stage
 
 logger = logging.getLogger("generation_orchestrator")
 
@@ -425,6 +426,19 @@ async def run_asset_generation(order_id: str, run_id: str):
     )
     await _append_status(order_id, order.get("status"), OrderStatus.ASSETS_GENERATING.value, "system",
                          reason=f"start assets generation (run {run_id[:8]}, {len(jobs)} jobs)")
+
+    # --- Phase C: child_character_i2i (OPTIONAL, disabled by default) -------
+    # Runs BEFORE any scene image generation. Never blocks the pipeline — even
+    # if it fails, downstream stages proceed with the existing text-only flow.
+    try:
+        cc_result = await run_child_character_stage(order, plan)
+        if cc_result.get("ran") and cc_result.get("status") == "failed":
+            logger.warning(
+                f"[child_character_i2i] stage failed but pipeline continues "
+                f"(order={order_id}, reason={cc_result.get('reason')})"
+            )
+    except Exception as e:  # noqa: BLE001 — safe_run should never raise, defense-in-depth
+        logger.exception(f"[child_character_i2i] unexpected crash (ignored): {e}")
 
     # Process in order: cover first, then scene_images, then narration, then book assets
     priority = {"cover_image": 0, "scene_image": 1, "narration_audio": 2, "book_page_asset": 3}

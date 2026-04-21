@@ -9,6 +9,7 @@ from models import ORDER_STATUS_AR, OrderStatus
 from services.generation_orchestrator import run_asset_generation, retry_single_job
 from services.final_delivery_service import run_final_assembly, retry_single_assembly_job
 from services.progress_service import compute_pipeline_progress
+from services.child_character_service import safe_run as run_child_character_stage, get_asset as get_child_character_asset
 
 user_router = APIRouter(prefix="/orders", tags=["media-user"])
 admin_router = APIRouter(prefix="/admin", tags=["media-admin"], dependencies=[Depends(require_admin)])
@@ -121,6 +122,49 @@ async def admin_retry_job(job_id: str, background: BackgroundTasks):
         background.add_task(retry_single_assembly_job, job_id)
     else:
         background.add_task(retry_single_job, job_id)
+    return {"ok": True, "queued": True}
+
+
+# ---------------- Child character (Phase C) ----------------
+@admin_router.get("/orders/{order_id}/child-character")
+async def admin_get_child_character(order_id: str):
+    """Return the current child_character_i2i asset + stage status for admin UI."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0, "data": 1, "status": 1})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    asset = await get_child_character_asset(order_id)
+    child = (order.get("data") or {}).get("child") or {}
+    # Read stage enabled flag (source of truth)
+    pipeline_cfg = await db.pipeline_config.find_one({"id": "default"}, {"_id": 0})
+    stage_cfg = ((pipeline_cfg or {}).get("stages") or {}).get("child_character_i2i") or {}
+    return {
+        "order_id": order_id,
+        "stage_enabled": bool(stage_cfg.get("enabled", False)),
+        "stage_config": stage_cfg,
+        "source_image_url": child.get("image_url"),
+        "child_name": child.get("name"),
+        "asset": asset,
+    }
+
+
+@admin_router.post("/orders/{order_id}/child-character/regenerate")
+async def admin_regenerate_child_character(order_id: str, background: BackgroundTasks):
+    """Re-run the child_character_i2i stage in the background.
+
+    Works even if the stage is disabled in pipeline_config → the service
+    will detect and return a `skipped` descriptor that the UI can surface.
+    """
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    plan = None
+    if order.get("production_plan_id"):
+        plan = await db.production_plans.find_one({"id": order["production_plan_id"]}, {"_id": 0})
+
+    async def _run():
+        await run_child_character_stage(order, plan)
+
+    background.add_task(_run)
     return {"ok": True, "queued": True}
 
 

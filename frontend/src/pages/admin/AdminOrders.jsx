@@ -629,6 +629,9 @@ function AdminMediaTab({ orderId }) {
         <Stat label="فشلت" value={c.failed || 0} color="bg-[#FCE6D4] border-[#E07A5F]/40 text-[#B8612F]" />
       </div>
 
+      {/* Child Character (Phase C) */}
+      <ChildCharacterCard orderId={orderId} />
+
       {/* Cover */}
       {cover && (
         <section>
@@ -791,6 +794,141 @@ function Stat({ label, value, color }) {
       <div className="text-[11px] font-body opacity-80">{label}</div>
       <div className="font-heading font-bold text-xl">{value}</div>
     </div>
+  );
+}
+
+function ChildCharacterCard({ orderId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data: d } = await api.get(`/admin/orders/${orderId}/child-character`);
+      setData(d);
+    } catch {
+      // silent — card is optional; never block media tab
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, [orderId]);
+
+  const regenerate = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/admin/orders/${orderId}/child-character/regenerate`);
+      toast.success("بدأت إعادة توليد الشخصية");
+      setTimeout(load, 1500);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "فشل");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return null;
+  if (!data) return null;
+
+  const asset = data.asset;
+  const enabled = data.stage_enabled;
+  const status = asset?.status || (enabled ? "not_run" : "disabled");
+  const statusMap = {
+    completed: { label: "مكتمل", bg: "bg-[#DEEBCF]", fg: "text-[#3F5B2E]" },
+    processing: { label: "جاري المعالجة", bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]" },
+    queued: { label: "في الانتظار", bg: "bg-[#F8F1E7]", fg: "text-[#8B5A2B]" },
+    failed: { label: "فشل", bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]" },
+    not_run: { label: "لم يُشغّل بعد", bg: "bg-[#F8F1E7]", fg: "text-[#8B5A2B]" },
+    disabled: { label: "معطّل", bg: "bg-[#EEE9E0]", fg: "text-[#5A677D]" },
+  };
+  const sm = statusMap[status] || statusMap.disabled;
+
+  return (
+    <section
+      className="bg-[#FDFBF7] rounded-2xl p-4 border border-[#E2D8C9]"
+      data-testid="admin-child-character-card"
+    >
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <h4 className="font-heading font-bold text-[#2D3748] inline-flex items-center gap-2">
+          <UsersIcon className="w-4 h-4 text-[#729352]" />
+          شخصية الطفل (Phase C — I2I)
+        </h4>
+        <div className="flex items-center gap-2">
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${sm.bg} ${sm.fg}`}
+            data-testid="child-character-status"
+          >
+            {sm.label}
+          </span>
+          {!enabled && (
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold bg-[#F8F1E7] text-[#8B5A2B]">
+              المرحلة معطّلة في الإعدادات
+            </span>
+          )}
+          {asset?.provider && (
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold bg-[#EEE9E0] text-[#5A677D]">
+              {asset.provider}{asset.mock ? " · mock" : ""}
+            </span>
+          )}
+          <button
+            onClick={regenerate}
+            disabled={busy}
+            className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-3 py-1 text-xs font-bold inline-flex items-center gap-1 hover:bg-[#F2E8DA] disabled:opacity-50"
+            data-testid="child-character-regen-btn"
+          >
+            <RefreshCw className="w-3 h-3" /> إعادة توليد
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="text-[11px] font-body text-[#8A9AB0] mb-1">الصورة الأصلية</div>
+          {data.source_image_url ? (
+            <img
+              src={fileSrc(data.source_image_url)}
+              alt="source"
+              className="w-32 h-32 rounded-2xl object-cover border border-[#E2D8C9]"
+              data-testid="child-character-source-image"
+            />
+          ) : (
+            <div className="w-32 h-32 rounded-2xl bg-[#F2E8DA] grid place-content-center text-[11px] text-[#8A9AB0]">
+              لا توجد صورة
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-[11px] font-body text-[#8A9AB0] mb-1">شخصية الكرتون المُولّدة</div>
+          {asset?.generated_image_url ? (
+            <img
+              src={fileSrc(asset.generated_image_url)}
+              alt="generated"
+              className="w-32 h-32 rounded-2xl object-cover border border-[#E2D8C9]"
+              data-testid="child-character-generated-image"
+            />
+          ) : (
+            <div className="w-32 h-32 rounded-2xl bg-[#F2E8DA] grid place-content-center text-[11px] text-[#8A9AB0] text-center px-2">
+              {enabled ? "لم تُولَّد بعد" : "المرحلة غير مفعّلة"}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {asset?.prompt_used && (
+        <details className="mt-3 cursor-pointer" data-testid="child-character-prompt-details">
+          <summary className="text-xs font-bold text-[#5A677D]">Prompt المستخدم</summary>
+          <p className="mt-1 font-mono text-[11px] text-[#2D3748] leading-relaxed bg-white rounded-xl p-2 border border-[#E2D8C9] whitespace-pre-wrap">
+            {asset.prompt_used}
+          </p>
+        </details>
+      )}
+
+      {asset?.error_message && (
+        <div className="mt-3 text-[11px] bg-[#FCE6D4] text-[#B8612F] rounded-xl p-2 border border-[#E07A5F]/40">
+          {asset.error_message}
+        </div>
+      )}
+    </section>
   );
 }
 

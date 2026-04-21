@@ -84,7 +84,7 @@ export default function AdminPipeline() {
       <div className="rounded-2xl overflow-hidden bg-[#E8F0E1] border border-[#87A96B]/30 p-4 text-sm font-body text-[#4F6B3B] flex items-start gap-2">
         <Info className="w-4 h-4 mt-0.5 shrink-0" />
         <span>
-          <b>child_character_i2i</b> مُعطّل افتراضياً — سيتم تفعيله فعلياً في Phase C بعد ربط الكود بمزوّد الصور. تعطيله الآن لا يؤثر على القصص الحالية.
+          <b>child_character_i2i</b> مُعطّل افتراضياً. بتفعيله ستُولَّد شخصية كرتونية مرجعية للطفل قبل مشاهد القصة (حالياً في وضع <b>mock/dry-run</b> — بدون استدعاء مزوّد حقيقي). لا يكسر المشاهد الحالية حتى لو فشل.
         </span>
       </div>
 

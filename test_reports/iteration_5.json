@@ -1,0 +1,26 @@
+{
+  "summary": "Phase C (child_character_i2i, MOCK-only) verified end-to-end. 8/8 backend pytest cases passed in /app/backend/tests/test_child_character.py. Validated GET /api/admin/orders/{id}/child-character schema (order_id, stage_enabled, stage_config, source_image_url, child_name, asset), POST /child-character/regenerate returns {ok:true,queued:true} idempotently, disabled-stage path leaves child_character_assets untouched, enabled-stage path produces a doc with status='completed', provider='mock', model_name='dry-run', mock=true, prompt_used non-empty, and generated_image_url mirrors source_image_url. Regression checks: GET /admin/orders/{id}/media still returns scene_images/narration_assets/book_assets/counts/jobs unchanged; GET /admin/pipeline-config still lists child_character_i2i; PATCH toggle persists; default state restored to enabled=false in module teardown (verified via curl). Frontend: logged in as admin, opened order modal → الوسائط tab — 'شخصية الطفل (Phase C — I2I)' card renders with admin-child-character-card, child-character-status (مكتمل badge), source image, generated image, mock·mock provider chip, and child-character-regen-btn button. /admin/pipeline page shows updated info banner containing the literal 'mock/dry-run' Arabic phrase, and the child_character_i2i stage row is present. 0 JS console errors, 0 pageerrors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_child_character.py",
+    "/app/test_reports/pytest/child_character.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "child_character_service.run_child_character_generation: when stage is disabled OR no source image, the function correctly returns a skipped descriptor without inserting/updating the asset doc — good. However, _upsert_asset is called BEFORE the mock execution to mark status='processing'. If the mock provider were to ever raise, the asset is still re-upserted to status='failed' which is fine, but consider also recording 'attempt_count' for parity with generation_jobs.",
+    "media_routes.admin_regenerate_child_character does NOT require production_approved (unlike admin_regenerate_media). That is intentional per the spec (works even when stage disabled) but means an admin can spam the endpoint for any order. Consider light rate-limiting later.",
+    "media_routes.admin_get_child_character reads pipeline_config directly via db.pipeline_config.find_one({'id':'default'}) instead of going through services.config_service.get_pipeline_config(). This duplicates the source-of-truth lookup and could drift if the resolver logic changes (defaults merge, etc.). Consider calling get_pipeline_config() to stay DRY.",
+    "child_character_service hardcodes provider='gemini' / model_name='gemini-2.5-flash-image-preview' as the resolve_model fallback even though the executor itself is MOCK-only. Acceptable for now (logged for observability) but document the disconnect so future maintainers don't think the call hits Gemini.",
+    "Idempotency: rapid double-click on 'إعادة توليد' will queue two background tasks that race on _upsert_asset. The upsert is safe (one doc per order_id), but updated_at and status flicker briefly. A simple in-flight guard (e.g., status='processing' short-circuits) would smooth the UX.",
+    "Frontend ChildCharacterCard: source/generated image elements render the same URL in MOCK mode — fine, but consider adding an aria-label / visual badge ('MOCK preview') so reviewers don't think the model actually transformed the photo."
+  ],
+  "updated_files": ["/app/backend/tests/test_child_character.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (smoke)"},
+  "test_credentials": "admin@gheras.com / Admin@1234. Order used for media-tab smoke: محمود (61c44457-2a80-454d-b3bc-5d2625085aba) — has child image_url present.",
+  "seed_data_creation": "None. Re-used existing delivered orders. Module teardown PATCHes pipeline-config back to child_character_i2i.enabled=false (verified via curl after run).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: `export $(grep -v '^#' /app/frontend/.env | xargs) && pytest /app/backend/tests/test_child_character.py -v`. Tests are ~6s. The fixture `restore_pipeline_default` (autouse, module-scoped) always resets the stage flag to False on teardown. The enabled-path test will skip if the picked order has no child image_url; in this environment most orders do (محمود is the safe default).",
+  "rca of the issue": "N/A — no bugs found. Implementation matches spec: scene_image_generation pipeline is unaffected (Phase C runs BEFORE scene loop inside try/except in generation_orchestrator.run_asset_generation, lines 433-441), failure cannot block downstream, and mock provider mirrors source URL as documented."
+}
