@@ -28,6 +28,17 @@ Arabic-first (RTL) AI storytelling platform for children. Multi-step Story Build
 - User regen = 1 attempt; admin regen = unlimited.
 - Admin panel tab: **خطة الإنتاج** (view plan, view/edit scenes incl. narration + prompts, regenerate).
 
+### Phase 6A.1 — Audio Background Preference (Apr 21, 2026)
+- User-facing selector in Story Builder Step 5: "الخلفية الصوتية" with 3 options:
+  - `music` → "موسيقى هادئة"
+  - `human_rhythm` → "إيقاع صوتي بشري" (vocal rhythm/nasheed style, no instruments)
+  - `none` → "من دون خلفية صوتية" (narration only)
+- Helper text: "يمكنك اختيار ما يناسب أسرتك، وسيتم اعتماد ذلك في النسخة النهائية من القصة."
+- Stored in `order.data.audio_background: {mode}` (default `music`).
+- Propagated to Claude production prompt + stored on `production_plans.audio_background`.
+- Visible in: Story Builder Review, Admin Production Plan tab, User Production Summary page (detail card).
+- Will be consumed during Phase 6B final assembly (video/audio track mixing).
+
 ### Phase 5.1 — User-Facing Approval Page (Apr 21, 2026)
 - New route: `/orders/{id}/production-ready` (`ProductionReady.jsx`).
 - Arabic RTL, mobile-first, sticky bottom action bar on mobile.

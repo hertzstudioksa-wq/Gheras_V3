@@ -126,6 +126,7 @@ def _user_summary(plan: dict | None, order: dict) -> dict | None:
         "estimated_image_count": plan.get("estimated_image_count"),
         "duration_label": plan.get("duration_label"),
         "duration_seconds": plan.get("duration_seconds"),
+        "audio_background": plan.get("audio_background") or {"mode": "music"},
         "source": plan.get("source"),
         "safety_check": plan.get("safety_check"),
         "generated_at": (order.get("production_plan_snapshot") or {}).get("generated_at"),

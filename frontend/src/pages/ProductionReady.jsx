@@ -6,9 +6,21 @@ import Footer from "../components/gheras/Footer";
 import {
   Sprout, Sparkles, CheckCircle2, Loader2, ArrowRight, Clock, BookOpen,
   Heart, RefreshCcw, ShieldAlert, AlertTriangle, Film, Award, Lightbulb,
-  PartyPopper,
+  PartyPopper, Music, Mic, VolumeX,
 } from "lucide-react";
 import { toast } from "sonner";
+
+const audioBgLabel = (mode) => ({
+  music: "موسيقى هادئة",
+  human_rhythm: "إيقاع صوتي بشري",
+  none: "من دون خلفية صوتية",
+}[mode] || "موسيقى هادئة");
+
+const audioBgIcon = (mode) => ({
+  music: Music,
+  human_rhythm: Mic,
+  none: VolumeX,
+}[mode] || Music);
 
 export default function ProductionReady() {
   const { id } = useParams();
@@ -323,6 +335,12 @@ export default function ProductionReady() {
                   label="عناصر بصرية"
                   value={`${summary.estimated_image_count} صورة`}
                   testId="detail-images"
+                />
+                <Detail
+                  icon={audioBgIcon(summary.audio_background?.mode)}
+                  label="الخلفية الصوتية"
+                  value={audioBgLabel(summary.audio_background?.mode)}
+                  testId="detail-audio-bg"
                 />
               </div>
               <div className="mt-4 text-xs font-body text-[#8A9AB0] inline-flex items-center gap-2 bg-[#FDFBF7] rounded-full px-3 py-1.5 border border-[#E2D8C9]">

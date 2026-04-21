@@ -9,6 +9,7 @@ import {
   ChevronRight, ChevronLeft, Check, Sprout, User, Users, Sparkles, BookOpen,
   PenTool, Heart, Sun, Award, Moon, Rocket, CheckCircle2, Plus, Trash2, X,
   PartyPopper, Palette, MapPin, Languages, Mic, FileText, Clock, Coins,
+  Music, VolumeX,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -61,6 +62,12 @@ const COST_TIER_META = {
   high:   { label: "مميّز",    color: "bg-[#FCE6D4] text-[#B8612F] border-[#E07A5F]/40" },
 };
 
+const AUDIO_BG_OPTIONS = [
+  { v: "music",         l: "موسيقى هادئة",              i: Music },
+  { v: "human_rhythm",  l: "إيقاع صوتي بشري",           i: Mic },
+  { v: "none",          l: "من دون خلفية صوتية",        i: VolumeX },
+];
+
 const blankData = () => ({
   goal: { category_id: "", subcategory_id: "", custom_subcategory: "", context: "" },
   child: { name: "", age: 5, gender: "male", image_url: "", appearance_notes: "", hijab: false },
@@ -68,6 +75,7 @@ const blankData = () => ({
   personalization: { favorites: {}, toy_image_url: "", custom_notes: "" },
   style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "" },
   duration: { seconds: 90 },
+  audio_background: { mode: "music" },
 });
 
 const LS_KEY = "gheras_story_draft_v2";
@@ -149,6 +157,7 @@ export default function StoryBuilder() {
   const updateStyle = (patch) => setData((d) => ({ ...d, style: { ...d.style, ...patch } }));
   const updatePers = (patch) => setData((d) => ({ ...d, personalization: { ...d.personalization, ...patch } }));
   const updateDuration = (seconds) => setData((d) => ({ ...d, duration: { seconds } }));
+  const updateAudioBg = (mode) => setData((d) => ({ ...d, audio_background: { mode } }));
 
   const toggleFav = (key) => {
     const cur = data.personalization.favorites?.[key] || { selected: false, name: "" };
@@ -680,6 +689,11 @@ export default function StoryBuilder() {
                 onChange={updateDuration}
               />
 
+              <AudioBackgroundPicker
+                mode={data.audio_background?.mode || "music"}
+                onChange={updateAudioBg}
+              />
+
               <OptionGroup label="نوع القصة" icon={Palette} items={options.type} value={data.style.type_id} onChange={(v) => updateStyle({ type_id: v })} testId="style-type" required />
               <OptionGroup label="النبرة" icon={Heart} items={options.tone} value={data.style.tone_id} onChange={(v) => updateStyle({ tone_id: v })} testId="style-tone" required />
               <OptionGroup label="البيئة" icon={MapPin} items={options.setting} value={data.style.setting_id} onChange={(v) => updateStyle({ setting_id: v })} testId="style-setting" />
@@ -809,6 +823,46 @@ function DurationPicker({ seconds, onChange }) {
   );
 }
 
+function AudioBackgroundPicker({ mode, onChange }) {
+  return (
+    <div className="mb-6" data-testid="audio-bg-picker">
+      <label className="flex items-center gap-2 mb-3">
+        <Music className="w-4 h-4 text-[#729352]" />
+        <span className="text-sm font-bold text-[#2D3748] font-body">الخلفية الصوتية</span>
+      </label>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {AUDIO_BG_OPTIONS.map((opt) => {
+          const Icon = opt.i;
+          const selected = mode === opt.v;
+          return (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => onChange(opt.v)}
+              className={`rounded-2xl p-3 border-2 transition-all text-right flex items-center gap-3 ${
+                selected
+                  ? "border-[#87A96B] bg-[#E8F0E1]"
+                  : "border-[#E2D8C9] bg-white hover:border-[#87A96B]/50"
+              }`}
+              data-testid={`audio-bg-${opt.v}`}
+            >
+              <div className={`w-9 h-9 rounded-xl grid place-content-center ${selected ? "bg-white" : "bg-[#FDFBF7]"}`}>
+                <Icon className={`w-4 h-4 ${selected ? "text-[#4F6B3B]" : "text-[#5A677D]"}`} />
+              </div>
+              <span className={`font-body text-sm font-bold ${selected ? "text-[#4F6B3B]" : "text-[#2D3748]"}`}>
+                {opt.l}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-[#8A9AB0] font-body mt-2">
+        يمكنك اختيار ما يناسب أسرتك، وسيتم اعتماد ذلك في النسخة النهائية من القصة.
+      </p>
+    </div>
+  );
+}
+
 function OptionGroup({ label, icon: Icon, items, value, onChange, testId, required }) {
   if (!items?.length) return null;
   return (
@@ -844,6 +898,8 @@ function Review({ data, categories, options }) {
   const findOpt = (kind, id) => (options[kind] || []).find((o) => o.id === id)?.name_ar || "—";
   const durSec = data.duration?.seconds || 90;
   const durMeta = DURATION_META[durSec] || DURATION_META[90];
+  const audioBgMode = data.audio_background?.mode || "music";
+  const audioBgLabel = (AUDIO_BG_OPTIONS.find((o) => o.v === audioBgMode) || AUDIO_BG_OPTIONS[0]).l;
 
   return (
     <div data-testid="step-6-content">
@@ -860,6 +916,7 @@ function Review({ data, categories, options }) {
         <Field label="البيئة" value={findOpt("setting", data.style.setting_id)} />
         <Field label="اللغة" value={findOpt("language", data.style.language_id)} />
         <Field label="مدة الفيديو" value={`${durMeta.label} • ~${durMeta.scene_target} مشاهد`} />
+        <Field label="الخلفية الصوتية" value={audioBgLabel} />
       </div>
 
       <div className="bg-[#E8F0E1] rounded-2xl p-4 border border-[#87A96B]/30 mb-4">

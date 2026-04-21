@@ -836,6 +836,11 @@ function AdminProductionTab({ orderId }) {
               <Field label="safety" value={plan.safety_check} />
               <Field label="النبرة" value={plan.tone} />
               <Field label="البيئة" value={plan.setting} />
+              <Field label="الخلفية الصوتية" value={
+                { music: "موسيقى هادئة", human_rhythm: "إيقاع صوتي بشري", none: "بدون خلفية" }[
+                  (plan.audio_background || {}).mode || "music"
+                ]
+              } />
             </div>
             {plan.style_guide && (
               <div className="bg-white rounded-2xl p-3 border border-[#E2D8C9] mt-2" data-testid="plan-style-guide">

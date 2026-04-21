@@ -162,6 +162,13 @@ class DurationPayload(BaseModel):
     seconds: int = 90
 
 
+AUDIO_BACKGROUND_MODES = ("music", "human_rhythm", "none")
+
+
+class AudioBackgroundPayload(BaseModel):
+    mode: str = "music"  # one of AUDIO_BACKGROUND_MODES
+
+
 class StoryData(BaseModel):
     goal: GoalPayload
     child: ChildPayload
@@ -169,6 +176,7 @@ class StoryData(BaseModel):
     personalization: PersonalizationPayload = PersonalizationPayload()
     style: StylePayload = StylePayload()
     duration: DurationPayload = DurationPayload()
+    audio_background: AudioBackgroundPayload = AudioBackgroundPayload()
 
 
 # =========================

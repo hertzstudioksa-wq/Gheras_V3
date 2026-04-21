@@ -122,6 +122,12 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
     goal = data.get("goal", {}) or {}
     pers = data.get("personalization", {}) or {}
     chars = data.get("characters", []) or []
+    audio_bg = (data.get("audio_background") or {}).get("mode") or "music"
+    audio_bg_label = {
+        "music": "موسيقى هادئة (gentle instrumental music)",
+        "human_rhythm": "إيقاع صوتي بشري بدون موسيقى (vocal rhythm / nasheed style, no instruments)",
+        "none": "بدون خلفية صوتية (narration only, no background track)",
+    }.get(audio_bg, audio_bg)
 
     arc = ARC_TEMPLATES.get(target_scenes) or ARC_TEMPLATES[6]
 
@@ -164,6 +170,7 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 **مدة الفيديو**: {duration.get('label')} ({duration.get('seconds')} ثانية)
 **target_scene_count**: {target_scenes}
 **arc_template (بالترتيب)**: {arc}
+**الخلفية الصوتية المفضّلة**: {audio_bg_label}
 
 **الشخصيات الإضافية**:
 {chars_brief}
@@ -450,6 +457,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         })
 
     # plan
+    data = order.get("data") or {}
+    audio_bg_mode = (data.get("audio_background") or {}).get("mode") or "music"
     plan = {
         "id": plan_id,
         "order_id": order_id,
@@ -471,6 +480,7 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         "tone": (order.get("enriched") or {}).get("tone_name"),
         "setting": (order.get("enriched") or {}).get("setting_name"),
         "language": (order.get("enriched") or {}).get("language_name"),
+        "audio_background": {"mode": audio_bg_mode},
         "ai_plan_snapshot_json": json.dumps(payload, ensure_ascii=False),
         "created_at": now,
     }
