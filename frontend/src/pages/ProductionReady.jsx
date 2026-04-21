@@ -34,41 +34,60 @@ export default function ProductionReady() {
   const pollRef = useRef(null);
 
   const errorShownRef = useRef(false);
+  const lastUpdateRef = useRef(Date.now());
+  const startRef = useRef(Date.now());
+  const [stuckHint, setStuckHint] = useState(false);
 
   const fetchData = async (opts = {}) => {
     const { silent = false } = opts;
     try {
       const { data } = await api.get(`/orders/${id}/production-summary`);
+      // eslint-disable-next-line no-console
+      console.debug("[prod-ready][poll]", data.status, data.progress?.percent);
       setState(data);
       setLoading(false);
+      lastUpdateRef.current = Date.now();
       errorShownRef.current = false;
       // Poll while the pipeline is still active; stop on terminal delivered/failed.
       const stopStates = ["delivered", "failed", "completed"];
       if (stopStates.includes(data.status) && pollRef.current) {
+        // eslint-disable-next-line no-console
+        console.debug("[prod-ready] terminal state, stopping polling:", data.status);
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
     } catch (e) {
       const status = e?.response?.status;
-      // Only surface PERMANENT errors (not found, forbidden) — and only once.
       const isPermanent = status === 404 || status === 403 || status === 401;
       if (isPermanent && !silent && !errorShownRef.current) {
         toast.error(e?.response?.data?.detail || "تعذّر تحميل الخطة");
         errorShownRef.current = true;
       }
-      // Transient errors (network/502/504): just let the polling retry silently.
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    // First call: surface errors (it's the initial load).
     fetchData();
-    // Subsequent polls: silent so transient 502s/504s don't spam toasts.
-    pollRef.current = setInterval(() => fetchData({ silent: true }), 3500);
+    // Short interval keeps progress updates snappy — silent so transient
+    // 502s/504s don't spam the user with toasts.
+    pollRef.current = setInterval(() => fetchData({ silent: true }), 3000);
     return () => pollRef.current && clearInterval(pollRef.current);
     // eslint-disable-next-line
   }, [id]);
+
+  // Detect "stuck" feeling for assets_generating lasting >120s
+  useEffect(() => {
+    if (state?.status !== "assets_generating") {
+      setStuckHint(false);
+      return;
+    }
+    const iv = setInterval(() => {
+      const elapsed = Date.now() - startRef.current;
+      if (elapsed > 120000) setStuckHint(true);
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [state?.status]);
 
   const approve = async () => {
     setApproving(true);
@@ -201,6 +220,10 @@ export default function ProductionReady() {
             0%   { left: -33%; }
             100% { left: 100%; }
           }
+          @keyframes gheras-shimmer-move {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+          }
         `}</style>
         <Footer />
       </div>
@@ -285,13 +308,29 @@ export default function ProductionReady() {
                     {progressPercent}%
                   </span>
                 </div>
-                <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden relative">
                   <div
-                    className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-700"
+                    className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-700 relative"
                     style={{ width: `${Math.max(progressPercent, 3)}%` }}
-                  />
+                  >
+                    {/* Shimmer overlay — always animating, so the user sees motion
+                        even when the numeric percent is temporarily stable. */}
+                    <div
+                      className="absolute inset-0 rounded-full opacity-50"
+                      style={{
+                        background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.55) 50%, transparent 100%)",
+                        backgroundSize: "200% 100%",
+                        animation: "gheras-shimmer-move 1.6s linear infinite",
+                      }}
+                    />
+                  </div>
                 </div>
                 <StagePill stage={progressStage} />
+                {stuckHint && (
+                  <p className="mt-2 text-[11px] font-body text-[#8A9AB0] text-center" data-testid="stuck-hint">
+                    ما زلنا نعمل على قصتك، قد يستغرق الأمر وقتاً أطول من المعتاد 💚
+                  </p>
+                )}
               </div>
             )}
           </div>

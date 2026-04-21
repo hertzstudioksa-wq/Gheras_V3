@@ -6,6 +6,7 @@ export const API = `${BACKEND_URL}/api`;
 export const api = axios.create({
   baseURL: API,
   headers: { "Content-Type": "application/json" },
+  timeout: 20000,
 });
 
 api.interceptors.request.use((config) => {
@@ -13,6 +14,26 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+// Global 401 handler: token invalid/expired anywhere in the app → clean logout.
+// We DO NOT redirect for /auth/me probes (AuthContext handles those).
+api.interceptors.response.use(
+  (r) => r,
+  (error) => {
+    const status = error?.response?.status;
+    const url = error?.config?.url || "";
+    if (status === 401 && !url.includes("/auth/me") && !url.includes("/auth/login")) {
+      // eslint-disable-next-line no-console
+      console.debug("[auth] 401 received, clearing token:", url);
+      localStorage.removeItem("gheras_token");
+      // Only force redirect if we were already inside the app.
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        window.location.assign("/login");
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 /**
  * Build an <img>-friendly URL for backend-served files.
