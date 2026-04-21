@@ -25,6 +25,9 @@ import AdminCategories from "./pages/admin/AdminCategories";
 import AdminStoryOptions from "./pages/admin/AdminStoryOptions";
 import AdminContent from "./pages/admin/AdminContent";
 import AdminPrompts from "./pages/admin/AdminPrompts";
+import AdminModels from "./pages/admin/AdminModels";
+import AdminPipeline from "./pages/admin/AdminPipeline";
+import AdminApiStatus from "./pages/admin/AdminApiStatus";
 import AdminPlans from "./pages/admin/AdminPlans";
 import AdminSettings from "./pages/admin/AdminSettings";
 
@@ -100,6 +103,9 @@ function App() {
               <Route path="styles" element={<AdminStoryOptions />} />
               <Route path="content" element={<AdminContent />} />
               <Route path="prompts" element={<AdminPrompts />} />
+              <Route path="models" element={<AdminModels />} />
+              <Route path="pipeline" element={<AdminPipeline />} />
+              <Route path="api-status" element={<AdminApiStatus />} />
               <Route path="plans" element={<AdminPlans />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>

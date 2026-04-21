@@ -3,7 +3,7 @@ import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import {
   LayoutDashboard, Users, BookOpen, Sprout, FileText, Wand2,
-  CreditCard, Settings, LogOut, Palette,
+  CreditCard, Settings, LogOut, Palette, Cpu, Workflow, ShieldCheck,
 } from "lucide-react";
 
 const LOGO_URL = "/gheras-logo.png";
@@ -16,6 +16,9 @@ const items = [
   { to: "/admin/styles", label: "خيارات نمط القصة", icon: Palette, tid: "admin-nav-styles" },
   { to: "/admin/content", label: "محتوى الصفحة", icon: FileText, tid: "admin-nav-content" },
   { to: "/admin/prompts", label: "برومبتات AI", icon: Wand2, tid: "admin-nav-prompts" },
+  { to: "/admin/models", label: "إعدادات النماذج", icon: Cpu, tid: "admin-nav-models" },
+  { to: "/admin/pipeline", label: "إعدادات خط الإنتاج", icon: Workflow, tid: "admin-nav-pipeline" },
+  { to: "/admin/api-status", label: "حالة API", icon: ShieldCheck, tid: "admin-nav-api" },
   { to: "/admin/plans", label: "الأسعار والباقات", icon: CreditCard, tid: "admin-nav-plans" },
   { to: "/admin/settings", label: "الإعدادات", icon: Settings, tid: "admin-nav-settings" },
 ];
