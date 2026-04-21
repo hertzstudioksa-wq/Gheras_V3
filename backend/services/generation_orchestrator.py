@@ -1,0 +1,401 @@
+"""Generation orchestrator — Phase 6A.
+
+Responsibilities:
+  * Create generation_jobs (cover + scene_image × N + narration × N + book_asset × N).
+  * Process jobs sequentially with retry (max_attempts=3) and simple backoff.
+  * Persist outputs into scene_images / narration_assets / book_assets collections.
+  * Update order status: production_approved → assets_generating → assets_ready / media_failed.
+
+Design principles:
+  * Every provider call is abstracted (image_generation_service / audio_generation_service).
+  * Every job records: attempt_count, provider, error_message, target_id.
+  * Failures are isolated; order fails only if mandatory assets can't complete after retries.
+"""
+import asyncio
+import logging
+import uuid
+from datetime import datetime, timezone
+
+from db import db
+from models import OrderStatus, ORDER_STATUS_AR
+from storage import put_object, APP_NAME
+from services.image_generation_service import generate_image
+from services.audio_generation_service import generate_audio, estimate_duration_seconds
+
+logger = logging.getLogger("generation_orchestrator")
+
+MAX_ATTEMPTS = 3
+BACKOFF_SECONDS = [1, 3, 7]  # between attempts (index = attempt_count - 1)
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _append_status(order_id, from_status, to_status, by, actor_id=None, reason=None):
+    entry = {"from": from_status, "to": to_status, "at": _now(),
+             "by": by, "actor_id": actor_id, "reason": reason}
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": to_status, "updated_at": _now()},
+         "$push": {"status_history": entry}},
+    )
+
+
+# ---------------- Job creation ----------------
+async def _plan_jobs(order: dict) -> list[dict]:
+    """Inspect approved plan and return a list of job descriptors to create."""
+    plan_id = order.get("production_plan_id")
+    plan = await db.production_plans.find_one({"id": plan_id}, {"_id": 0}) if plan_id else None
+    if not plan:
+        return []
+    scenes = await db.scene_plans.find(
+        {"order_id": order["id"], "production_plan_id": plan_id, "is_archived": False},
+        {"_id": 0},
+    ).sort("scene_index", 1).to_list(50)
+    pages = await db.book_pages.find(
+        {"order_id": order["id"], "production_plan_id": plan_id, "is_archived": False},
+        {"_id": 0},
+    ).sort("page_number", 1).to_list(50)
+
+    jobs = []
+    # 1 cover image
+    jobs.append({
+        "job_type": "cover_image",
+        "target_id": plan["id"],
+        "meta": {"plan_id": plan["id"]},
+    })
+    # scene images (1 per scene)
+    for s in scenes:
+        jobs.append({"job_type": "scene_image", "target_id": s["id"], "meta": {"scene_index": s["scene_index"]}})
+    # narration audio (1 per scene)
+    for s in scenes:
+        jobs.append({"job_type": "narration_audio", "target_id": s["id"], "meta": {"scene_index": s["scene_index"]}})
+    # book_asset (1 per page) — reuses scene image URL once scene image is ready
+    for p in pages:
+        jobs.append({"job_type": "book_page_asset", "target_id": p["id"], "meta": {"page_number": p["page_number"]}})
+    return jobs
+
+
+async def _insert_jobs(order_id: str, run_id: str, jobs: list[dict]) -> list[dict]:
+    docs = []
+    for j in jobs:
+        docs.append({
+            "id": str(uuid.uuid4()),
+            "order_id": order_id,
+            "run_id": run_id,
+            "job_type": j["job_type"],
+            "target_id": j["target_id"],
+            "meta": j.get("meta", {}),
+            "status": "queued",
+            "provider": None,
+            "attempt_count": 0,
+            "max_attempts": MAX_ATTEMPTS,
+            "error_message": None,
+            "output_url": None,
+            "output_metadata": None,
+            "created_at": _now(),
+            "updated_at": _now(),
+        })
+    if docs:
+        await db.generation_jobs.insert_many(docs)
+    return docs
+
+
+async def _update_job(job_id: str, patch: dict):
+    patch["updated_at"] = _now()
+    await db.generation_jobs.update_one({"id": job_id}, {"$set": patch})
+
+
+async def _save_image_to_storage(order_id: str, kind: str, image_bytes: bytes, mime: str, user_id: str) -> str:
+    """Save image bytes to object storage + files collection, return served URL."""
+    file_id = str(uuid.uuid4())
+    ext = "png" if "png" in mime else "jpg"
+    storage_path = f"{APP_NAME}/orders/{order_id}/generated/{kind}/{file_id}.{ext}"
+    # put_object is synchronous (requests); run in threadpool to avoid blocking loop
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, lambda: put_object(storage_path, image_bytes, mime))
+    await db.files.insert_one({
+        "id": file_id,
+        "user_id": user_id,
+        "scope": f"generated-{kind}",
+        "storage_path": result.get("path", storage_path),
+        "original_filename": f"{kind}.{ext}",
+        "content_type": mime,
+        "size": result.get("size", len(image_bytes)),
+        "is_deleted": False,
+        "created_at": _now(),
+    })
+    return f"/api/uploads/file/{file_id}"
+
+
+# ---------------- Per-job executors ----------------
+async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
+    prompt = plan.get("cover_prompt") or f"Book cover for children's story: {plan.get('title','')}"
+    image_bytes, mime, meta = await generate_image(
+        scene_prompt=prompt,
+        style_guide=plan.get("style_guide"),
+        character_note="",
+        session_hint=f"cover-{order['id'][:6]}",
+    )
+    url = await _save_image_to_storage(order["id"], "cover", image_bytes, mime, order["user_id"])
+    # Store in scene_images with scene_plan_id=None marks it as cover
+    # Actually we'll use a separate field in the plan snapshot or a dedicated record.
+    # Keep it clean: put cover into scene_images with scene_plan_id=null and a kind marker.
+    await db.scene_images.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order["id"],
+        "production_plan_id": plan["id"],
+        "scene_plan_id": None,
+        "generation_job_id": job["id"],
+        "kind": "cover",
+        "image_url": url,
+        "prompt_used": meta.get("prompt_used"),
+        "provider": meta.get("provider"),
+        "source_type": meta.get("provider"),
+        "created_at": _now(),
+    })
+    return url, meta
+
+
+async def _execute_scene_image(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
+    scene = await db.scene_plans.find_one({"id": job["target_id"]}, {"_id": 0})
+    if not scene:
+        raise ValueError(f"scene_plan {job['target_id']} not found")
+    img_prompt = (scene.get("image_prompt") or {}).get("prompt_text") or scene.get("visual_description") or ""
+    char_note = (scene.get("image_prompt") or {}).get("character_reference_note") or ""
+    image_bytes, mime, meta = await generate_image(
+        scene_prompt=img_prompt,
+        style_guide=plan.get("style_guide"),
+        character_note=char_note,
+        session_hint=f"scene-{scene.get('scene_index')}-{order['id'][:6]}",
+    )
+    url = await _save_image_to_storage(order["id"], "scene", image_bytes, mime, order["user_id"])
+    await db.scene_images.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order["id"],
+        "production_plan_id": plan["id"],
+        "scene_plan_id": scene["id"],
+        "generation_job_id": job["id"],
+        "kind": "scene",
+        "scene_index": scene.get("scene_index"),
+        "image_url": url,
+        "prompt_used": meta.get("prompt_used"),
+        "provider": meta.get("provider"),
+        "source_type": meta.get("provider"),
+        "created_at": _now(),
+    })
+    return url, meta
+
+
+async def _execute_narration_audio(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
+    scene = await db.scene_plans.find_one({"id": job["target_id"]}, {"_id": 0})
+    if not scene:
+        raise ValueError(f"scene_plan {job['target_id']} not found")
+    text = scene.get("narration_text") or ""
+    voice = (order.get("enriched") or {}).get("voice_name")
+    language = (order.get("enriched") or {}).get("language_name") or "ar"
+    audio_bytes, mime, meta = await generate_audio(text=text, voice=voice, language=language)
+    # In mock mode audio_bytes is None. Persist metadata-only record with URL=None.
+    url = None
+    if audio_bytes:
+        # (Reserved for real provider): upload bytes to storage.
+        file_id = str(uuid.uuid4())
+        ext = "mp3" if "mpeg" in mime else "wav"
+        storage_path = f"{APP_NAME}/orders/{order['id']}/generated/audio/{file_id}.{ext}"
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, lambda: put_object(storage_path, audio_bytes, mime))
+        await db.files.insert_one({
+            "id": file_id,
+            "user_id": order["user_id"],
+            "scope": "generated-audio",
+            "storage_path": result.get("path", storage_path),
+            "original_filename": f"narration.{ext}",
+            "content_type": mime,
+            "size": result.get("size", len(audio_bytes)),
+            "is_deleted": False,
+            "created_at": _now(),
+        })
+        url = f"/api/uploads/file/{file_id}"
+    duration = meta.get("duration_seconds") or estimate_duration_seconds(text)
+    await db.narration_assets.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order["id"],
+        "production_plan_id": plan["id"],
+        "scene_plan_id": scene["id"],
+        "generation_job_id": job["id"],
+        "scene_index": scene.get("scene_index"),
+        "text": text,
+        "voice_type": meta.get("voice"),
+        "language": language,
+        "audio_url": url,
+        "duration_seconds": duration,
+        "provider": meta.get("provider"),
+        "created_at": _now(),
+    })
+    return url or f"(mock) {duration}s", meta
+
+
+async def _execute_book_page_asset(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
+    page = await db.book_pages.find_one({"id": job["target_id"]}, {"_id": 0})
+    if not page:
+        raise ValueError(f"book_page {job['target_id']} not found")
+    # Reuse scene image for the same scene_index (Phase 6A rule).
+    scene_img = await db.scene_images.find_one(
+        {"order_id": order["id"], "production_plan_id": plan["id"],
+         "scene_index": page.get("scene_index"), "kind": "scene"},
+        {"_id": 0},
+    )
+    illustration_url = scene_img.get("image_url") if scene_img else None
+    provider = "reused" if illustration_url else "pending"
+    await db.book_assets.insert_one({
+        "id": str(uuid.uuid4()),
+        "order_id": order["id"],
+        "production_plan_id": plan["id"],
+        "book_page_id": page["id"],
+        "generation_job_id": job["id"],
+        "page_number": page.get("page_number"),
+        "scene_index": page.get("scene_index"),
+        "illustration_url": illustration_url,
+        "page_text": page.get("text"),
+        "provider": provider,
+        "created_at": _now(),
+    })
+    return illustration_url or "(pending reuse)", {"provider": provider}
+
+
+# ---------------- Job dispatcher ----------------
+JOB_EXECUTORS = {
+    "cover_image": _execute_cover_image,
+    "scene_image": _execute_scene_image,
+    "narration_audio": _execute_narration_audio,
+    "book_page_asset": _execute_book_page_asset,
+}
+
+
+async def _process_job_with_retry(job: dict, order: dict, plan: dict) -> bool:
+    executor = JOB_EXECUTORS.get(job["job_type"])
+    if not executor:
+        await _update_job(job["id"], {"status": "failed", "error_message": f"unknown job_type {job['job_type']}"})
+        return False
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        await _update_job(job["id"], {"status": "processing", "attempt_count": attempt})
+        try:
+            output, meta = await executor(job, order, plan)
+            await _update_job(job["id"], {
+                "status": "completed",
+                "provider": meta.get("provider"),
+                "output_url": output if isinstance(output, str) else None,
+                "output_metadata": meta,
+                "error_message": None,
+            })
+            return True
+        except Exception as e:
+            err = f"attempt {attempt} failed: {type(e).__name__}: {e}"
+            logger.warning(f"job {job['id']} ({job['job_type']}) {err}")
+            await _update_job(job["id"], {"error_message": err})
+            if attempt < MAX_ATTEMPTS:
+                await asyncio.sleep(BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)])
+            else:
+                await _update_job(job["id"], {"status": "failed"})
+                return False
+    return False
+
+
+# ---------------- Run (entrypoint) ----------------
+async def run_asset_generation(order_id: str, run_id: str):
+    """Full pipeline — sequential dispatch of all jobs."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        return
+    if not order.get("production_approved"):
+        logger.warning(f"run_asset_generation called for unapproved order {order_id}")
+        return
+
+    plan = await db.production_plans.find_one({"id": order.get("production_plan_id")}, {"_id": 0})
+    if not plan:
+        await _append_status(order_id, order.get("status"), OrderStatus.MEDIA_FAILED.value, "system",
+                             reason="no production plan found")
+        return
+
+    # Create jobs
+    job_descriptors = await _plan_jobs(order)
+    if not job_descriptors:
+        await _append_status(order_id, order.get("status"), OrderStatus.MEDIA_FAILED.value, "system",
+                             reason="no jobs could be planned")
+        return
+    jobs = await _insert_jobs(order_id, run_id, job_descriptors)
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "asset_generation_run_id": run_id,
+            "asset_generation_started_at": _now(),
+            "asset_generation_summary": {
+                "total": len(jobs),
+                "queued": len(jobs),
+                "processing": 0,
+                "completed": 0,
+                "failed": 0,
+            },
+        }},
+    )
+    await _append_status(order_id, order.get("status"), OrderStatus.ASSETS_GENERATING.value, "system",
+                         reason=f"start assets generation (run {run_id[:8]}, {len(jobs)} jobs)")
+
+    # Process in order: cover first, then scene_images, then narration, then book assets
+    priority = {"cover_image": 0, "scene_image": 1, "narration_audio": 2, "book_page_asset": 3}
+    jobs.sort(key=lambda j: (priority.get(j["job_type"], 9), j.get("meta", {}).get("scene_index", 0)))
+
+    completed = 0
+    failed = 0
+    for job in jobs:
+        ok = await _process_job_with_retry(job, order, plan)
+        if ok:
+            completed += 1
+        else:
+            failed += 1
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {"asset_generation_summary.completed": completed,
+                      "asset_generation_summary.failed": failed,
+                      "asset_generation_summary.queued": len(jobs) - completed - failed,
+                      "asset_generation_summary.processing": 0,
+                      "updated_at": _now()}},
+        )
+
+    # Decide terminal status
+    # Mandatory = cover + all scene_images + all narration + all book_assets
+    mandatory_types = {"cover_image", "scene_image", "narration_audio", "book_page_asset"}
+    failed_mandatory = await db.generation_jobs.count_documents({
+        "order_id": order_id,
+        "run_id": run_id,
+        "job_type": {"$in": list(mandatory_types)},
+        "status": "failed",
+    })
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"asset_generation_completed_at": _now()}},
+    )
+    if failed_mandatory == 0:
+        await _append_status(order_id, OrderStatus.ASSETS_GENERATING.value, OrderStatus.ASSETS_READY.value, "system",
+                             reason=f"all assets ready ({completed}/{len(jobs)})")
+    else:
+        await _append_status(order_id, OrderStatus.ASSETS_GENERATING.value, OrderStatus.MEDIA_FAILED.value, "system",
+                             reason=f"{failed_mandatory} mandatory jobs failed after retries")
+
+
+async def retry_single_job(job_id: str) -> dict:
+    """Admin endpoint can call this to retry a single failed job fresh."""
+    job = await db.generation_jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        return {"ok": False, "error": "job not found"}
+    order = await db.orders.find_one({"id": job["order_id"]}, {"_id": 0})
+    plan = await db.production_plans.find_one({"id": order.get("production_plan_id")}, {"_id": 0})
+    # Reset counters and run
+    await _update_job(job_id, {"status": "queued", "attempt_count": 0, "error_message": None, "output_url": None})
+    # Re-fetch
+    job = await db.generation_jobs.find_one({"id": job_id}, {"_id": 0})
+    ok = await _process_job_with_retry(job, order, plan)
+    return {"ok": ok}

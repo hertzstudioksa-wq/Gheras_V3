@@ -188,6 +188,7 @@ export default function AdminOrders() {
                 { k: "overview", l: "نظرة عامة" },
                 { k: "scenarios", l: "السيناريوهات" },
                 { k: "production", l: "خطة الإنتاج" },
+                { k: "media", l: "الوسائط" },
                 { k: "history", l: "سجل الحالات" },
                 { k: "json", l: "JSON" },
                 { k: "prompt", l: "البرومبت" },
@@ -248,6 +249,10 @@ export default function AdminOrders() {
 
             {tab === "production" && (
               <AdminProductionTab orderId={detail.id} />
+            )}
+
+            {tab === "media" && (
+              <AdminMediaTab orderId={detail.id} />
             )}
 
             {tab === "history" && (
@@ -449,6 +454,270 @@ function AdminScenariosTab({ scenariosData, onRegenerate, onDelete, onSelect }) 
 
 function AlertBadge() {
   return <span className="w-2 h-2 rounded-full bg-[#B8612F]" />;
+}
+
+function AdminMediaTab({ orderId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const pollRef = React.useRef(null);
+
+  const load = async () => {
+    try {
+      const { data: d } = await api.get(`/admin/orders/${orderId}/media`);
+      setData(d);
+      if (d.status !== "assets_generating" && pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    } catch {
+      toast.error("تعذّر تحميل بيانات الوسائط");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    pollRef.current = setInterval(load, 4000);
+    return () => pollRef.current && clearInterval(pollRef.current);
+    // eslint-disable-next-line
+  }, [orderId]);
+
+  const triggerFull = async () => {
+    if (!window.confirm("سيتم حذف جميع الوسائط الحالية وإعادة توليد كل شيء من الصفر. هل تريد المتابعة؟")) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/orders/${orderId}/media/regenerate`);
+      toast.success("بدأ توليد الوسائط");
+      if (!pollRef.current) pollRef.current = setInterval(load, 4000);
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "فشل");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retryJob = async (jobId) => {
+    try {
+      await api.post(`/admin/jobs/${jobId}/retry`);
+      toast.success("أُعيد تشغيل الوظيفة");
+      setTimeout(load, 2000);
+    } catch {
+      toast.error("فشل");
+    }
+  };
+
+  if (loading) return <p className="text-center py-8 text-[#8A9AB0] font-body">جاري التحميل...</p>;
+  if (!data) return null;
+
+  const c = data.counts || {};
+  const jobs = data.jobs || [];
+  const scenes = (data.scene_images || []).filter((s) => s.kind === "scene").sort((a, b) => a.scene_index - b.scene_index);
+  const cover = (data.scene_images || []).find((s) => s.kind === "cover");
+  const narration = data.narration_assets || [];
+  const book = data.book_assets || [];
+  const status = data.status;
+
+  return (
+    <div data-testid="admin-media-tab" className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2 flex-wrap text-sm font-body">
+          <span className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-full px-3 py-1 inline-flex items-center gap-1">
+            <Film className="w-3 h-3 text-[#729352]" />
+            الحالة: <b className="text-[#2D3748]">{data.status_ar}</b>
+          </span>
+          {status === "assets_generating" && (
+            <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-3 py-1 text-xs font-bold inline-flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-[#87A96B] animate-pulse" />
+              يعمل الآن
+            </span>
+          )}
+        </div>
+        <button
+          onClick={triggerFull}
+          disabled={busy || status === "assets_generating"}
+          className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50 hover:bg-[#F2E8DA]"
+          data-testid="admin-regen-media-btn"
+        >
+          <RefreshCw className="w-3 h-3" /> إعادة توليد كامل
+        </button>
+      </div>
+
+      {/* Counts */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2" data-testid="admin-media-counts">
+        <Stat label="الكلي" value={c.total || 0} color="bg-[#FDFBF7] border-[#E2D8C9] text-[#2D3748]" />
+        <Stat label="في الانتظار" value={c.queued || 0} color="bg-[#F8F1E7] border-[#D4A373]/40 text-[#8B5A2B]" />
+        <Stat label="تعمل الآن" value={c.processing || 0} color="bg-[#E8F0E1] border-[#87A96B]/40 text-[#4F6B3B]" />
+        <Stat label="مكتملة" value={c.completed || 0} color="bg-[#DEEBCF] border-[#87A96B] text-[#3F5B2E]" />
+        <Stat label="فشلت" value={c.failed || 0} color="bg-[#FCE6D4] border-[#E07A5F]/40 text-[#B8612F]" />
+      </div>
+
+      {/* Cover */}
+      {cover && (
+        <section>
+          <h4 className="font-heading font-bold text-[#2D3748] mb-2 inline-flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-[#729352]" /> صورة الغلاف
+          </h4>
+          <div className="flex items-start gap-3 bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9]" data-testid="admin-cover-preview">
+            <img src={fileSrc(cover.image_url)} alt="cover" className="w-32 h-32 rounded-xl object-cover border border-[#E2D8C9]" />
+            <div className="text-xs font-body text-[#5A677D] flex-1">
+              <div className="mb-1">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${cover.provider === 'ai' ? 'bg-[#E8F0E1] text-[#4F6B3B]' : 'bg-[#F8F1E7] text-[#8B5A2B]'}`}>
+                  {cover.provider}
+                </span>
+              </div>
+              <details className="cursor-pointer">
+                <summary className="font-bold">Prompt المستخدم</summary>
+                <p className="mt-1 font-mono text-[11px] text-[#2D3748] leading-relaxed">{cover.prompt_used}</p>
+              </details>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Scene images */}
+      <section>
+        <h4 className="font-heading font-bold text-[#2D3748] mb-2 inline-flex items-center gap-2">
+          <Film className="w-4 h-4 text-[#729352]" /> صور المشاهد ({scenes.length})
+        </h4>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="admin-scene-images">
+          {scenes.map((s) => (
+            <div key={s.id} className="bg-[#FDFBF7] rounded-2xl p-2 border border-[#E2D8C9]" data-testid={`scene-image-${s.scene_index}`}>
+              <div className="relative aspect-square rounded-xl overflow-hidden bg-[#F2E8DA] mb-2">
+                <img src={fileSrc(s.image_url)} alt={`scene ${s.scene_index}`} className="w-full h-full object-cover" />
+                <span className="absolute top-1 right-1 bg-[#87A96B] text-white rounded-full w-6 h-6 grid place-content-center text-xs font-bold">
+                  {s.scene_index}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px]">
+                <span className={`rounded-full px-2 py-0.5 font-bold ${s.provider === 'ai' ? 'bg-[#E8F0E1] text-[#4F6B3B]' : 'bg-[#F8F1E7] text-[#8B5A2B]'}`}>
+                  {s.provider}
+                </span>
+                <details className="text-[10px] text-[#8A9AB0]">
+                  <summary className="cursor-pointer">prompt</summary>
+                  <p className="mt-1 font-mono text-[10px] text-[#2D3748] leading-tight max-h-24 overflow-auto">{s.prompt_used}</p>
+                </details>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Narration */}
+      <section>
+        <h4 className="font-heading font-bold text-[#2D3748] mb-2 inline-flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-[#729352]" /> السرد الصوتي ({narration.length})
+        </h4>
+        <div className="space-y-2" data-testid="admin-narration-list">
+          {narration.map((n) => (
+            <div key={n.id} className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9] flex items-start gap-3 text-sm" data-testid={`narration-${n.scene_index}`}>
+              <span className="bg-[#D4A373] text-white rounded-full w-8 h-8 grid place-content-center text-xs font-bold shrink-0">
+                {n.scene_index}
+              </span>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${n.provider === 'mock' ? 'bg-[#F8F1E7] text-[#8B5A2B]' : 'bg-[#E8F0E1] text-[#4F6B3B]'}`}>
+                    {n.provider}
+                  </span>
+                  <span className="text-[10px] text-[#8A9AB0]">{n.voice_type} • {n.language}</span>
+                  <span className="text-[10px] text-[#8A9AB0]">~{n.duration_seconds}s</span>
+                  {n.audio_url ? (
+                    <audio controls src={fileSrc(n.audio_url)} className="h-8" />
+                  ) : (
+                    <span className="text-[10px] text-[#B8612F]">(audio mocked — TTS provider not connected)</span>
+                  )}
+                </div>
+                <p className="font-body text-[#2D3748] text-xs leading-relaxed">{n.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Book assets */}
+      <section>
+        <h4 className="font-heading font-bold text-[#2D3748] mb-2 inline-flex items-center gap-2">
+          <FileTextIcon className="w-4 h-4 text-[#729352]" /> صفحات الكتاب ({book.length})
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="admin-book-assets">
+          {book.map((b) => (
+            <div key={b.id} className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9] flex gap-3" data-testid={`book-asset-${b.page_number}`}>
+              {b.illustration_url ? (
+                <img src={fileSrc(b.illustration_url)} alt="" className="w-16 h-16 rounded-xl object-cover border border-[#E2D8C9] shrink-0" />
+              ) : (
+                <div className="w-16 h-16 rounded-xl bg-[#F2E8DA] shrink-0" />
+              )}
+              <div className="flex-1 text-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="bg-[#D4A373] text-white rounded-full w-6 h-6 grid place-content-center text-[10px] font-bold">{b.page_number}</span>
+                  <span className="text-[10px] text-[#8A9AB0]">{b.provider}</span>
+                </div>
+                <p className="font-body text-[#2D3748] text-xs">{b.page_text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Jobs log */}
+      <section>
+        <h4 className="font-heading font-bold text-[#2D3748] mb-2">سجل الوظائف ({jobs.length})</h4>
+        <div className="bg-[#FDFBF7] rounded-2xl border border-[#E2D8C9] overflow-hidden" data-testid="admin-jobs-list">
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full text-xs font-body">
+              <thead className="bg-white sticky top-0">
+                <tr className="text-[#5A677D]">
+                  <th className="text-start px-2 py-2">النوع</th>
+                  <th className="text-start px-2 py-2">الحالة</th>
+                  <th className="text-start px-2 py-2">المحاولات</th>
+                  <th className="text-start px-2 py-2">Provider</th>
+                  <th className="text-start px-2 py-2">خطأ</th>
+                  <th className="px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr key={j.id} className="border-t border-[#E2D8C9]" data-testid={`job-row-${j.id}`}>
+                    <td className="px-2 py-2 font-bold text-[#2D3748]">{j.job_type}</td>
+                    <td className="px-2 py-2">
+                      <span className={
+                        j.status === "completed" ? "bg-[#DEEBCF] text-[#3F5B2E] rounded-full px-2 py-0.5" :
+                        j.status === "failed" ? "bg-[#FCE6D4] text-[#B8612F] rounded-full px-2 py-0.5" :
+                        j.status === "processing" ? "bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5" :
+                        "bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-2 py-0.5"
+                      }>{j.status}</span>
+                    </td>
+                    <td className="px-2 py-2">{j.attempt_count}/{j.max_attempts}</td>
+                    <td className="px-2 py-2 text-[#8A9AB0]">{j.provider || "—"}</td>
+                    <td className="px-2 py-2 text-[#B8612F] max-w-xs truncate" title={j.error_message || ""}>{j.error_message || "—"}</td>
+                    <td className="px-2 py-2">
+                      {j.status === "failed" && (
+                        <button onClick={() => retryJob(j.id)} className="text-[10px] bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5 font-bold" data-testid={`retry-job-${j.id}`}>
+                          أعِد
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }) {
+  return (
+    <div className={`rounded-2xl px-3 py-2 border text-center ${color}`}>
+      <div className="text-[11px] font-body opacity-80">{label}</div>
+      <div className="font-heading font-bold text-xl">{value}</div>
+    </div>
+  );
 }
 
 function AdminProductionTab({ orderId }) {

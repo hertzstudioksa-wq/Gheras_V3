@@ -185,6 +185,11 @@ class OrderStatus(str, Enum):
     PRODUCTION_PLANNING = "production_planning"
     PRODUCTION_READY = "production_ready"
     PRODUCTION_APPROVED = "production_approved"
+    ASSETS_GENERATING = "assets_generating"
+    ASSETS_READY = "assets_ready"
+    ASSEMBLING = "assembling"
+    DELIVERED = "delivered"
+    MEDIA_FAILED = "media_failed"
     GENERATING = "generating"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -201,6 +206,11 @@ ORDER_STATUS_AR = {
     "production_planning": "جاري إعداد خطة الإنتاج",
     "production_ready": "خطة الإنتاج جاهزة",
     "production_approved": "تمت الموافقة على الخطة",
+    "assets_generating": "جاري توليد الوسائط",
+    "assets_ready": "الوسائط جاهزة",
+    "assembling": "جاري التجميع",
+    "delivered": "تم التسليم",
+    "media_failed": "فشل إنتاج الوسائط",
     "generating": "جاري التوليد",
     "completed": "مكتمل",
     "failed": "فشل",

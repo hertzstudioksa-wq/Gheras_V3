@@ -156,7 +156,7 @@ async def get_production_summary(order_id: str, current=Depends(get_current_user
 
 
 @user_router.post("/{order_id}/production/approve")
-async def user_approve_production(order_id: str, current=Depends(get_current_user)):
+async def user_approve_production(order_id: str, background: BackgroundTasks, current=Depends(get_current_user)):
     order = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
@@ -168,7 +168,10 @@ async def user_approve_production(order_id: str, current=Depends(get_current_use
     )
     await _append_status(order_id, order.get("status"), OrderStatus.PRODUCTION_APPROVED.value, "user",
                          actor_id=current["id"], reason="user approved production plan")
-    return {"ok": True}
+    # Trigger asset generation pipeline (phase 6A)
+    from routes.media_routes import trigger_asset_generation
+    run_id = await trigger_asset_generation(order_id, background)
+    return {"ok": True, "asset_run_id": run_id}
 
 
 @user_router.post("/{order_id}/production/regenerate")

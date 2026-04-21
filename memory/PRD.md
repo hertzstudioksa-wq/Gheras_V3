@@ -31,12 +31,37 @@ Arabic-first (RTL) AI storytelling platform for children. Multi-step Story Build
 ### Phase 5.1 — User-Facing Approval Page (Apr 21, 2026)
 - New route: `/orders/{id}/production-ready` (`ProductionReady.jsx`).
 - Arabic RTL, mobile-first, sticky bottom action bar on mobile.
-- States: loading, `production_planning` skeleton, `production_ready` (summary+actions), `production_approved` (success), `failed` (retry guidance).
-- Shows: title, story_summary, main_message, duration, scene_count, image_count, safety_check.
+- States: loading, `production_planning` skeleton, `production_ready` (summary+actions), `production_approved` (success), `assets_generating` (progress bar), `assets_ready` (success), `media_failed`, `failed`.
+- Shows: title, story_summary, main_message, duration, scene_count, image_count, safety_check + live progress percent when media generating.
 - Hides: all prompts, scenes, IDs, admin-only details.
 - Actions: "موافق على الخطة" (with loader) + "إعادة إعداد الخطة" (1 attempt + confirm dialog).
-- After scenario selection, users are now redirected to this page automatically.
-- Dashboard deep-links directly to the right route based on status.
+
+### Phase 6A — Media Generation Pipeline (Apr 21, 2026)
+- **Trigger**: `user_approve_production` fires `trigger_asset_generation` → `run_asset_generation(order_id, run_id)` in background.
+- **Jobs** (per order): 1 cover_image + N scene_images + N narration_audio + N book_page_asset → total 3N+1.
+- **Providers**:
+  - Images: Nano Banana (`gemini-3.1-flash-image-preview`) via emergentintegrations — saves base64 PNG → Emergent Object Storage → `/api/uploads/file/{id}`. Fallback = 1×1 PNG placeholder.
+  - Audio: **MOCKED** in Phase 6A (`provider=mock`). Duration estimated from word count (2.2 WPS for Arabic). Real TTS (ElevenLabs/OpenAI) requires external key.
+  - Book assets: reuse scene_image by scene_index (`provider=reused`).
+- **Orchestration**: sequential, cover → scenes → narration → book. `max_attempts=3` per job with backoff [1,3,7]s.
+- **Statuses**: `production_approved` → `assets_generating` → (`assets_ready` | `media_failed`). All transitions recorded in `status_history`.
+- **Admin tab** "الوسائط": counts, cover preview, scene grid, narration list with per-scene `<audio>` (mock shows note), book page list, full jobs log with per-row retry, "إعادة توليد كامل" button.
+- **User view**: minimal progress card + progress bar + "الخطوة التالية" messaging. No technical details.
+
+## New Collections (Phase 6A)
+- `generation_jobs`: id, order_id, run_id, job_type, target_id, meta, status, provider, attempt_count, max_attempts, error_message, output_url, output_metadata, created_at, updated_at.
+- `scene_images`: id, order_id, production_plan_id, scene_plan_id (null for cover), generation_job_id, kind (cover/scene), scene_index, image_url, prompt_used, provider, source_type, created_at.
+- `narration_assets`: id, order_id, production_plan_id, scene_plan_id, generation_job_id, scene_index, text, voice_type, language, audio_url (null in mock), duration_seconds, provider, created_at.
+- `book_assets`: id, order_id, production_plan_id, book_page_id, generation_job_id, page_number, scene_index, illustration_url, page_text, provider, created_at.
+
+## New Endpoints (Phase 6A)
+### User
+- `GET /api/orders/{id}/media-status` → `{status, status_ar, progress_percent, summary}`.
+
+### Admin
+- `GET /api/admin/orders/{id}/media` → full job board + previews.
+- `POST /api/admin/orders/{id}/media/regenerate` → nukes assets + starts fresh run.
+- `POST /api/admin/jobs/{id}/retry` → retry a single failed job.
 
 ## Order Status Machine
 ```

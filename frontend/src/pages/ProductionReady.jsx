@@ -60,6 +60,28 @@ export default function ProductionReady() {
   const used = state?.production_regeneration_count ?? 0;
   const limitReached = remaining <= 0;
 
+  const status = state?.status;
+  const isGeneratingMedia = status === "assets_generating";
+  const isMediaReady = status === "assets_ready";
+  const isMediaFailed = status === "media_failed";
+  const [mediaProgress, setMediaProgress] = useState(null);
+
+  useEffect(() => {
+    let iv;
+    if (isGeneratingMedia || isMediaReady || isMediaFailed) {
+      const fetchMedia = async () => {
+        try {
+          const { data } = await api.get(`/orders/${id}/media-status`);
+          setMediaProgress(data);
+        } catch { /* ignore */ }
+      };
+      fetchMedia();
+      iv = setInterval(fetchMedia, 4000);
+    }
+    return () => iv && clearInterval(iv);
+    // eslint-disable-next-line
+  }, [status, id]);
+
   const regenerate = async () => {
     if (limitReached) {
       toast.error("لقد استخدمت محاولة إعادة التوليد المتاحة");
@@ -94,7 +116,6 @@ export default function ProductionReady() {
     );
   }
 
-  const status = state?.status;
   const summary = state?.summary;
   const approved = !!state?.production_approved;
   const isPlanning = ["pending", "ready_for_ai", "production_planning", "scenarios_generating",
@@ -123,7 +144,13 @@ export default function ProductionReady() {
               <Sparkles className="w-3 h-3" /> الخطوة 8 من 8
             </div>
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
-              {approved
+              {isMediaReady
+                ? "وسائط قصتك جاهزة 🌱"
+                : isGeneratingMedia
+                ? "جاري إعداد قصة طفلك..."
+                : isMediaFailed
+                ? "تعذّر إعداد بعض الوسائط"
+                : approved
                 ? "شكراً لك! تم اعتماد الخطة 🌱"
                 : isFailed
                 ? "تعذّر إعداد الخطة"
@@ -132,7 +159,13 @@ export default function ProductionReady() {
                 : "الخطة جاهزة لاعتمادك"}
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
-              {approved
+              {isMediaReady
+                ? "تم إعداد جميع صور ومواد القصة. الخطوة التالية: تجميعها في فيديو وكتاب."
+                : isGeneratingMedia
+                ? "نُنتج الصور والسرد الصوتي لكل مشهد. هذا يستغرق دقائق قليلة."
+                : isMediaFailed
+                ? "لم تكتمل بعض الوسائط. فريقنا سيُراجع الطلب ويُصلح المشكلة."
+                : approved
                 ? "سنبدأ إعداد قصة طفلك قريباً وسنُعلمك فور جاهزيتها."
                 : isFailed
                 ? "حدث خلل بسيط أثناء إعداد الخطة. يمكنك إعادة المحاولة."
@@ -168,8 +201,55 @@ export default function ProductionReady() {
           </div>
         )}
 
-        {/* APPROVED (SUCCESS) STATE */}
-        {approved && summary && (
+        {/* MEDIA GENERATING / READY / FAILED */}
+        {(isGeneratingMedia || isMediaReady || isMediaFailed) && (
+          <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#87A96B] mb-5" data-testid="media-progress-card">
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-12 h-12 rounded-2xl grid place-content-center ${isMediaReady ? "bg-[#E8F0E1]" : isMediaFailed ? "bg-[#FCE6D4]" : "bg-[#F8F1E7]"}`}>
+                {isMediaReady ? <CheckCircle2 className="w-6 h-6 text-[#4F6B3B]" /> :
+                 isMediaFailed ? <AlertTriangle className="w-6 h-6 text-[#B8612F]" /> :
+                 <Loader2 className="w-6 h-6 text-[#8B5A2B] animate-spin" />}
+              </div>
+              <div>
+                <h2 className="font-heading text-xl font-bold text-[#2D3748]">
+                  {isMediaReady ? "الوسائط جاهزة" : isMediaFailed ? "تعذّر إكمال الوسائط" : "جاري إنتاج الوسائط"}
+                </h2>
+                <p className="font-body text-xs text-[#5A677D]">
+                  {isMediaReady ? "بانتظار خطوة التجميع النهائية" :
+                   isMediaFailed ? "يُراجع فريقنا الطلب وسنُعيد المحاولة" :
+                   `اكتمل ${mediaProgress?.summary?.completed || 0} من ${mediaProgress?.summary?.total || 0}`}
+                </p>
+              </div>
+            </div>
+            {mediaProgress && (isGeneratingMedia || isMediaReady) && (
+              <div className="bg-[#FDFBF7] rounded-2xl p-4 border border-[#E2D8C9]" data-testid="progress-bar-wrap">
+                <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
+                  <span>التقدّم</span>
+                  <span className="font-bold text-[#2D3748]" data-testid="progress-percent">{mediaProgress.progress_percent}%</span>
+                </div>
+                <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-700"
+                    style={{ width: `${mediaProgress.progress_percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {isMediaReady && (
+              <div className="bg-gradient-to-br from-[#F8F1E7] to-[#E8F0E1] rounded-2xl p-4 border border-[#D4A373]/30 mt-3">
+                <div className="flex items-center gap-2 mb-1 text-[#8B5A2B] font-body font-bold text-sm">
+                  <Sprout className="w-4 h-4" /> الخطوة التالية
+                </div>
+                <p className="font-body text-sm text-[#2D3748]">
+                  سنقوم بتجميع القصة في فيديو وكتاب، وسنُعلمك فور جاهزيتها.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* APPROVED (SUCCESS) STATE — only when NOT yet in media flow */}
+        {approved && !isGeneratingMedia && !isMediaReady && !isMediaFailed && summary && (
           <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#87A96B] mb-6 relative overflow-hidden" data-testid="approved-state">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-2xl bg-[#E8F0E1] grid place-content-center">
