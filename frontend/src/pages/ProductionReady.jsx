@@ -234,29 +234,34 @@ export default function ProductionReady() {
                 ? "نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية."
                 : "اطلع على ملخص الخطة، ثم اعتمدها لنبدأ إعداد قصة طفلك."}
             </p>
-          </div>
-        </div>
 
-        {/* PLANNING STATE */}
-        {isPlanning && !summary && (
-          <div>
-            <LoadingSkeleton message={progressMessage} />
-            {progress && (
-              <div className="mt-4 bg-white rounded-2xl p-4 border border-[#E2D8C9]" data-testid="planning-progress">
+            {/* Unified pipeline progress bar — always visible from planning to delivery */}
+            {progress && !isDelivered && !isFailed && !isMediaFailed && (
+              <div className="mt-5 bg-white/70 backdrop-blur rounded-2xl p-4 border border-[#E2D8C9]" data-testid="hero-progress">
                 <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
-                  <span>{progress.stage_ar}</span>
-                  <span className="font-bold text-[#2D3748]">{progressPercent}%</span>
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#87A96B]" />
+                    {progressMessage || progress.stage_ar}
+                  </span>
+                  <span className="font-bold text-[#2D3748]" data-testid="hero-progress-percent">
+                    {progressPercent}%
+                  </span>
                 </div>
                 <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-700"
-                    style={{ width: `${progressPercent}%` }}
+                    style={{ width: `${Math.max(progressPercent, 3)}%` }}
                   />
                 </div>
                 <StagePill stage={progressStage} />
               </div>
             )}
           </div>
+        </div>
+
+        {/* PLANNING STATE */}
+        {isPlanning && !summary && (
+          <LoadingSkeleton message={progressMessage} />
         )}
 
         {/* FAILED STATE */}
