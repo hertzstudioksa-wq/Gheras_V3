@@ -116,7 +116,54 @@ def _clamp_scene_count(requested: int, target: int) -> int:
     return max(lo, min(hi, r))
 
 
-from services.config_service import resolve_model
+from services.config_service import resolve_model, resolve_prompt
+
+
+def _build_scenario_context(order: dict) -> dict:
+    """Build the flat variable context used to render admin prompt templates.
+
+    Keys are stable identifiers (snake_case, ASCII) that admins can reference
+    as ${var} inside a template. Defaults are empty strings instead of None so
+    rendering never trips on a missing attribute.
+    """
+    data = order.get("data", {}) or {}
+    enriched = order.get("enriched", {}) or {}
+    child = data.get("child", {}) or {}
+    goal = data.get("goal", {}) or {}
+    pers = data.get("personalization", {}) or {}
+    duration = order.get("duration") or {}
+
+    fav = pers.get("favorites") or {}
+    fav_brief = "، ".join(
+        f"{k}: {(v or {}).get('name','')}"
+        for k, v in fav.items()
+        if (v or {}).get("selected") and (v or {}).get("name")
+    ) or "لا يوجد"
+
+    chars = data.get("characters") or []
+    chars_brief = "، ".join(
+        f"{c.get('type','')}: {c.get('name','')}" for c in chars if c.get("name")
+    ) or "لا يوجد"
+
+    return {
+        "child_name":         child.get("name", ""),
+        "child_age":          child.get("age", ""),
+        "child_gender":       "ولد" if child.get("gender") == "male" else "بنت",
+        "goal_category":      enriched.get("category_name", ""),
+        "goal_subcategory":   enriched.get("subcategory_name") or goal.get("custom_subcategory", ""),
+        "context":            goal.get("context", ""),
+        "story_type":         enriched.get("type_name", "") or "غير محدد",
+        "tone":               enriched.get("tone_name", "") or "غير محدد",
+        "setting":            enriched.get("setting_name", "") or "غير محدد",
+        "language":           enriched.get("language_name", "") or "عربية فصحى مبسطة",
+        "voice":              enriched.get("voice_name", "") or "غير محدد",
+        "favorites_summary":  fav_brief,
+        "characters_summary": chars_brief,
+        "duration_label":     duration.get("label", ""),
+        "duration_seconds":   duration.get("seconds", ""),
+        "scene_target":       duration.get("scene_target", 5),
+        "extra_notes":        pers.get("custom_notes", "") or "لا يوجد",
+    }
 
 
 async def _generate_via_claude(order: dict) -> list[dict]:
@@ -124,15 +171,26 @@ async def _generate_via_claude(order: dict) -> list[dict]:
     if not EMERGENT_LLM_KEY:
         raise RuntimeError("EMERGENT_LLM_KEY missing")
     session_id = f"scenarios-{order.get('id', uuid.uuid4())}"
-    provider, model_name, source = await resolve_model(
+    provider, model_name, model_src = await resolve_model(
         "scenario_generation", MODEL_PROVIDER, MODEL_NAME
     )
-    logger.info(f"[config] stage=scenario_generation source={source} model={provider}/{model_name}")
+    logger.info(f"[config] stage=scenario_generation source={model_src} model={provider}/{model_name}")
+
+    # Resolve prompt: prefer admin template if it renders cleanly, else default.
+    ctx = _build_scenario_context(order)
+    admin_prompt, prompt_src, reason = await resolve_prompt("scenario_generation", ctx)
+    if prompt_src == "admin":
+        logger.info(f"[config] stage=scenario_generation prompt_source=admin {reason}")
+        user_prompt_text = admin_prompt
+    else:
+        logger.info(f"[config] stage=scenario_generation prompt_source=default reason={reason}")
+        user_prompt_text = _user_prompt(order)
+
     chat = (
         LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
         .with_model(provider, model_name)
     )
-    response = await chat.send_message(UserMessage(text=_user_prompt(order)))
+    response = await chat.send_message(UserMessage(text=user_prompt_text))
     text = (response or "").strip()
     if text.startswith("```"):
         text = text.strip("`")

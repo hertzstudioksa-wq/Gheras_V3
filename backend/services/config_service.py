@@ -166,6 +166,98 @@ async def resolve_model(stage_key: str, hardcoded_provider: str, hardcoded_model
     return hardcoded_provider, hardcoded_model, "fallback"
 
 
+# -----------------------------------------------------------------------------
+# Phase B.2 — Prompt template rendering (scenario_generation only)
+# -----------------------------------------------------------------------------
+import re  # noqa: E402
+from string import Template  # noqa: E402
+
+
+# Matches both $var and ${var}. Identifier must start with letter/underscore.
+_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _extract_placeholders(text: str) -> set[str]:
+    if not text:
+        return set()
+    return {m.group(1) or m.group(2) for m in _VAR_PATTERN.finditer(text)}
+
+
+def render_prompt_template(
+    template_text: str,
+    context: dict,
+    required_vars: list[str] | None = None,
+) -> tuple[str | None, bool, str]:
+    """Safely render a string.Template-style prompt.
+
+    Returns (rendered_text, ok, reason).
+      * ok=True  → rendered is a non-empty string safe to send to the LLM
+      * ok=False → caller MUST fall back to the hardcoded default. `reason`
+                   is a short machine-readable code suitable for logging.
+
+    Never raises. Never executes code. No f-string, no eval.
+    """
+    if not template_text or not template_text.strip():
+        return None, False, "empty_template"
+
+    placeholders = _extract_placeholders(template_text)
+    # Verify every placeholder used in the template has a context value.
+    missing = [p for p in placeholders if p not in context or context[p] is None]
+    if missing:
+        return None, False, f"missing_variable:{missing[0]}"
+
+    # Verify all explicitly required variables are present (admin-declared).
+    if required_vars:
+        req_missing = [v for v in required_vars if v not in context or context[v] is None]
+        if req_missing:
+            return None, False, f"required_missing:{req_missing[0]}"
+
+    try:
+        # `safe_substitute` never raises on unknown keys; we already verified
+        # all placeholders above so behavior is the same as `substitute`.
+        rendered = Template(template_text).safe_substitute(
+            {k: str(v) for k, v in context.items()}
+        )
+    except (ValueError, KeyError) as e:
+        return None, False, f"render_error:{type(e).__name__}"
+
+    if not rendered.strip():
+        return None, False, "rendered_empty"
+    return rendered, True, "ok"
+
+
+async def resolve_prompt(
+    stage_key: str,
+    context: dict,
+    required_vars: list[str] | None = None,
+) -> tuple[str | None, str, str]:
+    """Try to load + render the admin-active prompt for a stage.
+
+    Returns (rendered_text_or_none, source, reason).
+      * source = "admin"   → rendered_text is safe to use
+      * source = "default" → caller must build the hardcoded prompt
+                             (rendered_text is None)
+      * reason is always set so the caller can emit a single structured log.
+    """
+    try:
+        doc = await db.prompt_templates.find_one(
+            {"stage_key": stage_key, "active": True},
+            {"_id": 0, "id": 1, "template_text": 1, "variables": 1, "version": 1},
+        )
+    except Exception:  # noqa: BLE001
+        return None, "default", "db_error"
+
+    if not doc:
+        return None, "default", "no_active_template"
+
+    tpl = doc.get("template_text") or ""
+    declared = doc.get("variables") or []
+    rendered, ok, reason = render_prompt_template(tpl, context, required_vars or declared)
+    if ok:
+        return rendered, "admin", f"template_id={doc.get('id')} version={doc.get('version')}"
+    return None, "default", reason
+
+
 async def get_prompt_for_stage(stage_key: str) -> dict | None:
     """Return the active prompt template for a stage (or None if not configured)."""
     return await db.prompt_templates.find_one(
