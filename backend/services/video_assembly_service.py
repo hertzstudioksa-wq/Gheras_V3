@@ -18,6 +18,7 @@ import asyncio
 import io
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -28,6 +29,32 @@ from PIL import Image, ImageDraw
 from db import db
 from storage import put_object, get_object, APP_NAME
 
+
+# Resolve ffmpeg binary: prefer the pip-bundled imageio-ffmpeg (persistent across
+# container restarts); fall back to any system-installed ffmpeg.
+def _resolve_ffmpeg() -> str:
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:  # noqa: BLE001
+        pass
+    sys_ff = shutil.which("ffmpeg")
+    if sys_ff:
+        return sys_ff
+    raise RuntimeError("ffmpeg binary is not available (neither imageio-ffmpeg nor system ffmpeg found)")
+
+
+FFMPEG_BIN = None
+
+
+def _ffmpeg_bin() -> str:
+    global FFMPEG_BIN
+    if FFMPEG_BIN is None:
+        FFMPEG_BIN = _resolve_ffmpeg()
+    return FFMPEG_BIN
+
 logger = logging.getLogger("video_assembly_service")
 
 COVER_DURATION_SEC = 2.0
@@ -36,8 +63,10 @@ MAX_SCENE_DURATION_SEC = 20.0
 
 
 def _ffmpeg_available() -> bool:
-    import shutil
-    return bool(shutil.which("ffmpeg"))
+    try:
+        return bool(_ffmpeg_bin())
+    except RuntimeError:
+        return False
 
 
 async def _fetch_file_bytes(file_id: str) -> bytes | None:
@@ -65,7 +94,7 @@ def _file_id_from_url(url: str) -> str | None:
 
 
 def _run_ffmpeg(args: Sequence[str], timeout: int = 180) -> subprocess.CompletedProcess:
-    return subprocess.run(["ffmpeg", "-y", *args], capture_output=True, text=True, timeout=timeout)
+    return subprocess.run([_ffmpeg_bin(), "-y", *args], capture_output=True, text=True, timeout=timeout)
 
 
 def _make_placeholder_png(label: str = "") -> bytes:

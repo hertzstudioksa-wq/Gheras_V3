@@ -37,42 +37,63 @@ export default function ProductionReady() {
   const lastUpdateRef = useRef(Date.now());
   const startRef = useRef(Date.now());
   const [stuckHint, setStuckHint] = useState(false);
+  const [loadError, setLoadError] = useState(null);  // persistent error for render
 
   const fetchData = async (opts = {}) => {
     const { silent = false } = opts;
+    // eslint-disable-next-line no-console
+    console.debug("[prod-ready] fetch:start silent=", silent);
     try {
       const { data } = await api.get(`/orders/${id}/production-summary`);
       // eslint-disable-next-line no-console
-      console.debug("[prod-ready][poll]", data.status, data.progress?.percent);
+      console.debug("[prod-ready] fetch:success status=", data.status, "summary_present=", !!data.summary, "progress=", data.progress?.percent);
       setState(data);
       setLoading(false);
+      setLoadError(null);
       lastUpdateRef.current = Date.now();
       errorShownRef.current = false;
       // Poll while the pipeline is still active; stop on terminal delivered/failed.
       const stopStates = ["delivered", "failed", "completed"];
       if (stopStates.includes(data.status) && pollRef.current) {
         // eslint-disable-next-line no-console
-        console.debug("[prod-ready] terminal state, stopping polling:", data.status);
+        console.debug("[prod-ready] poll:stopped reason=terminal-", data.status);
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
     } catch (e) {
       const status = e?.response?.status;
+      // eslint-disable-next-line no-console
+      console.debug("[prod-ready] fetch:failure status=", status, "code=", e?.code, "msg=", e?.message);
       const isPermanent = status === 404 || status === 403 || status === 401;
-      if (isPermanent && !silent && !errorShownRef.current) {
-        toast.error(e?.response?.data?.detail || "تعذّر تحميل الخطة");
-        errorShownRef.current = true;
+      if (isPermanent) {
+        setLoadError({ permanent: true, status, detail: e?.response?.data?.detail });
+        if (!silent && !errorShownRef.current) {
+          toast.error(e?.response?.data?.detail || "تعذّر تحميل الخطة");
+          errorShownRef.current = true;
+        }
+      } else if (!state) {
+        // Transient failure during INITIAL load — surface a retry UI so the
+        // page never renders blank. Polling will retry automatically.
+        setLoadError({ permanent: false, status, detail: e?.response?.data?.detail });
       }
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.debug("[prod-ready] mount order_id=", id);
     fetchData();
-    // Short interval keeps progress updates snappy — silent so transient
-    // 502s/504s don't spam the user with toasts.
+    // eslint-disable-next-line no-console
+    console.debug("[prod-ready] poll:start interval=3000");
     pollRef.current = setInterval(() => fetchData({ silent: true }), 3000);
-    return () => pollRef.current && clearInterval(pollRef.current);
+    return () => {
+      if (pollRef.current) {
+        // eslint-disable-next-line no-console
+        console.debug("[prod-ready] poll:stopped reason=unmount");
+        clearInterval(pollRef.current);
+      }
+    };
     // eslint-disable-next-line
   }, [id]);
 
@@ -655,6 +676,84 @@ export default function ProductionReady() {
             </div>
           </>
         )}
+
+        {/* =================== UNIVERSAL FALLBACK GUARD ===================
+            If NONE of the above branches rendered (e.g. unknown server status,
+            permanent load error), we must NEVER leave the page hero-only. */}
+        {(() => {
+          const ctxRendered =
+            isDelivered ||
+            isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling ||
+            (!approved && !isFailed && planReady) ||
+            (isPlanning && !summary) ||
+            (approved && !isMediaFailed && !isAssembling && !isMediaReady && !isGeneratingMedia && !isDelivered) ||
+            isFailed;
+          // eslint-disable-next-line no-console
+          console.debug(
+            "[prod-ready] render_branch=",
+            isDelivered ? "delivered" :
+            isMediaFailed ? "media_failed" :
+            isAssembling ? "assembling" :
+            isMediaReady ? "assets_ready" :
+            isGeneratingMedia ? "assets_generating" :
+            planReady ? "plan_ready" :
+            (isPlanning && !summary) ? "loading_skeleton" :
+            approved ? "approved_thanks" :
+            isFailed ? "failed" :
+            loadError ? "load_error" :
+            "FALLBACK_UNKNOWN"
+          );
+          // Failed status — explicit retry card instead of a blank page.
+          if (isFailed) {
+            return (
+              <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#E07A5F] text-center" data-testid="plan-failed-card">
+                <AlertTriangle className="w-10 h-10 text-[#B8612F] mx-auto mb-2" />
+                <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-2">تعذّر إعداد الخطة</h2>
+                <p className="font-body text-sm text-[#5A677D] mb-4">
+                  حدث خطأ مؤقت أثناء إعداد خطة القصة. يمكنك المحاولة مرة أخرى.
+                </p>
+                <button
+                  type="button"
+                  onClick={regenerate}
+                  disabled={regenerating}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-5 py-2.5 text-sm font-bold disabled:opacity-50"
+                  data-testid="retry-plan-btn"
+                >
+                  {regenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+                  إعادة المحاولة
+                </button>
+              </div>
+            );
+          }
+          if (!ctxRendered) {
+            // Unknown status OR permanent load error — show explicit error/retry.
+            return (
+              <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#E2D8C9] text-center" data-testid="unknown-status-card">
+                <AlertTriangle className="w-10 h-10 text-[#B8612F] mx-auto mb-2" />
+                <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-2">
+                  {loadError?.permanent ? "لا يمكن الوصول إلى هذا الطلب" : "جاري تحميل حالة الطلب..."}
+                </h2>
+                <p className="font-body text-sm text-[#5A677D] mb-4">
+                  {loadError?.permanent
+                    ? (loadError?.detail || "قد يكون الطلب غير موجود أو لا تملك صلاحية الوصول.")
+                    : (loadError
+                        ? "هناك تعطّل مؤقت في الاتصال. سنعيد المحاولة تلقائياً..."
+                        : "نستعيد آخر حالة لطلبك، لحظات من فضلك.")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => fetchData()}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-5 py-2.5 text-sm font-bold"
+                  data-testid="retry-load-btn"
+                >
+                  <RefreshCcw className="w-4 h-4" />
+                  إعادة المحاولة
+                </button>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
 
       {/* Sticky mobile action bar (only on ready state) */}

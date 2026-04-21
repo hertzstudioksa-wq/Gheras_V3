@@ -21,12 +21,38 @@ export default function Login() {
     e.preventDefault();
     setErr("");
     setLoading(true);
+    // eslint-disable-next-line no-console
+    console.debug("[auth] login:start email=", email.trim().toLowerCase());
     try {
       const u = await login(email.trim().toLowerCase(), password);
+      // eslint-disable-next-line no-console
+      console.debug("[auth] login:success user=", u?.email);
       toast.success(`أهلاً ${u.full_name} 🌱`);
       navigate(u.role === "admin" ? "/admin" : redirectTo, { replace: true });
     } catch (e) {
-      setErr(e?.response?.data?.detail || "حدث خطأ أثناء تسجيل الدخول");
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      // eslint-disable-next-line no-console
+      console.debug("[auth] login:failure status=", status, "detail=", detail, "code=", e?.code);
+      // Map to precise user-facing Arabic message.
+      let msg;
+      if (status === 401 || status === 403) {
+        msg = "بيانات تسجيل الدخول غير صحيحة";
+      } else if (status === 400 && detail) {
+        msg = detail; // backend already returns a clear validation message
+      } else if (status === 429) {
+        msg = "محاولات كثيرة. يُرجى الانتظار قليلاً.";
+      } else if (status && status >= 500) {
+        msg = "تعذر تسجيل الدخول الآن، حاول مرة أخرى بعد قليل";
+      } else if (!e?.response) {
+        // No response — network / CORS / timeout.
+        msg = e?.code === "ECONNABORTED"
+          ? "انتهى وقت الاتصال. تحقّق من الشبكة وحاول مجدداً"
+          : "تعذّر الوصول إلى الخادم. تحقّق من الإنترنت وحاول مجدداً";
+      } else {
+        msg = detail || "تعذر تسجيل الدخول، حاول مرة أخرى";
+      }
+      setErr(msg);
     } finally {
       setLoading(false);
     }

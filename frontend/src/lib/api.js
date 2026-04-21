@@ -16,19 +16,38 @@ api.interceptors.request.use((config) => {
 });
 
 // Global 401 handler: token invalid/expired anywhere in the app → clean logout.
-// We DO NOT redirect for /auth/me probes (AuthContext handles those).
+// We DO NOT redirect for /auth/me probes (AuthContext handles those), nor for
+// /auth/login (Login page handles those), nor for the file-download endpoint
+// (that just fails the <img> tag silently; session stays intact).
 api.interceptors.response.use(
   (r) => r,
   (error) => {
     const status = error?.response?.status;
     const url = error?.config?.url || "";
-    if (status === 401 && !url.includes("/auth/me") && !url.includes("/auth/login")) {
+    const noResponse = !error?.response;
+    // Distinguish transient network/5xx from real auth failures.
+    if (noResponse) {
       // eslint-disable-next-line no-console
-      console.debug("[auth] 401 received, clearing token:", url);
-      localStorage.removeItem("gheras_token");
-      // Only force redirect if we were already inside the app.
-      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-        window.location.assign("/login");
+      console.debug("[auth] interceptor:network-error url=", url, "code=", error?.code);
+      return Promise.reject(error);
+    }
+    if (status === 401) {
+      const isAuthProbe =
+        url.includes("/auth/me") ||
+        url.includes("/auth/login") ||
+        url.includes("/auth/register") ||
+        url.includes("/uploads/file/"); // <img src=...> auth failures are silent
+      // eslint-disable-next-line no-console
+      console.debug("[auth] interceptor:401 url=", url, "action=", isAuthProbe ? "ignore" : "redirect");
+      if (!isAuthProbe) {
+        localStorage.removeItem("gheras_token");
+        // eslint-disable-next-line no-console
+        console.debug("[auth] token:cleared reason=401-from-app-endpoint");
+        if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+          // eslint-disable-next-line no-console
+          console.debug("[auth] redirect:login reason=401-from-app-endpoint");
+          window.location.assign("/login");
+        }
       }
     }
     return Promise.reject(error);
