@@ -930,15 +930,6 @@ function Review({ data, categories, options }) {
           <p className="font-body text-[#2D3748] whitespace-pre-wrap">{data.personalization.custom_notes}</p>
         </div>
       )}
-
-      <details className="bg-[#FDFBF7] rounded-2xl p-4 border border-[#E2D8C9]">
-        <summary className="font-body text-sm font-bold text-[#5A677D] cursor-pointer flex items-center gap-2">
-          <FileText className="w-4 h-4" /> عرض البيانات الكاملة (JSON)
-        </summary>
-        <pre className="mt-3 text-xs overflow-x-auto bg-white p-3 rounded-xl">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </details>
     </div>
   );
 }
