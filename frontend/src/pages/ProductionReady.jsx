@@ -33,12 +33,15 @@ export default function ProductionReady() {
   const [retrying, setRetrying] = useState(false);
   const pollRef = useRef(null);
 
+  const errorShownRef = useRef(false);
+
   const fetchData = async (opts = {}) => {
     const { silent = false } = opts;
     try {
       const { data } = await api.get(`/orders/${id}/production-summary`);
       setState(data);
       setLoading(false);
+      errorShownRef.current = false;
       // Poll while the pipeline is still active; stop on terminal delivered/failed.
       const stopStates = ["delivered", "failed", "completed"];
       if (stopStates.includes(data.status) && pollRef.current) {
@@ -46,12 +49,14 @@ export default function ProductionReady() {
         pollRef.current = null;
       }
     } catch (e) {
-      // Only toast on the very first load (before any data arrived). Transient
-      // polling errors are silenced to avoid spamming the user — we'll just
-      // retry on the next interval.
-      if (!silent) {
+      const status = e?.response?.status;
+      // Only surface PERMANENT errors (not found, forbidden) — and only once.
+      const isPermanent = status === 404 || status === 403 || status === 401;
+      if (isPermanent && !silent && !errorShownRef.current) {
         toast.error(e?.response?.data?.detail || "تعذّر تحميل الخطة");
+        errorShownRef.current = true;
       }
+      // Transient errors (network/502/504): just let the polling retry silently.
       setLoading(false);
     }
   };
