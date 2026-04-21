@@ -610,6 +610,36 @@ function Detail({ icon: Icon, label, value, testId }) {
   );
 }
 
+function StagePill({ stage }) {
+  const stages = [
+    { key: "plan", label: "الخطة" },
+    { key: "assets", label: "الوسائط" },
+    { key: "assembly", label: "التجميع" },
+    { key: "delivered", label: "جاهز" },
+  ];
+  const order = ["plan", "assets", "assembly", "delivered"];
+  const idx = Math.max(0, order.indexOf(stage));
+  return (
+    <div className="flex items-center justify-between mt-3 text-[11px] font-body" data-testid="stage-pills">
+      {stages.map((s, i) => (
+        <div
+          key={s.key}
+          className={`flex-1 text-center ${i <= idx ? "text-[#4F6B3B] font-bold" : "text-[#8A9AB0]"}`}
+        >
+          <div
+            className={`mx-auto w-2 h-2 rounded-full mb-1 ${
+              i < idx ? "bg-[#4F6B3B]" :
+              i === idx ? "bg-[#87A96B] ring-2 ring-[#87A96B]/30 animate-pulse" :
+              "bg-[#E2D8C9]"
+            }`}
+          />
+          {s.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WhatsAppShareCard() {
   const handleShare = () => {
     const landingUrl = window.location.origin + "/";
