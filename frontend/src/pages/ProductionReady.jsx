@@ -104,7 +104,10 @@ export default function ProductionReady() {
   const isFailed = status === "failed";
   // Unified progress from backend (0..100 across the whole pipeline).
   const progress = state?.progress;
-  const progressPercent = progress?.percent ?? 0;
+  const rawPercent = progress?.percent ?? 0;
+  // UX override: when the plan is ready (waiting for approval) or delivered,
+  // show 100% instead of the backend's internal stage weight.
+  const progressPercent = (planReady || isDelivered) ? 100 : rawPercent;
   const progressStage = progress?.stage;
   const progressMessage = progress?.message_ar;
   const [delivery, setDelivery] = useState(null);
@@ -229,13 +232,13 @@ export default function ProductionReady() {
             </div>
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
               {isDelivered
-                ? "قصتك أصبحت جاهزة 🌱"
+                ? "🎉 قصتك أصبحت جاهزة!"
                 : isAssembling
                 ? "جاري تجميع قصة طفلك..."
                 : isMediaReady
                 ? "وسائط قصتك جاهزة"
                 : isGeneratingMedia
-                ? "جاري إعداد قصة طفلك..."
+                ? "نقوم الآن بصناعة قصة مميزة لطفلك..."
                 : isMediaFailed
                 ? "تعذّر إعداد بعض الوسائط"
                 : approved
@@ -390,15 +393,31 @@ export default function ProductionReady() {
             <WhatsAppShareCard />
 
             {/* Completion card */}
-            <div className="bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[2rem] p-6 border border-[#87A96B]/40 text-center">
-              <PartyPopper className="w-10 h-10 text-[#4F6B3B] mx-auto mb-2" />
-              <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-1">
-                {delivery.plan?.title || "قصة طفلك"}
-              </h3>
-              <p className="font-body text-sm text-[#5A677D]">
-                نتمنى أن تترك القصة أثراً جميلاً في قلب طفلك 🌱
-              </p>
+            <div
+              className="bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[2rem] p-6 border border-[#87A96B]/40 text-center relative overflow-hidden"
+              style={{ animation: "gheras-pop 0.7s cubic-bezier(0.2,0.9,0.3,1.15) both" }}
+              data-testid="completion-card"
+            >
+              <div className="absolute -top-8 -right-8 w-28 h-28 bg-[#87A96B]/10 rounded-full blur-2xl" />
+              <div className="absolute -bottom-8 -left-8 w-28 h-28 bg-[#D4A373]/15 rounded-full blur-2xl" />
+              <div className="relative">
+                <div className="w-16 h-16 rounded-full bg-white grid place-content-center mx-auto mb-3 shadow-sm ring-2 ring-[#87A96B]/30">
+                  <PartyPopper className="w-8 h-8 text-[#4F6B3B]" />
+                </div>
+                <h3 className="font-heading text-2xl font-bold text-[#2D3748] mb-1">
+                  {delivery.plan?.title || "قصة طفلك"}
+                </h3>
+                <p className="font-body text-sm text-[#5A677D]">
+                  نتمنى أن تترك القصة أثراً جميلاً في قلب طفلك 🌱
+                </p>
+              </div>
             </div>
+            <style>{`
+              @keyframes gheras-pop {
+                0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
+                100% { opacity: 1; transform: translateY(0)   scale(1); }
+              }
+            `}</style>
           </div>
         )}
 

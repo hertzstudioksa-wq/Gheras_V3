@@ -163,6 +163,9 @@ export default function ScenarioSelection() {
                     style={{ width: "33%", animation: "gheras-indet 1.4s ease-in-out infinite" }}
                   />
                 </div>
+                <p className="mt-2 text-[11px] font-body text-[#8A9AB0] text-center">
+                  قد يستغرق ذلك بضع ثوانٍ...
+                </p>
               </div>
             )}
           </div>
