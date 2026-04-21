@@ -38,11 +38,16 @@ export default function ProductionReady() {
   const startRef = useRef(Date.now());
   const [stuckHint, setStuckHint] = useState(false);
   const [loadError, setLoadError] = useState(null);  // persistent error for render
+  // Consecutive-failure tracking so a single 502/timeout doesn't flash the
+  // "connection error" card. Only surface the error UI after N failures in a row.
+  const consecutiveFailuresRef = useRef(0);
+  const INITIAL_FAILURE_THRESHOLD = 3;   // attempts before showing error during initial load
+  const backoffTimersRef = useRef([]);
 
   const fetchData = async (opts = {}) => {
     const { silent = false } = opts;
     // eslint-disable-next-line no-console
-    console.debug("[prod-ready] fetch:start silent=", silent);
+    console.debug("[prod-ready] fetch:start silent=", silent, "consecutive_failures=", consecutiveFailuresRef.current);
     try {
       const { data } = await api.get(`/orders/${id}/production-summary`);
       // eslint-disable-next-line no-console
@@ -50,6 +55,7 @@ export default function ProductionReady() {
       setState(data);
       setLoading(false);
       setLoadError(null);
+      consecutiveFailuresRef.current = 0;
       lastUpdateRef.current = Date.now();
       errorShownRef.current = false;
       // Poll while the pipeline is still active; stop on terminal delivered/failed.
@@ -62,21 +68,41 @@ export default function ProductionReady() {
       }
     } catch (e) {
       const status = e?.response?.status;
+      const isNetworkLike = !e?.response; // true for timeouts, ERR_NETWORK, 502/504 at ingress
+      consecutiveFailuresRef.current += 1;
       // eslint-disable-next-line no-console
-      console.debug("[prod-ready] fetch:failure status=", status, "code=", e?.code, "msg=", e?.message);
-      const isPermanent = status === 404 || status === 403 || status === 401;
+      console.debug(
+        "[prod-ready] fetch:failure status=", status,
+        "code=", e?.code, "network=", isNetworkLike,
+        "consecutive=", consecutiveFailuresRef.current,
+      );
+      // Truly permanent client-side errors → show error immediately.
+      // 401 is permanent only when NOT network-like (interceptor already handles real auth failure).
+      const isPermanent = status === 404 || status === 403 || (status === 401 && !isNetworkLike);
       if (isPermanent) {
         setLoadError({ permanent: true, status, detail: e?.response?.data?.detail });
         if (!silent && !errorShownRef.current) {
           toast.error(e?.response?.data?.detail || "تعذّر تحميل الخطة");
           errorShownRef.current = true;
         }
+        setLoading(false);
       } else if (!state) {
-        // Transient failure during INITIAL load — surface a retry UI so the
-        // page never renders blank. Polling will retry automatically.
-        setLoadError({ permanent: false, status, detail: e?.response?.data?.detail });
+        // Transient failure during INITIAL load — keep the loading skeleton
+        // visible and silently retry. Only flip to the "connection error" UI
+        // after N consecutive failures.
+        if (consecutiveFailuresRef.current >= INITIAL_FAILURE_THRESHOLD) {
+          setLoadError({ permanent: false, status, detail: e?.response?.data?.detail });
+          setLoading(false);
+        } else {
+          // eslint-disable-next-line no-console
+          console.debug(
+            "[prod-ready] transient — staying in loading state; retries left before showing error:",
+            INITIAL_FAILURE_THRESHOLD - consecutiveFailuresRef.current,
+          );
+          // Keep loading=true so the skeleton stays visible.
+        }
       }
-      setLoading(false);
+      // else: we already have state → the page keeps rendering; next poll retries.
     }
   };
 
@@ -84,8 +110,18 @@ export default function ProductionReady() {
     // eslint-disable-next-line no-console
     console.debug("[prod-ready] mount order_id=", id);
     fetchData();
+    // Quick backoff retries (1s, 3s) for the initial load — shortens the
+    // "connection error" window if the very first request hiccups.
+    backoffTimersRef.current = [1000, 3000].map((ms) =>
+      setTimeout(() => {
+        // Only retry if we still don't have state AND no permanent error.
+        // State is read via closure — a successful first fetch will have
+        // already cleared loading; the retry is effectively a no-op after that.
+        fetchData({ silent: true });
+      }, ms),
+    );
     // eslint-disable-next-line no-console
-    console.debug("[prod-ready] poll:start interval=3000");
+    console.debug("[prod-ready] poll:start interval=3000 (quick-retries at 1s,3s)");
     pollRef.current = setInterval(() => fetchData({ silent: true }), 3000);
     return () => {
       if (pollRef.current) {
@@ -93,6 +129,8 @@ export default function ProductionReady() {
         console.debug("[prod-ready] poll:stopped reason=unmount");
         clearInterval(pollRef.current);
       }
+      backoffTimersRef.current.forEach(clearTimeout);
+      backoffTimersRef.current = [];
     };
     // eslint-disable-next-line
   }, [id]);

@@ -198,6 +198,23 @@ generating (Phase 6) → completed
   stage card with copy-prompt, download, and per-stage regenerate actions.
 - Tests: 17/17 pytest cases green (`/app/backend/tests/test_storyboard.py`) + frontend smoke pass.
 
+### UX Hardening — ProductionReady polling (Feb 22, 2026)
+- Fixed recurring "جاري تحميل حالة الطلب… هناك تعطّل مؤقت في الاتصال" flicker on page load.
+- Root cause: a single transient 502/504/timeout during the INITIAL fetch immediately set
+  `loadError` and hid the loading skeleton — even though the 3s polling would recover within
+  seconds.
+- Fix (frontend only, no business logic change):
+  1. Added `consecutiveFailuresRef` counter (threshold = 3) — only surfaces the error card
+     after 3 consecutive failures during initial load.
+  2. Added quick backoff retries at 1s and 3s on mount (on top of the 3s polling loop) so the
+     first hiccup is always re-attempted before any error UI appears.
+  3. 401 is treated as permanent ONLY when a response body exists (transient 401s from
+     gateway/timeout now fall through to the retry path, matching the api.js interceptor).
+  4. Kept `loading=true` between transient failures so the pretty skeleton stays visible.
+- Verified via Playwright route-interception: 2 injected 502s → UI stays on skeleton, 3rd call
+  succeeds and renders content with zero flash of error text. 5 consecutive 502s → error card
+  appears only after the 3rd failure. 404 permanent error card appears immediately.
+
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
 - Video animation (Sora 2 or equivalent) using `animation_prompt`.
