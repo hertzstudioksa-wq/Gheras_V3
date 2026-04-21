@@ -1,82 +1,104 @@
 # Gheras (غِراس) — PRD
 
 ## Problem Statement
-Arabic-first (RTL) AI storytelling platform for children. The Story Builder collects structured inputs, Claude Sonnet 4.5 generates 3 personalized scenarios, the parent selects one, and the selection is stored for future AI video/image/PDF production (Phase 5 — NOT built yet).
+Arabic-first (RTL) AI storytelling platform for children. Multi-step Story Builder → Claude Sonnet 4.5 generates 3 scenarios → parent selects one → **Production Planning Engine** (Phase 5) produces a complete blueprint (scenes, narration, image/animation prompts, book pages, character profiles) → parent approves → (future Phase 6: actual image/video/PDF production).
 
 ## Architecture
 - **Backend**: FastAPI + MongoDB (Motor). Auth: JWT. LLM: Claude Sonnet 4.5 via `emergentintegrations`.
 - **Frontend**: React + Tailwind + Shadcn UI. RTL Arabic.
 - **Storage**: Emergent Object Storage for image uploads.
 
-## Implemented (through Phase 4 — Apr 20, 2026)
-### Phase 1–3 (earlier sessions)
-- JWT auth, admin seed, drafts auto-save.
-- 6-step Story Builder wizard.
-- Order state machine with `status_history`.
-- Scenario generation via Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`) with deterministic Arabic fallback.
-- Parent Scenario Selection UI + Admin panel with manual regenerate/select/delete.
+## Implemented Phases
+### Phase 1-3 (earlier)
+- JWT auth, admin seed, drafts auto-save, 6-step Story Builder, Claude scenarios + fallback, scenario selection + admin panel.
 
-### Phase 4 (current session — Apr 20, 2026)
-1. **Scenario batches**: every regeneration creates a new `scenario_batch_id`; prior scenarios are archived (`is_archived=true`) not deleted. Users see only the current batch; admin sees all batches.
-2. **Video Duration slider** (Step 5): snap points 30/45/60/90/120/150/180s (default 90 = "دقيقة ونصف"). Maps to `scene_target` (3–9) and `cost_tier` (low/medium/high).
-3. **`why_this_fits` field** on every scenario, shown on parent selection cards and admin view.
-4. **Max 3 user regenerations** enforced server-side (429 with Arabic detail). Last-attempt confirm dialog on UI. Admin bypass with badge `Max reached`.
-5. **Admin batches accordion**: latest batch auto-expanded, per-batch source badge (AI/Fallback), `N / 3` counter, bypass regenerate button.
-6. **Selection guard**: user cannot select from archived batch (400); admin can (auto-promotes batch to current).
+### Phase 4 (Apr 20, 2026)
+- Scenario batches (archive, not delete).
+- Video Duration slider (30..180s → scene_target + cost_tier).
+- `why_this_fits` per scenario.
+- 3-regen user cap + admin bypass.
+- Admin batches accordion.
 
-## Key Schema
-### orders (new/updated fields)
-- `duration`: `{seconds, label, scene_target, cost_tier}`
-- `current_scenario_batch_id: str`
-- `selected_scenario_batch_id: str | null`
-- `regeneration_count: int` (default 0)
-- `max_regenerations: int` (default 3)
-- existing: `data`, `enriched`, `status`, `status_history`, `ai_prompt_snapshot`, `selected_scenario_id`, `selected_scenario_snapshot`, `scenarios_generation`.
+### Phase 5 — Production Planning Engine (Apr 21, 2026)
+- Auto-triggered when an order reaches `ready_for_ai`.
+- ONE mega-JSON Claude call produces: production_plan + scenes + book_pages + character_profiles.
+- Deterministic fallback preserves UX if LLM fails.
+- Arabic narration & book text; English prompts for image/animation.
+- User sees summary + "موافق" button (consent before media generation).
+- User regen = 1 attempt; admin regen = unlimited.
+- Admin panel tab: **خطة الإنتاج** (view plan, view/edit scenes incl. narration + prompts, regenerate).
 
-### scenarios (new/updated fields)
-- `scenario_batch_id: str`
-- `why_this_fits: str`
-- `is_archived: bool`
-- `source: "ai" | "fallback"`
-- existing: `title, short_summary, emotional_angle, learning_goal, visual_style_hint, estimated_scene_count, scenario_index, is_selected, created_at`.
+## Order Status Machine
+```
+draft → pending → (scenarios_generating ↔ scenarios_ready) → scenario_selected →
+ready_for_ai → production_planning → production_ready → production_approved →
+generating (Phase 6) → completed
+```
 
-## Key Endpoints
+## Key Schema — Phase 5 Additions
+
+### orders (new fields)
+- `production_plan_id`
+- `production_plan_snapshot: {plan_id, run_id, source, target_scene_count, generated_at}`
+- `production_generation: {run_id, source, error, completed_at}`
+- `production_approved: bool`
+- `production_approved_at`
+- `production_regeneration_count`
+- `max_user_production_regenerations` (=1)
+
+### production_plans (new collection)
+`id, order_id, run_id, source, is_archived, title, story_summary, main_message, emotional_arc, style_guide{palette,lighting,art_direction}, cover_prompt, safety_check, target_scene_count, estimated_image_count, total_word_count, duration_seconds, duration_label, tone, setting, language, ai_plan_snapshot_json, created_at`
+
+### scene_plans (new collection)
+`id, order_id, production_plan_id, run_id, scene_index, arc_beat, title, scene_goal, narration_text(ar), book_text(ar), emotional_tone, visual_description(en), characters_in_scene[{character_profile_id, role_in_scene}], key_objects[], background_setting, continuity_notes, image_prompt{prompt_text(en), style_reference, character_reference_note}, animation_prompt{start_frame_description, end_frame_description, motion_hint, camera_style}, word_count, is_archived, created_at, edited_at, edited_by_admin`
+
+### book_pages (new collection)
+`id, order_id, production_plan_id, run_id, page_number, scene_index, scene_reference, text(ar), illustration_prompt(en), is_archived, created_at, edited_at, edited_by_admin`
+
+### character_profiles (new collection)
+`id, order_id, production_plan_id, run_id, type, name, name_en, visual_description(en), clothing_style(en), key_features(en), reference_image_url, is_archived, created_at, edited_at, edited_by_admin`
+
+## Key Endpoints — Phase 5
+
 ### User
-- `POST /api/orders` — accepts `data.duration.seconds`, stores normalized duration + initial batch_id.
-- `GET /api/orders/{id}/scenarios` — returns only current-batch scenarios + `regeneration_count`, `max_regenerations`, `regenerations_remaining`, `duration`.
-- `POST /api/orders/{id}/scenarios/regenerate` — 200 w/ new batch_id; 429 after 3 uses (Arabic detail).
-- `POST /api/orders/{id}/scenarios/{sid}/select` — 400 if scenario is from an archived batch.
+| Method | Path | Purpose |
+|---|---|---|
+| GET  | `/api/orders/{id}/production-summary` | Title, summary, scene_count, duration + approval state |
+| POST | `/api/orders/{id}/production/approve` | Sets production_approved=true, transitions to `production_approved` |
+| POST | `/api/orders/{id}/production/regenerate` | 1 attempt; 429 Arabic error after |
 
-### Admin (unchanged routes, richer responses)
-- `GET /api/admin/orders/{id}/scenarios` — returns `batches[]` (grouped, latest first, `is_current` flag) + counters + duration.
-- `POST /api/admin/orders/{id}/scenarios/regenerate` — bypasses 3-limit, still bumps counter.
-- `POST /api/admin/orders/{id}/scenarios/{sid}/select` — admin can select from any batch; auto-promotes that batch to current.
+### Admin
+| Method | Path | Purpose |
+|---|---|---|
+| GET  | `/api/admin/orders/{id}/production` | Full plan + scenes + book_pages + character_profiles |
+| POST | `/api/admin/orders/{id}/production/regenerate` | Unlimited, archives previous |
+| PATCH | `/api/admin/scene-plans/{id}` | Edit narration_text / book_text / visual_description / image_prompt_text / animation.* |
+| PATCH | `/api/admin/book-pages/{id}` | Edit text / illustration_prompt |
+| PATCH | `/api/admin/character-profiles/{id}` | Edit visual_description / clothing_style / key_features |
 
-## Affected Files
-### Backend
-- `/app/backend/models.py` — added `DURATION_SNAPS`, `duration_meta()`, `DurationPayload`, `StoryData.duration`.
-- `/app/backend/services/scenario_service.py` — new system prompt w/ `why_this_fits`, scene_target injection, `_clamp_scene_count`, `build_scenario_docs(order_id, items, batch_id, source)`.
-- `/app/backend/routes/order_routes.py` — batch-aware `run_scenario_generation`, `MAX_REGENERATIONS=3`, list/select guards, duration normalization in `create_order`.
-- `/app/backend/routes/admin_routes.py` — `admin_list_scenarios` returns grouped batches; `admin_regenerate_scenarios` bypasses limit; `admin_select_scenario` promotes old batch.
-
-### Frontend
-- `/app/frontend/src/pages/StoryBuilder.jsx` — added `DurationPicker` component in Step 5 (testids: `duration-picker`, `duration-slider`, `duration-snap-{s}`, `duration-scene-target`, `duration-cost-tier`). `blankData` initializes `duration:{seconds:90}`. Review Step 6 shows duration field.
-- `/app/frontend/src/pages/ScenarioSelection.jsx` — renders `why-fits-{id}`, `regen-counter`, `last-attempt-warning`, `limit-reached-warning`; regenerate button disabled + tooltip when limit reached; confirm dialog on last attempt.
-- `/app/frontend/src/pages/admin/AdminOrders.jsx` — new `AdminScenariosTab` with accordion per batch (`admin-batch-{bid}`, `admin-batch-toggle-{bid}`), `admin-regen-counter`, `admin-max-reached-badge`, bypass-enabled `admin-regen-scenarios`.
-
-## Testing Status
-- Backend: smoke-validated end-to-end via curl (duration mapping, batches, 3-regen cap + 429 Arabic, admin bypass, archived-batch select 400).
-- Testing agent Phase 4 pass: 14/14 targeted tests green; 3 long-running regression tests not run (timed out).
-- Frontend: loads; full interactive testids not yet end-to-end tested.
-
-## Backlog / Future
-- **P0 — Phase 5**: Image, Video, PDF production using `selected_scenario_snapshot` (user explicitly asked to defer).
-- **P1**: Unique index on `(order_id, scenario_batch_id, scenario_index)` in `scenarios`.
-- **P1**: Transaction / insert-first-then-archive to avoid rare partial states on regeneration failure.
-- **P2**: Per-child/per-order cost tracking & dashboard using `duration.cost_tier`.
-- **P2**: Email/notification when scenarios are ready.
+## Arc Templates (per scene_target)
+- 3 scenes → intro / problem / resolution
+- 4 → intro / problem / turn / ending
+- 5 → intro / problem / escalation / resolution / ending
+- 6 → intro / problem / escalation / climax / resolution / ending
+- 7 → setup / intro / problem / escalation / climax / resolution / ending
+- 8 → setup / intro / problem / esc₁ / esc₂ / climax / resolution / ending
+- 9 → setup / intro / problem / esc₁ / esc₂ / climax / resolution / reflection / ending
 
 ## Known Issues / Caveats
-- `admin bypass regeneration` still bumps user `regeneration_count` — spec-intentional but causes `regenerations_remaining=0` for user after any admin regen.
-- Very brief race: if user polls `/scenarios` before background LLM insert finishes, they see empty list + `scenarios_generating` status (UI already handles this with polling skeleton).
-- `duration_meta` snaps nearest if an unknown value is sent; zero is treated as default 90 (intentional fail-safe).
+- Emergent Claude endpoint has been returning 502s intermittently during testing — fallback works reliably and produces a full valid plan every time.
+- Admin bypass still bumps user regen counter (consistent with Phase 4 design).
+- Plan regeneration archives all previous scenes/pages/characters (via `is_archived=true`), not deleted.
+- Scenes/pages/characters are served filtered by `is_archived=false` in admin view.
+
+## Backlog (Phase 6 — NOT built yet)
+- Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
+- Video animation (Sora 2 or equivalent) using `animation_prompt`.
+- Narration audio (OpenAI TTS/ElevenLabs) using `narration_text`.
+- PDF storybook using `book_pages.text` + generated illustrations.
+
+## P1 Enhancements (later)
+- Per-user character_profiles (reuse across stories for the same child).
+- Transaction/insert-first-then-archive on regeneration to avoid rare partial states.
+- Unique index on `(order_id, production_plan_id, scene_index)`.
+- Cost dashboard using `duration.cost_tier` + `total_word_count`.

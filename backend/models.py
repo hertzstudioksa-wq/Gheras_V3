@@ -182,6 +182,9 @@ class OrderStatus(str, Enum):
     SCENARIOS_READY = "scenarios_ready"
     SCENARIO_SELECTED = "scenario_selected"
     READY_FOR_AI = "ready_for_ai"
+    PRODUCTION_PLANNING = "production_planning"
+    PRODUCTION_READY = "production_ready"
+    PRODUCTION_APPROVED = "production_approved"
     GENERATING = "generating"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -195,6 +198,9 @@ ORDER_STATUS_AR = {
     "scenarios_ready": "السيناريوهات جاهزة",
     "scenario_selected": "تم اختيار سيناريو",
     "ready_for_ai": "جاهز للتوليد",
+    "production_planning": "جاري إعداد خطة الإنتاج",
+    "production_ready": "خطة الإنتاج جاهزة",
+    "production_approved": "تمت الموافقة على الخطة",
     "generating": "جاري التوليد",
     "completed": "مكتمل",
     "failed": "فشل",
@@ -212,6 +218,40 @@ class OrderStatusUpdate(BaseModel):
 
 class PromptUpdate(BaseModel):
     ai_prompt_snapshot: str
+
+
+# =========================
+# Production Plan (Phase 5 - Production Planning Engine)
+# =========================
+ARC_TEMPLATES = {
+    3: ["introduction", "problem", "resolution"],
+    4: ["introduction", "problem", "turning_point", "positive_ending"],
+    5: ["introduction", "problem", "escalation", "resolution", "positive_ending"],
+    6: ["introduction", "problem", "escalation", "climax", "resolution", "positive_ending"],
+    7: ["setup", "introduction", "problem", "escalation", "climax", "resolution", "positive_ending"],
+    8: ["setup", "introduction", "problem", "escalation_1", "escalation_2", "climax", "resolution", "positive_ending"],
+    9: ["setup", "introduction", "problem", "escalation_1", "escalation_2", "climax", "resolution", "reflection", "positive_ending"],
+}
+
+
+class SceneEdit(BaseModel):
+    narration_text: Optional[str] = None
+    book_text: Optional[str] = None
+    visual_description: Optional[str] = None
+    image_prompt_text: Optional[str] = None
+    animation_motion_hint: Optional[str] = None
+    animation_camera_style: Optional[str] = None
+
+
+class BookPageEdit(BaseModel):
+    text: Optional[str] = None
+    illustration_prompt: Optional[str] = None
+
+
+class CharacterProfileEdit(BaseModel):
+    visual_description: Optional[str] = None
+    clothing_style: Optional[str] = None
+    key_features: Optional[str] = None
 
 
 # =========================

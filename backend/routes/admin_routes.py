@@ -216,7 +216,7 @@ async def admin_delete_scenarios(order_id: str, admin=Depends(require_admin)):
 
 
 @router.post("/orders/{order_id}/scenarios/{scenario_id}/select")
-async def admin_select_scenario(order_id: str, scenario_id: str, admin=Depends(require_admin)):
+async def admin_select_scenario(order_id: str, scenario_id: str, background: BackgroundTasks, admin=Depends(require_admin)):
     o = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
@@ -240,6 +240,9 @@ async def admin_select_scenario(order_id: str, scenario_id: str, admin=Depends(r
     await db.orders.update_one({"id": order_id}, {"$set": updates})
     await append_status(order_id, o.get("status"), "scenario_selected", "admin", actor_id=admin["id"], reason=reason)
     await append_status(order_id, "scenario_selected", "ready_for_ai", "system", reason="auto after admin selection")
+    # Trigger production planning in background (phase 5)
+    from routes.production_routes import trigger_production_planning
+    await trigger_production_planning(order_id, background)
     return {"ok": True}
 
 

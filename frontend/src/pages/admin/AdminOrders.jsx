@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api, fileSrc } from "../../lib/api";
 import OrderStatusBadge from "../../components/gheras/OrderStatusBadge";
 import { toast } from "sonner";
-import { Eye, Filter, Wand2, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock, ChevronDown, ChevronUp, Lightbulb, Coins } from "lucide-react";
+import { Eye, Filter, Wand2, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock, ChevronDown, ChevronUp, Lightbulb, Coins, Film, ImageIcon, FileText as FileTextIcon, Users as UsersIcon, Palette } from "lucide-react";
 
 const ANGLE_META = {
   emotional:   { label: "عاطفي", icon: Heart, bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]" },
@@ -187,6 +187,7 @@ export default function AdminOrders() {
               {[
                 { k: "overview", l: "نظرة عامة" },
                 { k: "scenarios", l: "السيناريوهات" },
+                { k: "production", l: "خطة الإنتاج" },
                 { k: "history", l: "سجل الحالات" },
                 { k: "json", l: "JSON" },
                 { k: "prompt", l: "البرومبت" },
@@ -243,6 +244,10 @@ export default function AdminOrders() {
                 onDelete={adminDeleteScenarios}
                 onSelect={adminSelectScenario}
               />
+            )}
+
+            {tab === "production" && (
+              <AdminProductionTab orderId={detail.id} />
             )}
 
             {tab === "history" && (
@@ -444,4 +449,287 @@ function AdminScenariosTab({ scenariosData, onRegenerate, onDelete, onSelect }) 
 
 function AlertBadge() {
   return <span className="w-2 h-2 rounded-full bg-[#B8612F]" />;
+}
+
+function AdminProductionTab({ orderId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState(null); // scene_id currently being edited
+  const [form, setForm] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data: d } = await api.get(`/admin/orders/${orderId}/production`);
+      setData(d);
+    } catch {
+      toast.error("تعذّر تحميل خطة الإنتاج");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [orderId]);
+
+  const regenerate = async () => {
+    try {
+      await api.post(`/admin/orders/${orderId}/production/regenerate`);
+      toast.success("جاري إعادة توليد خطة الإنتاج...");
+      // Poll briefly
+      let i = 0;
+      const iv = setInterval(async () => {
+        i++;
+        await load();
+        if (i > 20) clearInterval(iv);
+        const { data: latest } = await api.get(`/admin/orders/${orderId}/production`);
+        if (["production_ready", "failed", "production_approved"].includes(latest.status)) {
+          clearInterval(iv);
+        }
+      }, 3500);
+    } catch {
+      toast.error("فشل");
+    }
+  };
+
+  const startEditScene = (s) => {
+    setEditing(s.id);
+    setForm({
+      narration_text: s.narration_text || "",
+      book_text: s.book_text || "",
+      visual_description: s.visual_description || "",
+      image_prompt_text: s.image_prompt?.prompt_text || "",
+      animation_motion_hint: s.animation_prompt?.motion_hint || "",
+      animation_camera_style: s.animation_prompt?.camera_style || "",
+    });
+  };
+
+  const saveScene = async () => {
+    try {
+      await api.patch(`/admin/scene-plans/${editing}`, form);
+      toast.success("تم حفظ التعديلات");
+      setEditing(null);
+      setForm({});
+      load();
+    } catch {
+      toast.error("فشل الحفظ");
+    }
+  };
+
+  if (loading) return <p className="text-center py-8 text-[#8A9AB0] font-body">جاري التحميل...</p>;
+  if (!data) return null;
+
+  const { plan, scenes = [], book_pages = [], character_profiles = [] } = data;
+  const status = data.status;
+  const approved = data.production_approved;
+  const src = data.production_generation?.source;
+
+  return (
+    <div data-testid="admin-production-tab">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2 flex-wrap text-sm font-body">
+          <span className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-full px-3 py-1 inline-flex items-center gap-1">
+            <Film className="w-3 h-3 text-[#729352]" />
+            الحالة: <b className="text-[#2D3748]">{data.status_ar}</b>
+          </span>
+          {src === "ai" && <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-3 py-1 text-xs font-bold">AI</span>}
+          {src === "fallback" && <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-3 py-1 text-xs font-bold">Fallback</span>}
+          {approved && (
+            <span className="bg-[#87A96B] text-white rounded-full px-3 py-1 text-xs font-bold inline-flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> معتمدة من المستخدم
+            </span>
+          )}
+          <span className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-full px-3 py-1 text-xs">
+            إعادات المستخدم: <b>{data.production_regeneration_count} / {data.max_user_production_regenerations}</b>
+          </span>
+        </div>
+        <button onClick={regenerate} className="rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-4 py-2 text-xs font-bold inline-flex items-center gap-1 hover:bg-[#D4E3C1]" data-testid="admin-regen-production">
+          <RefreshCw className="w-3 h-3" /> إعادة توليد الخطة
+        </button>
+      </div>
+
+      {!plan ? (
+        <p className="text-center py-12 text-[#8A9AB0] font-body">
+          {status === "production_planning" ? "جاري توليد خطة الإنتاج..." : "لم يتم توليد خطة بعد"}
+        </p>
+      ) : (
+        <>
+          {/* Plan summary */}
+          <div className="bg-[#FDFBF7] rounded-3xl p-5 border border-[#E2D8C9] mb-5">
+            <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-1">{plan.title}</h3>
+            <p className="font-body text-sm text-[#5A677D] mb-3 whitespace-pre-wrap">{plan.story_summary}</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+              <Field label="الرسالة" value={plan.main_message} />
+              <Field label="المدة" value={plan.duration_label} />
+              <Field label="المشاهد" value={plan.target_scene_count} />
+              <Field label="صور مقدّرة" value={plan.estimated_image_count} />
+              <Field label="كلمات السرد" value={plan.total_word_count} />
+              <Field label="safety" value={plan.safety_check} />
+              <Field label="النبرة" value={plan.tone} />
+              <Field label="البيئة" value={plan.setting} />
+            </div>
+            {plan.style_guide && (
+              <div className="bg-white rounded-2xl p-3 border border-[#E2D8C9] mt-2" data-testid="plan-style-guide">
+                <div className="text-xs font-bold text-[#729352] mb-1 inline-flex items-center gap-1">
+                  <Palette className="w-3 h-3" /> Style Guide
+                </div>
+                <div className="text-xs font-body text-[#2D3748]">
+                  <div><b>Palette:</b> {plan.style_guide.palette}</div>
+                  <div><b>Lighting:</b> {plan.style_guide.lighting}</div>
+                  <div><b>Art direction:</b> {plan.style_guide.art_direction}</div>
+                </div>
+              </div>
+            )}
+            {plan.cover_prompt && (
+              <div className="bg-white rounded-2xl p-3 border border-[#E2D8C9] mt-2" data-testid="plan-cover-prompt">
+                <div className="text-xs font-bold text-[#729352] mb-1 inline-flex items-center gap-1">
+                  <ImageIcon className="w-3 h-3" /> Cover Prompt
+                </div>
+                <p className="text-xs font-mono text-[#2D3748] leading-relaxed">{plan.cover_prompt}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Characters */}
+          {character_profiles.length > 0 && (
+            <div className="mb-5">
+              <h4 className="font-heading font-bold text-[#2D3748] mb-2 inline-flex items-center gap-2">
+                <UsersIcon className="w-4 h-4 text-[#729352]" /> الشخصيات ({character_profiles.length})
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {character_profiles.map((c) => (
+                  <div key={c.id} className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9] text-xs font-body" data-testid={`character-profile-${c.id}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5 text-[10px] font-bold">{c.type}</span>
+                      {c.name && <span className="font-bold">{c.name}</span>}
+                      {c.name_en && <span className="text-[#8A9AB0]">({c.name_en})</span>}
+                    </div>
+                    <div className="text-[#5A677D]">
+                      <div><b>Look:</b> {c.visual_description}</div>
+                      {c.clothing_style && <div><b>Clothing:</b> {c.clothing_style}</div>}
+                      {c.key_features && <div><b>Features:</b> {c.key_features}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Scenes */}
+          <h4 className="font-heading font-bold text-[#2D3748] mb-2 inline-flex items-center gap-2">
+            <Film className="w-4 h-4 text-[#729352]" /> المشاهد ({scenes.length})
+          </h4>
+          <div className="space-y-3 mb-5">
+            {scenes.map((s) => (
+              <div key={s.id} className="bg-white rounded-2xl p-4 border-2 border-[#E2D8C9]" data-testid={`scene-plan-${s.id}`}>
+                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-[#87A96B] text-white rounded-full w-7 h-7 grid place-content-center text-xs font-bold">
+                      {s.scene_index}
+                    </span>
+                    <div>
+                      <div className="font-heading font-bold text-[#2D3748]">{s.title}</div>
+                      <div className="text-[11px] text-[#8A9AB0]">{s.arc_beat} • {s.emotional_tone} • {s.word_count} كلمة</div>
+                    </div>
+                  </div>
+                  {editing === s.id ? (
+                    <div className="flex gap-1">
+                      <button onClick={saveScene} className="rounded-full bg-[#87A96B] text-white px-3 py-1 text-xs font-bold inline-flex items-center gap-1">
+                        <Save className="w-3 h-3" /> حفظ
+                      </button>
+                      <button onClick={() => { setEditing(null); setForm({}); }} className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-3 py-1 text-xs font-bold">
+                        إلغاء
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => startEditScene(s)} className="text-xs font-bold text-[#729352] hover:text-[#4F6B3B]" data-testid={`edit-scene-${s.id}`}>
+                      تعديل
+                    </button>
+                  )}
+                </div>
+
+                {editing === s.id ? (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[11px] font-bold text-[#5A677D]">نص السرد (عربي)</label>
+                      <textarea rows={3} value={form.narration_text} onChange={(e) => setForm({ ...form, narration_text: e.target.value })}
+                        className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-2 text-sm font-body" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-[#5A677D]">نص الكتاب (عربي)</label>
+                      <textarea rows={2} value={form.book_text} onChange={(e) => setForm({ ...form, book_text: e.target.value })}
+                        className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-2 text-sm font-body" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-[#5A677D]">Image Prompt (EN)</label>
+                      <textarea rows={3} value={form.image_prompt_text} onChange={(e) => setForm({ ...form, image_prompt_text: e.target.value })}
+                        className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-2 text-xs font-mono" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={form.animation_motion_hint} onChange={(e) => setForm({ ...form, animation_motion_hint: e.target.value })}
+                        placeholder="Motion hint" className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-2 text-xs font-mono" />
+                      <input value={form.animation_camera_style} onChange={(e) => setForm({ ...form, animation_camera_style: e.target.value })}
+                        placeholder="Camera style" className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-2 text-xs font-mono" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2 text-sm">
+                    <div className="bg-[#FDFBF7] rounded-xl p-2 border border-[#E2D8C9]">
+                      <div className="text-[11px] font-bold text-[#729352]">السرد</div>
+                      <p className="font-body text-[#2D3748]">{s.narration_text}</p>
+                    </div>
+                    <div className="bg-[#FDFBF7] rounded-xl p-2 border border-[#E2D8C9]">
+                      <div className="text-[11px] font-bold text-[#729352]">نص الكتاب</div>
+                      <p className="font-body text-[#2D3748]">{s.book_text}</p>
+                    </div>
+                    <details className="bg-[#FDFBF7] rounded-xl p-2 border border-[#E2D8C9]">
+                      <summary className="text-[11px] font-bold text-[#729352] cursor-pointer inline-flex items-center gap-1">
+                        <ImageIcon className="w-3 h-3" /> Image Prompt (EN)
+                      </summary>
+                      <p className="mt-1 text-xs font-mono text-[#2D3748] leading-relaxed">{s.image_prompt?.prompt_text}</p>
+                    </details>
+                    <details className="bg-[#FDFBF7] rounded-xl p-2 border border-[#E2D8C9]">
+                      <summary className="text-[11px] font-bold text-[#729352] cursor-pointer inline-flex items-center gap-1">
+                        <Film className="w-3 h-3" /> Animation Prompt
+                      </summary>
+                      <div className="mt-1 text-xs font-mono text-[#2D3748] space-y-1">
+                        <div><b>Start:</b> {s.animation_prompt?.start_frame_description}</div>
+                        <div><b>End:</b> {s.animation_prompt?.end_frame_description}</div>
+                        <div><b>Motion:</b> {s.animation_prompt?.motion_hint}</div>
+                        <div><b>Camera:</b> {s.animation_prompt?.camera_style}</div>
+                      </div>
+                    </details>
+                    {s.edited_by_admin && (
+                      <span className="text-[10px] bg-[#D4A373]/20 text-[#8B5A2B] rounded-full px-2 py-0.5 inline-block">معدّل يدوياً</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Book pages */}
+          {book_pages.length > 0 && (
+            <div className="mb-3">
+              <h4 className="font-heading font-bold text-[#2D3748] mb-2 inline-flex items-center gap-2">
+                <FileTextIcon className="w-4 h-4 text-[#729352]" /> صفحات الكتاب ({book_pages.length})
+              </h4>
+              <div className="space-y-2">
+                {book_pages.map((p) => (
+                  <div key={p.id} className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9] text-sm flex gap-3" data-testid={`book-page-${p.id}`}>
+                    <span className="bg-[#D4A373] text-white rounded-full w-7 h-7 grid place-content-center text-xs font-bold shrink-0">
+                      {p.page_number}
+                    </span>
+                    <div className="flex-1">
+                      <p className="font-body text-[#2D3748]">{p.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
