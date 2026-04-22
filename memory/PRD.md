@@ -197,7 +197,7 @@ generating (Phase 6) → completed
   stage card with copy-prompt, download, and per-stage regenerate actions.
 - Tests: 17/17 pytest cases green (`/app/backend/tests/test_storyboard.py`) + frontend smoke pass.
 
-### UX Hardening — ProductionReady polling (Feb 22, 2026)
+## Backlog (Phase 6 — NOT built yet)
 - Fixed recurring "جاري تحميل حالة الطلب… هناك تعطّل مؤقت في الاتصال" flicker on page load.
 - Root cause: a single transient 502/504/timeout during the INITIAL fetch immediately set
   `loadError` and hid the loading skeleton — even though the 3s polling would recover within
@@ -213,6 +213,30 @@ generating (Phase 6) → completed
 - Verified via Playwright route-interception: 2 injected 502s → UI stays on skeleton, 3rd call
   succeeds and renders content with zero flash of error text. 5 consecutive 502s → error card
   appears only after the 3rd failure. 404 permanent error card appears immediately.
+
+### Phase D.5 — Story Depth & scene_target buckets (Feb 2026) ✅
+- **Duration → scene_target** is now bucket-based and **dynamic within a range**:
+  - 30–45s   → bucket **"short"**,  range **[3, 4]** scenes (picks 3 for 30s, 4 for 45s)
+  - 60–90s   → bucket **"medium"**, range **[5, 6]** scenes (picks 5 for 60s, 6 for 90s)
+  - 120–180s → bucket **"long"**,   range **[7, 9]** scenes (picks 7/8/9 for 120/150/180s)
+- `models.duration_meta()` now emits `scene_target_min`, `scene_target_max`, `scene_target_bucket`
+  alongside the existing `scene_target`/`label`/`cost_tier`. Persisted on new orders only.
+- `models.duration_scene_range()` safely returns `None` for legacy orders persisted before D.5,
+  so their exact-match validation is preserved (no DB migration, no regression).
+- `services/scenario_service._clamp_scene_count` now honours the bucket range when provided;
+  legacy callers fall through to the old `target ± 1` clamp.
+- `services/production_service._generate_via_claude` enforces the range:
+  `min ≤ len(scenes) ≤ max` for new orders, exact-match for legacy orders.
+- **Final-scene quality guard** (`_enforce_final_scene_quality`) added in `build_docs`:
+  ensures last scene `narration_text ≥ 12` words and `book_text ≥ 8` words. Short endings
+  are padded in Arabic with a warm closing line that references the child by name. Never
+  raises — the LLM prompt already asks for strong endings; this is a defensive mirror.
+- `routes/production_routes.run_production_generation` picks a concrete `target_scenes`
+  inside the bucket (honouring the selected scenario's `estimated_scene_count` when in range).
+- Admin prompt templates gain `scene_target_min`, `scene_target_max`, `scene_target_bucket`
+  variables for `scenario_generation` and `production_planning`.
+- Tests: 14/14 new unit tests green (`/app/backend/tests/test_phase_d5_scene_target.py`).
+  End-to-end verified via REAL AI path (45s→4, 60s→5, 150s→8 scenes; final narration 49–62 words).
 
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.

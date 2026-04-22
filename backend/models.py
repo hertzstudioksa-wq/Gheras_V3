@@ -140,22 +140,56 @@ DURATION_SNAPS = [30, 45, 60, 90, 120, 150, 180]
 
 
 def duration_meta(seconds: int) -> dict:
-    """Derive label / scene_target / cost_tier from a duration in seconds."""
+    """Derive label / scene_target / scene_target_{min,max} / bucket / cost_tier.
+
+    Phase D.5 — duration → scene_target bucket mapping (dynamic within range):
+      * 30–45s   → 3–4 scenes   (bucket="short")
+      * 60–90s   → 5–6 scenes   (bucket="medium")
+      * 120–180s → 7–9 scenes   (bucket="long")
+
+    Each specific snap point keeps its own dynamic pick inside the bucket so the
+    LLM gets a concrete target (scene_target) while downstream validation uses
+    the bucket range [scene_target_min, scene_target_max].
+    """
     s = int(seconds)
     if s not in DURATION_SNAPS:
         # snap to nearest allowed
         s = min(DURATION_SNAPS, key=lambda x: abs(x - s))
     mapping = {
-        30:  {"label": "30 ثانية",      "scene_target": 3, "cost_tier": "low"},
-        45:  {"label": "45 ثانية",      "scene_target": 4, "cost_tier": "low"},
-        60:  {"label": "دقيقة",         "scene_target": 5, "cost_tier": "medium"},
-        90:  {"label": "دقيقة ونصف",    "scene_target": 6, "cost_tier": "medium"},
-        120: {"label": "دقيقتان",       "scene_target": 7, "cost_tier": "high"},
-        150: {"label": "دقيقتان ونصف",  "scene_target": 8, "cost_tier": "high"},
-        180: {"label": "ثلاث دقائق",    "scene_target": 9, "cost_tier": "high"},
+        30:  {"label": "30 ثانية",      "scene_target": 3, "bucket": "short",  "min": 3, "max": 4, "cost_tier": "low"},
+        45:  {"label": "45 ثانية",      "scene_target": 4, "bucket": "short",  "min": 3, "max": 4, "cost_tier": "low"},
+        60:  {"label": "دقيقة",         "scene_target": 5, "bucket": "medium", "min": 5, "max": 6, "cost_tier": "medium"},
+        90:  {"label": "دقيقة ونصف",    "scene_target": 6, "bucket": "medium", "min": 5, "max": 6, "cost_tier": "medium"},
+        120: {"label": "دقيقتان",       "scene_target": 7, "bucket": "long",   "min": 7, "max": 9, "cost_tier": "high"},
+        150: {"label": "دقيقتان ونصف",  "scene_target": 8, "bucket": "long",   "min": 7, "max": 9, "cost_tier": "high"},
+        180: {"label": "ثلاث دقائق",    "scene_target": 9, "bucket": "long",   "min": 7, "max": 9, "cost_tier": "high"},
     }
     m = mapping[s]
-    return {"seconds": s, "label": m["label"], "scene_target": m["scene_target"], "cost_tier": m["cost_tier"]}
+    return {
+        "seconds": s,
+        "label": m["label"],
+        "scene_target": m["scene_target"],
+        "scene_target_min": m["min"],
+        "scene_target_max": m["max"],
+        "scene_target_bucket": m["bucket"],
+        "cost_tier": m["cost_tier"],
+    }
+
+
+def duration_scene_range(duration: dict | None) -> tuple[int, int] | None:
+    """Return (min, max) scene range for an order's stored duration dict.
+
+    Returns None for old orders that were persisted before Phase D.5 (no
+    bucket fields). Callers MUST treat `None` as "use legacy exact-match
+    validation" so existing orders keep their current behaviour.
+    """
+    if not duration:
+        return None
+    mn = duration.get("scene_target_min")
+    mx = duration.get("scene_target_max")
+    if isinstance(mn, int) and isinstance(mx, int) and mn <= mx:
+        return (mn, mx)
+    return None
 
 
 class DurationPayload(BaseModel):

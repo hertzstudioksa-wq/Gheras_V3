@@ -69,6 +69,12 @@ def _user_prompt(order: dict) -> str:
     dur = order.get("duration") or {}
     scene_target = dur.get("scene_target") or 5
     duration_label = dur.get("label") or "دقيقة ونصف"
+    brange = duration_scene_range(dur)
+    range_line = (
+        f"النطاق المسموح لعدد المشاهد: {brange[0]}–{brange[1]} مشهد (اختر ديناميكياً داخل هذا النطاق)."
+        if brange else
+        f"اجعل estimated_scene_count قريباً من {scene_target} (±1)."
+    )
 
     chars = data.get("characters", []) or []
     chars_brief = "، ".join(
@@ -100,15 +106,22 @@ def _user_prompt(order: dict) -> str:
 - بيئة: {enriched.get('setting_name','') or 'غير محدد'}
 - لغة: {enriched.get('language_name','') or 'عربية فصحى مبسطة'}
 
-المدة المطلوبة للفيديو: {duration_label} — اجعل estimated_scene_count قريباً من {scene_target} (±1).
+المدة المطلوبة للفيديو: {duration_label} — {range_line}
 
 أنشئ الآن 3 سيناريوهات متنوعة حسب القواعد."""
 
 
-def _clamp_scene_count(requested: int, target: int) -> int:
-    """Keep estimated_scene_count within target ±1, bounded to [3, 10]."""
-    lo = max(3, target - 1)
-    hi = min(10, target + 1)
+def _clamp_scene_count(requested: int, target: int, bucket_range: tuple[int, int] | None = None) -> int:
+    """Keep estimated_scene_count within the bucket range (Phase D.5) when provided.
+
+    Legacy behaviour (no bucket_range): clamp to target ±1, bounded to [3, 10] —
+    preserved so old orders without the new duration fields are unaffected.
+    """
+    if bucket_range is not None:
+        lo, hi = bucket_range
+    else:
+        lo = max(3, target - 1)
+        hi = min(10, target + 1)
     try:
         r = int(requested)
     except (TypeError, ValueError):
@@ -118,6 +131,7 @@ def _clamp_scene_count(requested: int, target: int) -> int:
 
 from services.config_service import resolve_model, resolve_prompt, resolve_transport
 from services.llm_direct import direct_openai_chat
+from models import duration_scene_range
 
 
 def _build_scenario_context(order: dict) -> dict:
@@ -183,6 +197,9 @@ def _build_scenario_context(order: dict) -> dict:
         "duration_label":     duration.get("label", ""),
         "duration_seconds":   duration.get("seconds", ""),
         "scene_target":       duration.get("scene_target", 5),
+        "scene_target_min":   duration.get("scene_target_min", duration.get("scene_target", 5)),
+        "scene_target_max":   duration.get("scene_target_max", duration.get("scene_target", 5)),
+        "scene_target_bucket": duration.get("scene_target_bucket", ""),
         "extra_notes":        pers.get("custom_notes", "") or "لا يوجد",
     }
 
@@ -241,6 +258,7 @@ async def _generate_via_claude(order: dict) -> list[dict]:
     if len(items) != 3:
         raise ValueError(f"Expected 3 scenarios, got {len(items)}")
     scene_target = (order.get("duration") or {}).get("scene_target") or 5
+    brange = duration_scene_range(order.get("duration"))
     out = []
     for i, s in enumerate(items):
         angle = str(s.get("emotional_angle", "")).strip().lower()
@@ -252,7 +270,7 @@ async def _generate_via_claude(order: dict) -> list[dict]:
             "emotional_angle": angle,
             "learning_goal": str(s.get("learning_goal") or "").strip(),
             "visual_style_hint": str(s.get("visual_style_hint") or "").strip(),
-            "estimated_scene_count": _clamp_scene_count(s.get("estimated_scene_count"), scene_target),
+            "estimated_scene_count": _clamp_scene_count(s.get("estimated_scene_count"), scene_target, brange),
             "why_this_fits": str(s.get("why_this_fits") or "").strip(),
         })
     return out
@@ -270,6 +288,7 @@ def _fallback_scenarios(order: dict) -> list[dict]:
     context_snip = (goal.get("context") or "").strip()
     context_line = context_snip[:80] + ("..." if len(context_snip) > 80 else "")
     scene_target = (order.get("duration") or {}).get("scene_target") or 5
+    brange = duration_scene_range(order.get("duration"))
 
     return [
         {
@@ -282,7 +301,7 @@ def _fallback_scenarios(order: dict) -> list[dict]:
             "emotional_angle": "emotional",
             "learning_goal": f"أن يفهم {name} قيمة {theme} بصدق مشاعره",
             "visual_style_hint": "ألوان دافئة خفيفة، إضاءة ذهبية، لقطات قريبة من الوجه لإبراز المشاعر",
-            "estimated_scene_count": _clamp_scene_count(scene_target, scene_target),
+            "estimated_scene_count": _clamp_scene_count(scene_target, scene_target, brange),
             "why_this_fits": f"النبرة العاطفية تناسب {name} في عمر {age} وتربط مباشرة بمشاعره في الموقف الذي عاشه.",
         },
         {
@@ -295,7 +314,7 @@ def _fallback_scenarios(order: dict) -> list[dict]:
             "emotional_angle": "educational",
             "learning_goal": f"توضيح {theme} بأمثلة عملية يفهمها طفل بعمر {age}",
             "visual_style_hint": "ألوان هادئة، زوايا ثابتة، تركيز على التعابير والتفاصيل الصغيرة",
-            "estimated_scene_count": _clamp_scene_count(scene_target, scene_target),
+            "estimated_scene_count": _clamp_scene_count(scene_target, scene_target, brange),
             "why_this_fits": f"الأسلوب التعليمي الهادئ مثالي لشرح {theme} بلغة مبسطة تناسب استيعاب طفل في عمر {age}.",
         },
         {
@@ -308,7 +327,7 @@ def _fallback_scenarios(order: dict) -> list[dict]:
             "emotional_angle": "adventure",
             "learning_goal": f"تعزيز {theme} عبر تجربة بطولية ممتعة",
             "visual_style_hint": "ألوان زاهية، حركة ديناميكية، لقطات واسعة لإبراز المغامرة",
-            "estimated_scene_count": _clamp_scene_count(scene_target + 1, scene_target),
+            "estimated_scene_count": _clamp_scene_count(scene_target + 1, scene_target, brange),
             "why_this_fits": f"المغامرة تجذب انتباه {name} وتحوّل الموقف الذي عاشه إلى تجربة بطولية ممتعة تترك أثر {theme} بشكل لا يُنسى.",
         },
     ]

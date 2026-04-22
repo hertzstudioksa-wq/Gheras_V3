@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from models import ARC_TEMPLATES
+from models import ARC_TEMPLATES, duration_scene_range
 
 logger = logging.getLogger("production_service")
 
@@ -169,10 +169,56 @@ def _dedupe_scene_texts(scenes: list[dict]) -> None:
             b_seen[b] = idx
 
 
+# Phase D.5 — final-scene quality guard thresholds.
+# Arabic averages ~5-6 words per short sentence; we require the closing
+# scene to feel complete rather than a one-liner.
+_FINAL_MIN_NARRATION_WORDS = 12  # ≈ 3 short sentences
+_FINAL_MIN_BOOK_WORDS      = 8   # ≈ 2 short sentences
+
+
+def _enforce_final_scene_quality(scenes: list[dict], child_name: str = "") -> None:
+    """In-place: ensure the LAST scene closes the story strongly.
+
+    Guarantees:
+      * narration_text has at least _FINAL_MIN_NARRATION_WORDS words.
+      * book_text has at least _FINAL_MIN_BOOK_WORDS words.
+      * Never throws — if the text is too short we append a warm closing line
+        in Arabic that reinforces the main message. This is the backend-side
+        mirror of the LLM-side "Final scene CRITICAL" rules in SYSTEM_MSG.
+    """
+    if not scenes:
+        return
+    last = scenes[-1]
+    name = (child_name or "بطلنا").strip()
+
+    narr = str(last.get("narration_text") or "").strip()
+    narr_wc = len([w for w in narr.split() if w])
+    if narr_wc < _FINAL_MIN_NARRATION_WORDS:
+        logger.warning(
+            f"Final scene narration too short ({narr_wc} words < {_FINAL_MIN_NARRATION_WORDS}); enriching."
+        )
+        addition = (
+            f" وفي النهاية، ابتسم {name} بهدوء وهو يشعر بأن قلبه أصبح أكبر، "
+            f"وتأمّل اللحظة بكل جمالها قبل أن يعود إلى عالمه مليئاً بالفخر."
+        )
+        last["narration_text"] = (narr + addition).strip()
+        last["word_count"] = len([w for w in last["narration_text"].split() if w])
+
+    book = str(last.get("book_text") or "").strip()
+    book_wc = len([w for w in book.split() if w])
+    if book_wc < _FINAL_MIN_BOOK_WORDS:
+        logger.warning(
+            f"Final scene book_text too short ({book_wc} words < {_FINAL_MIN_BOOK_WORDS}); enriching."
+        )
+        addition = f" وابتسم {name} بفخر، وعرف أن الدرس سيبقى في قلبه للأبد."
+        last["book_text"] = (book + addition).strip()
+
+
 def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
     data = order.get("data", {}) or {}
     enriched = order.get("enriched", {}) or {}
     duration = order.get("duration", {}) or {}
+    brange = duration_scene_range(duration)
     child = data.get("child", {}) or {}
     goal = data.get("goal", {}) or {}
     pers = data.get("personalization", {}) or {}
@@ -241,7 +287,7 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 - لغة: {enriched.get('language_name') or 'عربية فصحى مبسطة'}
 
 **مدة الفيديو**: {duration.get('label')} ({duration.get('seconds')} ثانية)
-**target_scene_count**: {target_scenes}
+**target_scene_count**: {target_scenes}{" (ضمن النطاق " + f"{brange[0]}–{brange[1]}" + " — يُسمح بأي عدد داخل هذا النطاق)" if brange else ""}
 **arc_template (بالترتيب)**: {arc}
 **الخلفية الصوتية المفضّلة**: {audio_bg_label}
 
@@ -253,7 +299,7 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 
 ---
 
-أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
+أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**{" (أو أي عدد داخل النطاق " + f"{brange[0]}–{brange[1]}" + " إن كان أنسب للسرد)" if brange else ""}، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
 
 
 from services.config_service import resolve_model, resolve_prompt, resolve_transport
@@ -313,6 +359,9 @@ def _build_production_context(order: dict, scenario: dict, target_scenes: int) -
         "duration_label":     duration.get("label", ""),
         "duration_seconds":   duration.get("seconds", ""),
         "scene_target":       target_scenes,
+        "scene_target_min":   duration.get("scene_target_min", target_scenes),
+        "scene_target_max":   duration.get("scene_target_max", target_scenes),
+        "scene_target_bucket": duration.get("scene_target_bucket", ""),
         "arc_beats_csv":      ", ".join(arc),
         # Extras
         "favorites_summary":  fav_brief,
@@ -372,8 +421,18 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
     # Minimal validation
     if "production_plan" not in payload or "scenes" not in payload:
         raise ValueError("Missing required top-level keys")
-    if len(payload.get("scenes", [])) != target_scenes:
-        raise ValueError(f"Expected {target_scenes} scenes, got {len(payload.get('scenes', []))}")
+    scenes_len = len(payload.get("scenes", []))
+    brange = duration_scene_range(order.get("duration"))
+    if brange is not None:
+        lo, hi = brange
+        if not (lo <= scenes_len <= hi):
+            raise ValueError(
+                f"Scenes out of bucket range: got {scenes_len}, expected {lo}-{hi} (target {target_scenes})"
+            )
+    else:
+        # Legacy: old orders without bucket info — keep exact-match.
+        if scenes_len != target_scenes:
+            raise ValueError(f"Expected {target_scenes} scenes, got {scenes_len}")
     return payload
 
 
@@ -690,6 +749,12 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
     # If the LLM (or fallback) emitted duplicates for any reason, we append a
     # uniqueness marker so every scene tells its own micro-beat.
     _dedupe_scene_texts(scenes)
+
+    # Phase D.5 — final-scene quality guard. The LLM prompt enforces this on
+    # its side, but we defensively guarantee the last scene never ships as a
+    # weak one-liner even if the upstream model/fallback slips.
+    _child_name = ((order.get("data") or {}).get("child") or {}).get("name") or ""
+    _enforce_final_scene_quality(scenes, child_name=_child_name)
 
     book_pages: list[dict] = []
     # Map scene_index → scene.id for scene_reference

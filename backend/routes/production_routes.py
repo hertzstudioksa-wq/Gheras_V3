@@ -32,7 +32,17 @@ async def run_production_generation(order_id: str, run_id: str):
         return
     scenario = order.get("selected_scenario_snapshot")
     duration = order.get("duration") or {}
-    target_scenes = int(duration.get("scene_target") or 6)
+    # Phase D.5 — pick a concrete target within the bucket range. For new
+    # orders `scene_target` is already bucket-aligned. If the selected
+    # scenario suggested an estimated_scene_count and it lies inside the
+    # bucket range, honour it; otherwise fall back to scene_target.
+    base_target = int(duration.get("scene_target") or 6)
+    target_scenes = base_target
+    est = (scenario or {}).get("estimated_scene_count")
+    mn = duration.get("scene_target_min")
+    mx = duration.get("scene_target_max")
+    if isinstance(est, int) and isinstance(mn, int) and isinstance(mx, int) and mn <= est <= mx:
+        target_scenes = est
     if not scenario:
         await _append_status(order_id, order.get("status"), OrderStatus.FAILED.value, "system",
                              reason="production: no selected_scenario_snapshot")
