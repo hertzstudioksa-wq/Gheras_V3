@@ -166,6 +166,36 @@ async def resolve_model(stage_key: str, hardcoded_provider: str, hardcoded_model
     return hardcoded_provider, hardcoded_model, "fallback"
 
 
+async def resolve_transport(stage_key: str) -> str:
+    """Decide which transport to use for a given text stage.
+
+    Returns:
+      * "direct-openai" — when the admin registry row has provider=openai AND
+        env_key=OPENAI_API_KEY AND the env var is set. The caller should
+        bypass emergentintegrations and hit api.openai.com directly.
+      * "emergent"      — default. Use the emergentintegrations library with
+        EMERGENT_LLM_KEY (existing behavior, unchanged).
+
+    Safe by design: any DB hiccup or missing key → falls back to "emergent".
+    """
+    import os as _os
+    try:
+        doc = await db.model_registry.find_one(
+            {"stage_key": stage_key, "active": True},
+            {"_id": 0, "provider": 1, "env_key": 1},
+        )
+    except Exception:  # noqa: BLE001
+        doc = None
+    if (
+        doc
+        and doc.get("provider") == "openai"
+        and doc.get("env_key") == "OPENAI_API_KEY"
+        and _os.environ.get("OPENAI_API_KEY")
+    ):
+        return "direct-openai"
+    return "emergent"
+
+
 # -----------------------------------------------------------------------------
 # Phase B.2 — Prompt template rendering (scenario_generation only)
 # -----------------------------------------------------------------------------

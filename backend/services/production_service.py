@@ -210,7 +210,8 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
 
 
-from services.config_service import resolve_model, resolve_prompt
+from services.config_service import resolve_model, resolve_prompt, resolve_transport
+from services.llm_direct import direct_openai_chat
 
 
 def _build_production_context(order: dict, scenario: dict, target_scenes: int) -> dict:
@@ -298,7 +299,20 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
         LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
         .with_model(provider, model_name)
     )
-    response = await chat.send_message(UserMessage(text=prompt))
+
+    # Transport selection — Phase D.2: see scenario_service for details.
+    transport = await resolve_transport("production_planning")
+    logger.info(f"[config] stage=production_planning transport={transport}")
+    if transport == "direct-openai":
+        # Production plan JSON is larger than scenarios — keep headroom.
+        response = await direct_openai_chat(
+            system_message=SYSTEM_MSG,
+            user_message=prompt,
+            model=model_name,
+            timeout=180.0,
+        )
+    else:
+        response = await chat.send_message(UserMessage(text=prompt))
     text = (response or "").strip()
     if text.startswith("```"):
         text = text.strip("`")

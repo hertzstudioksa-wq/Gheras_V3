@@ -116,7 +116,8 @@ def _clamp_scene_count(requested: int, target: int) -> int:
     return max(lo, min(hi, r))
 
 
-from services.config_service import resolve_model, resolve_prompt
+from services.config_service import resolve_model, resolve_prompt, resolve_transport
+from services.llm_direct import direct_openai_chat
 
 
 def _build_scenario_context(order: dict) -> dict:
@@ -190,7 +191,22 @@ async def _generate_via_claude(order: dict) -> list[dict]:
         LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
         .with_model(provider, model_name)
     )
-    response = await chat.send_message(UserMessage(text=user_prompt_text))
+
+    # Transport selection — Phase D.2: direct OpenAI (billed to user's own
+    # OPENAI_API_KEY) OR Emergent proxy (billed to EMERGENT_LLM_KEY). The
+    # decision is a pure DB read; both paths produce the same string result
+    # so all downstream parsing/fallback logic is untouched.
+    transport = await resolve_transport("scenario_generation")
+    logger.info(f"[config] stage=scenario_generation transport={transport}")
+    if transport == "direct-openai":
+        response = await direct_openai_chat(
+            system_message=SYSTEM_MSG,
+            user_message=user_prompt_text,
+            model=model_name,
+            timeout=90.0,
+        )
+    else:
+        response = await chat.send_message(UserMessage(text=user_prompt_text))
     text = (response or "").strip()
     if text.startswith("```"):
         text = text.strip("`")
