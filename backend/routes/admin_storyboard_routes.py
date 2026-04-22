@@ -346,6 +346,30 @@ async def _stage_production_planning(order: dict, pipeline_cfg: dict) -> dict:
         "character_profiles_count": chars,
         "style_guide": (plan or {}).get("style_guide") or {},
         "cover_prompt_preview": ((plan or {}).get("cover_prompt") or "")[:240],
+        # Phase D.4 — story-level downstream fields
+        "story_keywords":       (plan or {}).get("story_keywords") or [],
+        "story_music_prompt":   (plan or {}).get("story_music_prompt") or "",
+        "story_music_keywords": (plan or {}).get("story_music_keywords") or [],
+        "story_voice_prompt":   (plan or {}).get("story_voice_prompt") or "",
+        "scenes_detail": [
+            {
+                "scene_index":        s.get("scene_index"),
+                "title":              s.get("title"),
+                "scene_goal":         s.get("scene_goal"),
+                "emotional_tone":     s.get("emotional_tone"),
+                "narration_preview":  (s.get("narration_text") or "")[:160],
+                "book_text_preview":  (s.get("book_text") or "")[:160],
+                "key_objects":        s.get("key_objects") or [],
+                "video_prompt":       s.get("video_prompt") or "",
+                "voice_prompt":       s.get("voice_prompt") or "",
+                "music_prompt":       s.get("music_prompt") or "",
+                "music_keywords":     s.get("music_keywords") or [],
+                "camera_motion_hint": s.get("camera_motion_hint") or "",
+                "estimated_duration_seconds": s.get("estimated_duration_seconds"),
+                "word_count":         s.get("word_count"),
+            }
+            for s in scenes
+        ],
         "production_approved": bool(order.get("production_approved")),
     }
     events = _history_for_stage(order.get("status_history", []), "production_planning")

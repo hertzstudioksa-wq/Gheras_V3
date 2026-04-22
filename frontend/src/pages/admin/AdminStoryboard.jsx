@@ -535,6 +535,62 @@ function OutProduction({ o }) {
           <pre className="mt-1 bg-white rounded-xl p-2 border border-[#E2D8C9] font-mono text-[10px] whitespace-pre-wrap">{o.cover_prompt_preview}</pre>
         </details>
       )}
+
+      {/* Phase D.4 — story-level downstream fields */}
+      {(o.story_keywords?.length || o.story_music_prompt || o.story_voice_prompt) && (
+        <div className="bg-[#F8F1E7] rounded-xl p-3 border border-[#D4A373]/40" data-testid="production-story-level">
+          <div className="text-[11px] font-bold text-[#8B5A2B] mb-1.5">Story-level downstream (Phase D.4)</div>
+          {o.story_keywords?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {o.story_keywords.map((k, i) => (
+                <span key={i} className="text-[10px] bg-white text-[#8B5A2B] rounded px-1.5 py-0.5 border border-[#D4A373]/30">{k}</span>
+              ))}
+            </div>
+          )}
+          {o.story_music_prompt && (
+            <div className="text-[11px] text-[#2D3748] mb-1"><b>Music:</b> {o.story_music_prompt}</div>
+          )}
+          {o.story_music_keywords?.length > 0 && (
+            <div className="text-[10px] text-[#8A9AB0] mb-1">music tags: {o.story_music_keywords.join(", ")}</div>
+          )}
+          {o.story_voice_prompt && (
+            <div className="text-[11px] text-[#2D3748]"><b>Voice:</b> {o.story_voice_prompt}</div>
+          )}
+        </div>
+      )}
+
+      {/* Phase D.4 — per-scene downstream fields */}
+      {o.scenes_detail?.length > 0 && (
+        <details className="cursor-pointer" data-testid="production-scenes-detail">
+          <summary className="text-[11px] font-bold text-[#5A677D]">Per-scene downstream package ({o.scenes_detail.length})</summary>
+          <div className="mt-2 space-y-2">
+            {o.scenes_detail.map((s) => (
+              <div key={s.scene_index} className="bg-white rounded-xl p-2 border border-[#E2D8C9] text-[11px]">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="bg-[#87A96B] text-white rounded-full w-5 h-5 grid place-content-center text-[10px] font-bold">{s.scene_index}</span>
+                  <span className="font-bold">{s.title}</span>
+                  {s.estimated_duration_seconds && <span className="text-[9px] text-[#8A9AB0]">~{s.estimated_duration_seconds}s</span>}
+                  <span className="text-[9px] text-[#8A9AB0]">{s.word_count} words</span>
+                </div>
+                {s.scene_goal && <div className="text-[10px] text-[#5A677D] mb-1">🎯 {s.scene_goal}</div>}
+                <div className="text-[10px] text-[#2D3748] mb-1"><b>نص السرد:</b> {s.narration_preview}...</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-1 mt-1 font-mono">
+                  {s.video_prompt && <div className="bg-[#FDFBF7] rounded p-1 text-[9px]" title={s.video_prompt}><b>🎬 video:</b> {s.video_prompt.slice(0, 80)}...</div>}
+                  {s.voice_prompt && <div className="bg-[#FDFBF7] rounded p-1 text-[9px]" title={s.voice_prompt}><b>🎙️ voice:</b> {s.voice_prompt.slice(0, 80)}...</div>}
+                  {s.music_prompt && <div className="bg-[#FDFBF7] rounded p-1 text-[9px]" title={s.music_prompt}><b>🎵 music:</b> {s.music_prompt.slice(0, 80)}...</div>}
+                </div>
+                {(s.music_keywords?.length > 0 || s.key_objects?.length > 0) && (
+                  <div className="flex gap-1 mt-1 flex-wrap text-[9px]">
+                    {s.music_keywords?.map((k, i) => <span key={`m${i}`} className="bg-[#E8F0E1] text-[#4F6B3B] rounded px-1">♪ {k}</span>)}
+                    {s.key_objects?.map((k, i) => <span key={`o${i}`} className="bg-[#F8F1E7] text-[#8B5A2B] rounded px-1">⊙ {k}</span>)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       <KeyValueTable obj={{ style_guide: o.style_guide, production_approved: o.production_approved }} />
     </div>
   );

@@ -49,6 +49,10 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
       "art_direction": "English art direction (e.g. whimsical watercolor illustration, soft edges, Pixar-like warmth)"
     },
     "cover_prompt": "English prompt for the book cover illustration — include child's name transliterated, mood, and visual anchor",
+    "story_keywords": ["English keywords, 8-15 short tags capturing themes, emotions, recurring objects, environment — child-safe"],
+    "story_music_prompt": "English one-paragraph music direction for the whole story (mood, tempo feel, instrumentation family, child-friendly)",
+    "story_music_keywords": ["warm", "gentle", "playful"],
+    "story_voice_prompt": "English narration-direction for the whole story (pace, warmth, delivery style, child-safe tone)",
     "safety_check": "ok"
   },
   "characters": [
@@ -86,7 +90,13 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
         "end_frame_description": "English description of the last frame",
         "motion_hint": "English motion (e.g. slow zoom-in on child's face, gentle pan left across the room)",
         "camera_style": "English camera style (e.g. static handheld, smooth dolly-in, subtle parallax)"
-      }
+      },
+      "video_prompt": "English, 2-3 sentence prompt suitable for a text-to-video generator. Cover subject, motion, camera, mood, pacing. Include the recurring object if present in this scene.",
+      "voice_prompt": "English voice-direction for this scene — pacing, emotional delivery, volume/intensity, any pauses. Child-safe tone.",
+      "music_prompt": "English music-direction for this scene only — mood, tempo feel, texture. 1-2 sentences.",
+      "music_keywords": ["English", "3-6 tags", "for this scene only"],
+      "camera_motion_hint": "English short camera/motion cue (e.g. slow push-in, static hold, gentle whip-pan)",
+      "estimated_duration_seconds": 15
     }
   ],
   "book_pages": [
@@ -109,6 +119,24 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - **كل مشهد يجب أن يحمل narration_text و book_text فريدين ومختلفين جذرياً عن المشاهد الأخرى** — لا تكرار! كل مشهد يمثّل بيت قصصي مختلف (مقدمة / مشكلة / تصعيد / لحظة تعلّم / حل / نهاية).
 - اقرأ الـ arc_template واكتب محتوى يعكس كل arc_beat بدقة. التكرار يفسد القصة.
 - safety_check: "ok" في الحالة الطبيعية. استخدم "review" فقط لو هناك موضوع حسّاس.
+
+## قواعد جودة المشهد الأخير (Final scene — CRITICAL)
+- المشهد الأخير يجب أن يُغلق القصة عاطفياً: خاتمة واضحة، إظهار الدرس/القيمة بوضوح، لحظة تأمّل أو فرح، تغيّر ملموس في الطفل.
+- narration_text للمشهد الأخير: **لا يقل عن 3 جمل متدفّقة** (يفضّل 4)، دافئ، لا يُترك مبتوراً.
+- book_text للمشهد الأخير: جملتان كاملتان على الأقل، تختم القصة برسالة مُقنعة.
+- video_prompt و music_prompt للمشهد الأخير: يعكسان **الهدوء بعد الحل** أو **الفرح بعد التجاوز**، ليس بداية جديدة.
+- ممنوع: "وانتهت القصة" أو أي نهاية قصيرة ضعيفة من سطر واحد.
+
+## قواعد جودة الكثافة (يخص المدد الطويلة)
+- لو target_scene_count ≥ 7: كل مشهد يجب أن يحمل **لحظة فعل حقيقية أو تحوّل داخلي** — لا تكرر نفس الفكرة بألفاظ مختلفة.
+- narration_text لأي مشهد: **2-4 جمل متدفّقة**. لا أقل من جملتين حتى في المشاهد القصيرة.
+- استخدم key_objects و اللعبة المفضّلة (إن وُجدت) كخيط مرئي متكرر عبر المشاهد لخلق ترابط.
+- estimated_duration_seconds لكل مشهد ≈ duration_seconds / target_scene_count (± قليلاً).
+
+## توجيهات JSON الإضافية (Phase D.4)
+- story_keywords: 8-15 وسوم إنجليزية قصيرة، child-safe، تغطي الثيمات، المشاعر، الأغراض المتكرّرة، البيئة.
+- story_music_prompt: paragraph إنجليزي موحّد لموسيقى القصة كاملة.
+- video_prompt و voice_prompt و music_prompt و music_keywords في كل مشهد **إلزامية** — لا تتركها فارغة.
 """
 
 
@@ -492,6 +520,16 @@ def _fallback_payload(order: dict, scenario: dict, target_scenes: int) -> dict:
                 "motion_hint": "gentle slow zoom-in, subtle parallax",
                 "camera_style": "smooth static with soft dolly-in",
             },
+            # Phase D.4 — downstream generator fields (fallback)
+            "video_prompt": (
+                f"A warm children's storybook shot of {name_en}, scene {i}. "
+                f"{visual_ar.strip('.')}. Gentle slow push-in, soft cinematic lighting, warm tones, child-safe."
+            ),
+            "voice_prompt": "Gentle, warm Arabic narration, slow pacing, clear diction, child-friendly.",
+            "music_prompt": "Soft ambient children's music — warm, hopeful, unobtrusive, gentle strings and light piano.",
+            "music_keywords": ["warm", "gentle", "hopeful", "storybook"],
+            "camera_motion_hint": "slow push-in",
+            "estimated_duration_seconds": int((duration.get("seconds") or 60) / max(len(arc), 1)),
         }
         scenes_out.append(scene)
         book_pages_out.append({
@@ -514,6 +552,19 @@ def _fallback_payload(order: dict, scenario: dict, target_scenes: int) -> dict:
             "cover_prompt": (
                 f"Use the reference image of {name_en}. Book cover illustration showing {name_en} "
                 f"smiling warmly, golden hour lighting, whimsical watercolor style, title space at the top."
+            ),
+            "story_keywords": [
+                "children's story", "warm", "gentle", "lesson", "growth",
+                "family", "home", name_en.lower(), "storybook", "watercolor",
+            ],
+            "story_music_prompt": (
+                "Soft ambient children's music throughout — warm piano, gentle strings, light woodwinds. "
+                "Unobtrusive, emotionally present, evolving with the story's arc from quiet curiosity to heartfelt resolution."
+            ),
+            "story_music_keywords": ["warm", "gentle", "hopeful", "reflective", "soft"],
+            "story_voice_prompt": (
+                "Warm, slow-paced Arabic narration. Clear, gentle diction. "
+                "Soft emotional emphasis on key moments. Child-friendly cadence."
             ),
             "safety_check": "ok",
         },
@@ -623,6 +674,13 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
                 "motion_hint": anim.get("motion_hint", ""),
                 "camera_style": anim.get("camera_style", ""),
             },
+            # Phase D.4 — downstream generator fields
+            "video_prompt":        s.get("video_prompt") or "",
+            "voice_prompt":        s.get("voice_prompt") or "",
+            "music_prompt":        s.get("music_prompt") or "",
+            "music_keywords":      s.get("music_keywords") or [],
+            "camera_motion_hint":  s.get("camera_motion_hint") or "",
+            "estimated_duration_seconds": s.get("estimated_duration_seconds"),
             "word_count": wc,
             "is_archived": False,
             "created_at": now,
@@ -667,6 +725,11 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         "emotional_arc": plan_payload.get("emotional_arc"),
         "style_guide": plan_payload.get("style_guide") or {},
         "cover_prompt": plan_payload.get("cover_prompt"),
+        # Phase D.4 — story-level downstream generator fields
+        "story_keywords":        plan_payload.get("story_keywords") or [],
+        "story_music_prompt":    plan_payload.get("story_music_prompt") or "",
+        "story_music_keywords":  plan_payload.get("story_music_keywords") or [],
+        "story_voice_prompt":    plan_payload.get("story_voice_prompt") or "",
         "safety_check": plan_payload.get("safety_check") or "ok",
         "target_scene_count": len(scenes),
         "estimated_image_count": len(scenes) + 1,  # +1 for the cover

@@ -224,6 +224,123 @@ async def seed_prompt_templates():
             "notes": "OpenAI gpt-image-1 identity-preserving prompt. "
                      "Variables are optional (default prompt does not use them).",
         },
+        {
+            "stage_key": "scenario_generation",
+            "name": "Scenario Generation (GPT-5 default)",
+            "template_text": (
+                "You are a professional Arabic children's story planner. Produce 3 distinct "
+                "scenario options in Arabic for a $child_age-year-old $child_gender named "
+                "$child_name. Category: $goal_category. Sub-goal: $goal_subcategory. Context: "
+                "$context. Story type: $story_type. Tone: $tone. Setting: $setting. Language: "
+                "$language. Duration: $duration_label ($duration_seconds s, $scene_target scenes). "
+                "Characters around the child: $characters_summary. Toy/object context: "
+                "$toy_summary. Appearance notes: $child_appearance_notes. Hijab: $child_hijab. "
+                "Favorites: $favorites_summary. Extra notes: $extra_notes.\n\n"
+                "For each scenario return JSON with: title (Arabic), short_summary (Arabic, "
+                "2-3 sentences), emotional_angle (Arabic), learning_goal (Arabic), "
+                "visual_style_hint (English)."
+            ),
+            "variables": [
+                "child_name", "child_age", "child_gender", "child_appearance_notes",
+                "child_hijab", "goal_category", "goal_subcategory", "context",
+                "story_type", "tone", "setting", "language", "voice",
+                "favorites_summary", "characters_summary", "toy_summary",
+                "duration_label", "duration_seconds", "scene_target", "extra_notes",
+            ],
+            "notes": "Default Arabic scenario generator prompt. Edit to change story angle style.",
+        },
+        {
+            "stage_key": "production_planning",
+            "name": "Production Planning (GPT-5.2 default)",
+            "template_text": (
+                "Produce the full Gheras mega-JSON for scenario $scenario_title "
+                "(target scenes = $target_scene_count, duration ≈ $duration_seconds s). "
+                "Include: production_plan with story_keywords + story_music_prompt + "
+                "story_voice_prompt; per-scene video_prompt + voice_prompt + music_prompt + "
+                "music_keywords + camera_motion_hint + estimated_duration_seconds; "
+                "final scene MUST have ≥3 flowing sentences in narration_text and ≥2 in "
+                "book_text and emotional closure. No duplicate scene texts. Character arcs: "
+                "$arc_list. Child: $child_name ($child_age), appearance: "
+                "$child_appearance_notes. Toy/object hint: $toy_summary. Follow the JSON "
+                "schema from SYSTEM_MSG exactly. All prompts in English; narration/book in Arabic."
+            ),
+            "variables": [
+                "scenario_title", "target_scene_count", "duration_seconds",
+                "arc_list", "child_name", "child_age",
+                "child_appearance_notes", "toy_summary",
+            ],
+            "notes": "Default production planning prompt. Edits override only the USER body; "
+                     "the SYSTEM_MSG schema stays as-is.",
+        },
+        {
+            "stage_key": "scene_image_generation",
+            "name": "Scene Image Prompt (default)",
+            "template_text": (
+                "Professional children's storybook illustration, warm earth tones, soft "
+                "golden-hour lighting, whimsical watercolor style. Art direction: "
+                "$art_direction. Palette: $palette. Scene: $scene_title. Visual: "
+                "$visual_description. Child: $child_name, $child_age years old, "
+                "$child_gender. Appearance: $child_appearance_notes. Hijab: $child_hijab. "
+                "Characters in frame: $characters_in_scene. Extra visuals: "
+                "$extra_characters_visuals. Key objects: $key_objects. Toy/object: "
+                "$toy_summary. Emotional tone: $emotional_tone. Camera/motion: "
+                "$camera_motion_hint. Aspect 16:9."
+            ),
+            "variables": [
+                "art_direction", "palette", "scene_title", "visual_description",
+                "child_name", "child_age", "child_gender", "child_appearance_notes",
+                "child_hijab", "characters_in_scene", "extra_characters_visuals",
+                "key_objects", "toy_summary", "emotional_tone", "camera_motion_hint",
+            ],
+            "notes": "Per-scene image prompt template. Sent directly to Nano Banana.",
+        },
+        {
+            "stage_key": "narration_generation",
+            "name": "Narration / Voice (default)",
+            "template_text": (
+                "Narrate the following Arabic scene text with warmth, gentle pace, and "
+                "clear diction suitable for a $child_age-year-old child. Emotional "
+                "delivery: $emotional_tone. Pacing: $pacing. Voice style: $voice_style. "
+                "Scene text:\n$narration_text"
+            ),
+            "variables": [
+                "child_age", "emotional_tone", "pacing", "voice_style", "narration_text",
+            ],
+            "notes": "Narration/voice generation prompt. Consumed when a real TTS executor is wired.",
+        },
+        {
+            "stage_key": "video_generation",
+            "name": "Video per-scene (default, not yet wired)",
+            "template_text": (
+                "Generate a $estimated_duration_seconds-second video for scene "
+                "$scene_index of a children's storybook. Subject: $scene_title. "
+                "Visual: $visual_description. Motion: $camera_motion_hint. "
+                "Mood: $emotional_tone. Style: $art_direction, warm tones, child-safe. "
+                "Include the recurring object if relevant: $toy_summary. "
+                "Per-scene cue: $video_prompt."
+            ),
+            "variables": [
+                "estimated_duration_seconds", "scene_index", "scene_title",
+                "visual_description", "camera_motion_hint", "emotional_tone",
+                "art_direction", "toy_summary", "video_prompt",
+            ],
+            "notes": "Editable now; will be consumed when a video-generation executor is added.",
+        },
+        {
+            "stage_key": "music_generation",
+            "name": "Music per-story / per-scene (default, not yet wired)",
+            "template_text": (
+                "Compose child-safe background music matching the story's emotional arc. "
+                "Story-level direction: $story_music_prompt. Keywords: $story_music_keywords. "
+                "Current scene cue: $music_prompt. Scene keywords: $music_keywords. "
+                "Duration: $estimated_duration_seconds s. Mood progression: $emotional_arc."
+            ),
+            "variables": [
+                "story_music_prompt", "story_music_keywords", "music_prompt",
+                "music_keywords", "estimated_duration_seconds", "emotional_arc",
+            ],
+            "notes": "Editable now; will be consumed when a music-generation executor is added.",
+        },
     ]
     for s in seeds:
         exists = await db.prompt_templates.find_one({"stage_key": s["stage_key"]})
