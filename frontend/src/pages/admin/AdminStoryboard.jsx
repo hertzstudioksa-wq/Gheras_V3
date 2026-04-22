@@ -513,7 +513,14 @@ function OutChildCharacter({ o, stage }) {
           ) : <div className="w-full max-w-[180px] h-40 rounded-xl bg-[#F2E8DA] grid place-content-center text-[10px] text-[#8A9AB0]">لا توجد</div>}
         </div>
         <div>
-          <div className="text-[10px] text-[#8A9AB0] mb-1">الشخصية المُولَّدة {o.mock && <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded px-1 text-[9px]">MOCK</span>}</div>
+          <div className="text-[10px] text-[#8A9AB0] mb-1">
+            الشخصية المُولَّدة{" "}
+            {o.mock ? (
+              <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded px-1 text-[9px]">MOCK</span>
+            ) : o.generated_image_url ? (
+              <span className="bg-[#DEEBCF] text-[#3F5B2E] rounded px-1 text-[9px]">REAL</span>
+            ) : null}
+          </div>
           {o.generated_image_url ? (
             <img src={fileSrc(o.generated_image_url)} alt="generated" className="w-full max-w-[180px] rounded-xl object-cover border border-[#E2D8C9]" />
           ) : <div className="w-full max-w-[180px] h-40 rounded-xl bg-[#F2E8DA] grid place-content-center text-[10px] text-[#8A9AB0]">غير مُولَّدة</div>}

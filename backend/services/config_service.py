@@ -38,11 +38,11 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
         "env_key": "EMERGENT_LLM_KEY",
     },
     "child_character_i2i": {
-        "provider": "gemini",
-        "model_name": "gemini-2.5-flash-image-preview",
-        "fallback_provider": None,
-        "fallback_model": None,
-        "env_key": "EMERGENT_LLM_KEY",
+        "provider": "openai",
+        "model_name": "gpt-image-1",
+        "fallback_provider": "mock",
+        "fallback_model": "dry-run",
+        "env_key": "OPENAI_API_KEY",
     },
     "scene_image_generation": {
         "provider": "gemini",
@@ -118,7 +118,7 @@ DEFAULT_PIPELINE = {
 PROVIDER_ENV_MAP = {
     "anthropic":  {"env_key": "EMERGENT_LLM_KEY",  "label": "Claude (via Emergent)"},
     "gemini":     {"env_key": "EMERGENT_LLM_KEY",  "label": "Gemini / Nano Banana (via Emergent)"},
-    "openai":     {"env_key": "EMERGENT_LLM_KEY",  "label": "OpenAI (via Emergent)"},
+    "openai":     {"env_key": "OPENAI_API_KEY",  "label": "OpenAI (direct)"},
     "elevenlabs": {"env_key": "ELEVENLABS_API_KEY","label": "ElevenLabs TTS"},
     "kling":      {"env_key": "KLING_API_KEY",     "label": "Kling Video"},
     "sora":       {"env_key": "EMERGENT_LLM_KEY",  "label": "Sora 2 (via Emergent)"},

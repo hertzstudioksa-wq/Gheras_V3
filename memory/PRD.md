@@ -163,24 +163,23 @@ generating (Phase 6) → completed
 - User-endpoint sanitization + race-condition guard + video/PDF assembly hardening.
 - Phase A/B admin config layer (models + pipeline + prompts) with safe `string.Template` rendering.
 
-### Phase C — child_character_i2i execution (Feb 22, 2026) — MOCK-only
-- New service `/app/backend/services/child_character_service.py` — dry-run I2I provider:
-  `generated_image_url` mirrors source image; provider=`mock`, model=`dry-run`.
-- New collection `child_character_assets` (one doc per order): id, order_id, source_image_url,
-  generated_image_url, provider, model_name, prompt_used, prompt_source, status (queued/processing/
-  completed/failed), fallback_used, mock, error_message, created_at, updated_at.
-- Orchestrator hook: runs **before** scene_image_generation inside a `try/except`. If the stage
-  is disabled (DEFAULT) OR the order has no child photo OR it fails → pipeline continues
-  unchanged. Zero regression guaranteed.
-- Prompt resolution via `config_service.resolve_prompt("child_character_i2i", ctx)` with a
-  hardcoded English default ($-Template style). No eval/f-strings.
-- New admin endpoints:
-  - `GET  /api/admin/orders/{id}/child-character`  → `{stage_enabled, stage_config, source_image_url, child_name, asset}`
-  - `POST /api/admin/orders/{id}/child-character/regenerate` → queues a dry-run; safe when disabled.
-- Admin UI: new "شخصية الطفل (Phase C — I2I)" card in AdminOrders media tab with status badge,
-  source + generated images side-by-side, prompt details, and regenerate button.
-- Pipeline config info banner updated to reflect mock/dry-run phase.
-- Tests: 8/8 pytest cases green (`/app/backend/tests/test_child_character.py`).
+### Phase C REAL — OpenAI gpt-image-1 I2I (Feb 22, 2026) ✅
+- **Replaced MOCK with real provider**. `/app/backend/services/child_character_service.py`:
+  - `_openai_generate()` → `AsyncOpenAI.images.edit(model="gpt-image-1", image=file, prompt=..., size="1024x1024", background="transparent")`
+  - Source bytes fetched internally from `files` collection + object storage (no HTTP loopback, no auth juggling)
+  - Generated PNG persisted via `storage.put_object` → new file record → `/api/uploads/file/{id}` URL
+  - OPENAI_API_KEY read from env only; never logged, never exposed to frontend
+  - MOCK fallback retained: activates when key missing, provider fails, or `fallback_allowed=True` and real call fails — pipeline never breaks
+- `config_service.DEFAULT_MODELS["child_character_i2i"]` → `openai / gpt-image-1` (env_key=`OPENAI_API_KEY`)
+- `PROVIDER_ENV_MAP["openai"]` → `OPENAI_API_KEY` (direct, no Emergent key); Admin API status page now reflects real configured state
+- `seed.py::seed_prompt_templates()` seeds an editable default template for `child_character_i2i` on startup (active, v1) — admin can edit via `/admin/prompts`
+- Admin UI: REAL (green) vs MOCK (amber) badges wired in both AdminOrders media card (`data-testid="child-character-mode-badge"`) and AdminStoryboard output block
+- End-to-end tests (all ✅):
+  - **A** disabled stage → clean skip, no DB write
+  - **B** enabled + real provider → `mock=false, provider=openai, model_name=gpt-image-1, source_url ≠ generated_url`, 1024×1024 RGBA transparent PNG (~1.8 MB), ~50s latency
+  - **C** missing `OPENAI_API_KEY` → `_openai_generate` returns `None`, service falls back safely
+  - **D** provider failure (invalid model / bad bytes) → error swallowed, MOCK fallback used when `fallback_allowed=true`, pipeline continues
+  - **E** admin visibility → REAL badge visible in Storyboard, prompt editor at `/admin/prompts` supports `child_character_i2i`, `prompt_source=admin` confirmed
 
 ### Phase D — Admin Storyboard / Pipeline Trace (Feb 22, 2026) — READ-ONLY debug view
 - New endpoint: `GET /api/admin/orders/{id}/storyboard` aggregates 8 pipeline stages

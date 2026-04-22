@@ -878,8 +878,16 @@ function ChildCharacterCard({ orderId }) {
             </span>
           )}
           {asset?.provider && (
-            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold bg-[#EEE9E0] text-[#5A677D]">
-              {asset.provider}{asset.mock ? " · mock" : ""}
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                asset.mock
+                  ? "bg-[#F8F1E7] text-[#8B5A2B]"
+                  : "bg-[#DEEBCF] text-[#3F5B2E]"
+              }`}
+              data-testid="child-character-mode-badge"
+            >
+              {asset.mock ? `MOCK · ${asset.provider}` : `REAL · ${asset.provider}`}
+              {asset.model_name && ` / ${asset.model_name}`}
             </span>
           )}
           <button

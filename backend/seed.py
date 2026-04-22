@@ -205,6 +205,45 @@ async def seed_settings():
         )
 
 
+async def seed_prompt_templates():
+    """Seed editable admin prompt templates — one default per stage.
+
+    These templates can be edited later via /admin/prompts UI.
+    Only inserts if no template exists for that stage; never overwrites.
+    """
+    from services.child_character_service import DEFAULT_PROMPT as CC_DEFAULT_PROMPT
+    seeds = [
+        {
+            "stage_key": "child_character_i2i",
+            "name": "Child Character (Phase C default)",
+            "template_text": CC_DEFAULT_PROMPT,
+            "variables": [
+                "child_name", "child_age", "child_gender",
+                "art_direction", "palette", "lighting",
+            ],
+            "notes": "OpenAI gpt-image-1 identity-preserving prompt. "
+                     "Variables are optional (default prompt does not use them).",
+        },
+    ]
+    for s in seeds:
+        exists = await db.prompt_templates.find_one({"stage_key": s["stage_key"]})
+        if exists:
+            continue
+        doc = {
+            "id": str(uuid.uuid4()),
+            "stage_key":     s["stage_key"],
+            "name":          s["name"],
+            "template_text": s["template_text"],
+            "variables":     s["variables"],
+            "notes":         s["notes"],
+            "version":       1,
+            "active":        True,
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        await db.prompt_templates.insert_one(doc)
+
+
 async def seed_all():
     await seed_admin()
     await seed_categories()
@@ -213,3 +252,4 @@ async def seed_all():
     await seed_prompts()
     await seed_plans()
     await seed_settings()
+    await seed_prompt_templates()
