@@ -50,6 +50,9 @@ def build_prompt(data: Dict[str, Any], enriched: Dict[str, str]) -> str:
         if nm:
             line += f" ({nm})"
         line += f" — {role}"
+        # Append auto-generated visual description if available (from uploaded photo).
+        if c.get("visual_description_auto"):
+            line += f"\n    ملامح بصرية مستخرجة من الصورة: {c['visual_description_auto']}"
         chars_lines.append(line)
     chars_block = "\n".join(chars_lines) if chars_lines else "لا توجد"
 
@@ -78,6 +81,18 @@ def build_prompt(data: Dict[str, Any], enriched: Dict[str, str]) -> str:
     appearance = child.get("appearance_notes") or "—"
     context = goal.get("context") or "—"
 
+    # Uploaded toy/object — automatic visual description (Phase D.3).
+    toy_desc = personalization.get("toy_description_auto") or ""
+    toy_name = ((personalization.get("favorites") or {}).get("toy") or {}).get("name") or ""
+    toy_line = ""
+    if toy_desc or toy_name:
+        toy_line = "\nلعبة/غرض مهم (من الصورة المرفوعة): "
+        if toy_name:
+            toy_line += f"{toy_name}. "
+        if toy_desc:
+            toy_line += toy_desc
+        toy_line += "\nيجب أن تظهر هذه اللعبة/الغرض في المشاهد المناسبة للقصة."
+
     template = f"""اكتب قصة عربية مصوّرة للأطفال بطلها طفل اسمه "{child.get('name', '')}"، عمره {child.get('age', '')} سنوات، {gender_ar}{hijab_line}.
 
 الهدف التربوي من القصة:
@@ -94,7 +109,7 @@ def build_prompt(data: Dict[str, Any], enriched: Dict[str, str]) -> str:
 
 تخصيصات:
 - مفضّلات: {fav_block}
-- تفاصيل خاصة يرغب الأهل بإضافتها: {custom_notes}
+- تفاصيل خاصة يرغب الأهل بإضافتها: {custom_notes}{toy_line}
 
 أسلوب القصة: {style_block}
 

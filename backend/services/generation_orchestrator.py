@@ -23,6 +23,7 @@ from services.image_generation_service import generate_image
 from services.audio_generation_service import generate_audio, estimate_duration_seconds
 from services.config_service import resolve_prompt
 from services.child_character_service import safe_run as run_child_character_stage
+from services.extra_characters_service import safe_run as run_extra_characters_stage
 
 logger = logging.getLogger("generation_orchestrator")
 
@@ -176,11 +177,25 @@ def _build_scene_image_context(order: dict, plan: dict, scene: dict) -> dict:
 
     img_prompt_obj = scene.get("image_prompt") or {}
 
+    # Phase D.3 — include auto-extracted visuals for uploaded assets.
+    toy_desc = pers.get("toy_description_auto") or ""
+    toy_name = ((pers.get("favorites") or {}).get("toy") or {}).get("name") or ""
+    toy_block = ""
+    if toy_desc or toy_name:
+        toy_block = (f"{toy_name}: " if toy_name else "") + (toy_desc or "")
+    extra_chars_visuals = "; ".join(
+        f"{c.get('name') or c.get('type')}: {c['visual_description_auto']}"
+        for c in chars
+        if c.get("role") == "visible" and c.get("visual_description_auto")
+    )
+
     return {
         # Child
         "child_name":         child.get("name", ""),
         "child_age":          child.get("age", ""),
         "child_gender":       "ولد" if child.get("gender") == "male" else "بنت",
+        "child_appearance_notes": child.get("appearance_notes", "") or "",
+        "child_hijab":        "نعم" if child.get("hijab") else "لا",
         # Scene
         "scene_index":        scene.get("scene_index", ""),
         "scene_title":        scene.get("title", ""),
@@ -216,7 +231,9 @@ def _build_scene_image_context(order: dict, plan: dict, scene: dict) -> dict:
         "characters_summary": "، ".join(
             f"{c.get('type','')}:{c.get('name','')}" for c in chars if c.get("name")
         ) or "لا يوجد",
-        "audio_background_mode": audio_bg,
+        "extra_characters_visuals": extra_chars_visuals or "لا يوجد",
+        "toy_summary":             toy_block or "لا يوجد",
+        "audio_background_mode":   audio_bg,
     }
 
 
@@ -246,6 +263,28 @@ async def _execute_scene_image(job: dict, order: dict, plan: dict) -> tuple[str,
     else:
         logger.info(f"[config] stage=scene_image_generation prompt_source=default reason={reason}")
         img_prompt = default_prompt
+
+    # Phase D.3 — auto-inject uploaded toy/object and extra-character visual
+    # descriptions so they appear in scenes. Appended only when present;
+    # legacy orders with no uploads are unaffected.
+    data = order.get("data") or {}
+    pers = data.get("personalization") or {}
+    toy_desc = pers.get("toy_description_auto") or ""
+    toy_name = ((pers.get("favorites") or {}).get("toy") or {}).get("name") or ""
+    if toy_desc or toy_name:
+        if toy_name and toy_name.lower() in (img_prompt or "").lower():
+            # toy is already referenced in the prompt — only inject the visual detail
+            img_prompt = (img_prompt or "") + f" Visual reference for {toy_name}: {toy_desc}" if toy_desc else img_prompt
+        else:
+            pref = f" Important recurring object: {toy_name + ' — ' if toy_name else ''}{toy_desc}".rstrip()
+            img_prompt = (img_prompt or "") + pref
+    extra_visuals = [
+        f"{(c.get('name') or c.get('type'))}: {c['visual_description_auto']}"
+        for c in (data.get("characters") or [])
+        if c.get("role") == "visible" and c.get("visual_description_auto")
+    ]
+    if extra_visuals:
+        img_prompt = (img_prompt or "") + " Extra characters visual hints — " + " | ".join(extra_visuals)
 
     image_bytes, mime, meta = await generate_image(
         scene_prompt=img_prompt,
@@ -439,6 +478,20 @@ async def run_asset_generation(order_id: str, run_id: str):
             )
     except Exception as e:  # noqa: BLE001 — safe_run should never raise, defense-in-depth
         logger.exception(f"[child_character_i2i] unexpected crash (ignored): {e}")
+
+    # --- Phase D: extra_character_i2i (OPTIONAL, disabled by default) -------
+    # Processes every visible extra character that has an uploaded image.
+    # Always safe: per-character try/except in the service, plus the outer
+    # try/except here. If no eligible character exists, early-return.
+    try:
+        ec_result = await run_extra_characters_stage(order)
+        if ec_result.get("ran"):
+            logger.info(
+                f"[extra_character_i2i] processed count={ec_result.get('count')} "
+                f"results={[r.get('status') for r in (ec_result.get('results') or [])]}"
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[extra_character_i2i] unexpected crash (ignored): {e}")
 
     # Process in order: cover first, then scene_images, then narration, then book assets
     priority = {"cover_image": 0, "scene_image": 1, "narration_audio": 2, "book_page_asset": 3}

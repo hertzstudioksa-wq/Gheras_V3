@@ -160,6 +160,8 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 
     chars_brief = "\n".join(
         f"- {c.get('type')}{' (' + (c.get('name') or '') + ')' if c.get('name') else ''} — {c.get('role','mentioned')}"
+        + (f"\n  reference_image_url: {c.get('image_url')}" if c.get("role") == "visible" and c.get("image_url") else "")
+        + (f"\n  auto_visual_description: {c.get('visual_description_auto')}" if c.get("visual_description_auto") else "")
         for c in chars
     ) or "لا يوجد"
 
@@ -168,6 +170,22 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
         for k, v in (pers.get("favorites") or {}).items()
         if (v or {}).get("selected") and (v or {}).get("name")
     ) or "لا يوجد"
+
+    # Uploaded toy/object — automatic visual description (Phase D.3).
+    toy_desc = pers.get("toy_description_auto") or ""
+    toy_url = pers.get("toy_image_url") or ""
+    toy_name = ((pers.get("favorites") or {}).get("toy") or {}).get("name") or ""
+    toy_block = ""
+    if toy_desc or toy_url or toy_name:
+        lines = ["**لعبة/غرض مهم للطفل (مرفوع كصورة)**:"]
+        if toy_name:
+            lines.append(f"- الاسم: {toy_name}")
+        if toy_url:
+            lines.append(f"- image_url: {toy_url}")
+        if toy_desc:
+            lines.append(f"- الوصف البصري المستخرج: {toy_desc}")
+        lines.append("- يجب أن يظهر هذا الغرض في key_objects و visual_description للمشاهد المناسبة.")
+        toy_block = "\n".join(lines) + "\n"
 
     return f"""## بيانات الطلب
 
@@ -202,7 +220,7 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 **الشخصيات الإضافية**:
 {chars_brief}
 
-**مفضّلات الطفل**: {fav_brief}
+{toy_block}**مفضّلات الطفل**: {fav_brief}
 **ملاحظات خاصة**: {pers.get('custom_notes') or 'لا يوجد'}
 
 ---

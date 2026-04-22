@@ -142,14 +142,33 @@ def _build_scenario_context(order: dict) -> dict:
     ) or "لا يوجد"
 
     chars = data.get("characters") or []
-    chars_brief = "، ".join(
-        f"{c.get('type','')}: {c.get('name','')}" for c in chars if c.get("name")
-    ) or "لا يوجد"
+    # Build a rich character brief that includes visual descriptions when available.
+    def _char_line(c):
+        bits = [f"{c.get('type','')}: {c.get('name','')}"]
+        if c.get("role"):
+            bits.append(f"role={c['role']}")
+        if c.get("visual_description_auto"):
+            bits.append(f"visuals: {c['visual_description_auto']}")
+        return " | ".join(bits)
+    chars_brief = "\n- ".join(_char_line(c) for c in chars if c.get("name")) or "لا يوجد"
+    if chars_brief != "لا يوجد":
+        chars_brief = "- " + chars_brief
+
+    # Toy/object description (from vision_describe, if available).
+    toy_desc = pers.get("toy_description_auto") or ""
+    toy_name = ((fav or {}).get("toy") or {}).get("name") or ""
+    toy_brief = ""
+    if toy_name or toy_desc:
+        toy_brief = (f"اسم اللعبة: {toy_name}. " if toy_name else "") + \
+                    (f"الوصف البصري: {toy_desc}" if toy_desc else "")
+    toy_brief = toy_brief or "لا يوجد"
 
     return {
         "child_name":         child.get("name", ""),
         "child_age":          child.get("age", ""),
         "child_gender":       "ولد" if child.get("gender") == "male" else "بنت",
+        "child_appearance_notes": child.get("appearance_notes", "") or "لا يوجد",
+        "child_hijab":        "نعم" if child.get("hijab") else "لا",
         "goal_category":      enriched.get("category_name", ""),
         "goal_subcategory":   enriched.get("subcategory_name") or goal.get("custom_subcategory", ""),
         "context":            goal.get("context", ""),
@@ -160,6 +179,7 @@ def _build_scenario_context(order: dict) -> dict:
         "voice":              enriched.get("voice_name", "") or "غير محدد",
         "favorites_summary":  fav_brief,
         "characters_summary": chars_brief,
+        "toy_summary":        toy_brief,
         "duration_label":     duration.get("label", ""),
         "duration_seconds":   duration.get("seconds", ""),
         "scene_target":       duration.get("scene_target", 5),
@@ -296,6 +316,15 @@ def _fallback_scenarios(order: dict) -> list[dict]:
 
 async def generate_scenarios(order: dict) -> tuple[list[dict], str, str | None]:
     """Main entry. Returns (scenarios, source, error_message_if_any)."""
+    # Phase D.3 — populate auto visual descriptions for uploaded toy/character
+    # images on the FIRST AI-call path. Idempotent + never raises. The refreshed
+    # order (with new data.*.*_description_auto fields) propagates downstream
+    # to production_planning and scene_image_generation through the DB.
+    try:
+        from services.vision_describe import ensure_vision_descriptions
+        order = await ensure_vision_descriptions(order)
+    except Exception as e:  # noqa: BLE001 — must never block scenarios
+        logger.warning(f"[vision_describe] non-fatal: {type(e).__name__}: {e}")
     try:
         items = await _generate_via_claude(order)
         return items, "ai", None

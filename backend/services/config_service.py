@@ -44,6 +44,13 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
         "fallback_model": "dry-run",
         "env_key": "OPENAI_API_KEY",
     },
+    "extra_character_i2i": {
+        "provider": "openai",
+        "model_name": "gpt-image-1",
+        "fallback_provider": "mock",
+        "fallback_model": "dry-run",
+        "env_key": "OPENAI_API_KEY",
+    },
     "scene_image_generation": {
         "provider": "gemini",
         "model_name": "gemini-2.5-flash-image-preview",
@@ -85,6 +92,7 @@ STAGE_DISPLAY_NAMES = {
     "scenario_generation":   {"ar": "توليد السيناريوهات",        "en": "Scenario Generation"},
     "production_planning":   {"ar": "إعداد خطة الإنتاج",         "en": "Production Planning"},
     "child_character_i2i":   {"ar": "تحويل صورة الطفل لشخصية",   "en": "Child Character I2I"},
+    "extra_character_i2i":   {"ar": "تحويل شخصيات إضافية",       "en": "Extra Characters I2I"},
     "scene_image_generation":{"ar": "توليد صور المشاهد",         "en": "Scene Image Generation"},
     "narration_generation":  {"ar": "توليد السرد الصوتي",         "en": "Narration Generation"},
     "video_generation":      {"ar": "توليد الفيديو",               "en": "Video Generation"},
@@ -99,7 +107,8 @@ DEFAULT_PIPELINE = {
     "order": [
         "scenario_generation",
         "production_planning",
-        "child_character_i2i",      # placeholder — disabled
+        "child_character_i2i",
+        "extra_character_i2i",
         "scene_image_generation",
         "narration_generation",
         "final_assembly",
@@ -108,6 +117,7 @@ DEFAULT_PIPELINE = {
         "scenario_generation":    {"enabled": True,  "max_retries": 2, "fallback_allowed": True},
         "production_planning":    {"enabled": True,  "max_retries": 2, "fallback_allowed": True},
         "child_character_i2i":    {"enabled": False, "max_retries": 2, "fallback_allowed": False, "runs_before_scene_generation": True},
+        "extra_character_i2i":    {"enabled": False, "max_retries": 2, "fallback_allowed": True,  "runs_before_scene_generation": True},
         "scene_image_generation": {"enabled": True,  "max_retries": 3, "fallback_allowed": True,  "uses_child_reference_asset": False},
         "narration_generation":   {"enabled": True,  "max_retries": 2, "fallback_allowed": True},
         "final_assembly":         {"enabled": True,  "max_retries": 2, "fallback_allowed": True},

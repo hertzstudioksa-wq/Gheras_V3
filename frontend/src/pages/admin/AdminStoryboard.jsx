@@ -146,6 +146,42 @@ export default function AdminStoryboard() {
         </span>
       </div>
 
+      {/* Phase D.3 — Uploaded inputs overview */}
+      {(data.order.child_image_url || data.order.toy_image_url) && (
+        <div className="bg-white rounded-2xl border border-[#E2D8C9] p-3" data-testid="storyboard-uploaded-inputs">
+          <div className="text-[11px] font-bold text-[#5A677D] uppercase tracking-wide mb-2">المدخلات المرفوعة</div>
+          <div className="flex gap-4 flex-wrap">
+            {data.order.child_image_url && (
+              <div data-testid="storyboard-child-input">
+                <div className="text-[10px] text-[#8A9AB0] mb-1">صورة الطفل</div>
+                <img src={fileSrc(data.order.child_image_url)} alt="child" className="w-20 h-20 rounded-lg object-cover border border-[#E2D8C9]" />
+              </div>
+            )}
+            {data.order.toy_image_url && (
+              <div data-testid="storyboard-toy-input">
+                <div className="text-[10px] text-[#8A9AB0] mb-1 inline-flex items-center gap-1">
+                  صورة اللعبة/الغرض
+                  <span className="bg-[#E8F0E1] text-[#4F6B3B] rounded px-1 text-[9px]">vision ✓</span>
+                </div>
+                <img src={fileSrc(data.order.toy_image_url)} alt="toy" className="w-20 h-20 rounded-lg object-cover border border-[#E2D8C9]" />
+                {data.order.toy_description_auto && (
+                  <details className="mt-1 cursor-pointer max-w-[240px]">
+                    <summary className="text-[10px] font-bold text-[#5A677D]">وصف بصري</summary>
+                    <p className="mt-1 text-[10px] text-[#2D3748] whitespace-pre-wrap">{data.order.toy_description_auto}</p>
+                  </details>
+                )}
+              </div>
+            )}
+            {data.order.custom_notes && (
+              <div className="flex-1 min-w-[240px]">
+                <div className="text-[10px] text-[#8A9AB0] mb-1">ملاحظات خاصة</div>
+                <p className="text-[11px] text-[#2D3748] bg-[#FDFBF7] rounded-lg p-2 border border-[#E2D8C9]">{data.order.custom_notes}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Timeline */}
       <Timeline items={data.timeline} onClick={scrollTo} />
 
@@ -431,6 +467,7 @@ function StageIcon({ stageKey }) {
     scenario_generation:     Sparkles,
     production_planning:     FileText,
     child_character_i2i:     UserIcon,
+    extra_character_i2i:     UserIcon,
     scene_image_generation:  ImageIcon,
     narration_generation:    Volume2,
     book_assets_generation:  BookOpen,
@@ -448,6 +485,7 @@ function StageOutput({ stage }) {
     case "scenario_generation": return <OutScenarios o={o} />;
     case "production_planning": return <OutProduction o={o} />;
     case "child_character_i2i": return <OutChildCharacter o={o} stage={stage} />;
+    case "extra_character_i2i": return <OutExtraCharacters o={o} />;
     case "scene_image_generation": return <OutSceneImages o={o} />;
     case "narration_generation": return <OutNarration o={o} />;
     case "book_assets_generation": return <OutBookAssets o={o} />;
@@ -498,6 +536,72 @@ function OutProduction({ o }) {
         </details>
       )}
       <KeyValueTable obj={{ style_guide: o.style_guide, production_approved: o.production_approved }} />
+    </div>
+  );
+}
+
+function OutExtraCharacters({ o }) {
+  const chars = o.characters || [];
+  if (chars.length === 0) {
+    return <div className="text-[11px] text-[#8A9AB0]">لا توجد شخصيات ظاهرة مرفوعة (إما غير ظاهرة أو بدون صورة)</div>;
+  }
+  return (
+    <div className="space-y-3" data-testid="storyboard-extra-characters-output">
+      <div className="text-[11px] text-[#5A677D]">
+        عدد الشخصيات المؤهَّلة: <b>{chars.length}</b>
+        {o.any_mock && <span className="mx-2 bg-[#F8F1E7] text-[#8B5A2B] rounded px-1 text-[10px]">يوجد MOCK</span>}
+        {o.any_fallback && <span className="mx-2 bg-[#FCE6D4] text-[#B8612F] rounded px-1 text-[10px]">يوجد fallback</span>}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {chars.map((c) => (
+          <div key={c.character_index} className="bg-white rounded-xl p-3 border border-[#E2D8C9]" data-testid={`extra-char-${c.character_index}`}>
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <span className="bg-[#87A96B] text-white rounded-full w-6 h-6 grid place-content-center text-[10px] font-bold">{c.character_index + 1}</span>
+              <span className="font-heading font-bold text-[#2D3748]">
+                {c.name || c.type}
+              </span>
+              <span className="text-[10px] text-[#8A9AB0] font-mono">{c.type}</span>
+              {c.status === "completed" && !c.mock && (
+                <span className="bg-[#DEEBCF] text-[#3F5B2E] rounded-full px-2 py-0.5 text-[10px] font-bold">REAL</span>
+              )}
+              {c.mock && (
+                <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-2 py-0.5 text-[10px] font-bold">MOCK</span>
+              )}
+              {c.fallback_used && (
+                <span className="bg-[#FCE6D4] text-[#B8612F] rounded-full px-2 py-0.5 text-[10px] font-bold">fallback</span>
+              )}
+              {c.status === "pending" && (
+                <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-2 py-0.5 text-[10px] font-bold">pending</span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] text-[#8A9AB0] mb-1">الصورة المرفوعة</div>
+                {c.source_image_url ? (
+                  <img src={fileSrc(c.source_image_url)} alt="src" className="w-full aspect-square rounded-lg object-cover border border-[#E2D8C9]" />
+                ) : <div className="w-full aspect-square rounded-lg bg-[#F2E8DA] grid place-content-center text-[10px] text-[#8A9AB0]">لا توجد</div>}
+              </div>
+              <div>
+                <div className="text-[10px] text-[#8A9AB0] mb-1">الشخصية المُولَّدة</div>
+                {c.generated_image_url ? (
+                  <img src={fileSrc(c.generated_image_url)} alt="gen" className="w-full aspect-square rounded-lg object-cover border border-[#E2D8C9]" />
+                ) : <div className="w-full aspect-square rounded-lg bg-[#F2E8DA] grid place-content-center text-[10px] text-[#8A9AB0] text-center px-1">لم تُولَّد بعد</div>}
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-[#5A677D] font-mono space-y-0.5">
+              {c.provider && <div>provider: {c.provider}/{c.model_name}</div>}
+              {c.prompt_hash && <div>prompt: {c.prompt_hash.split(":")[1]?.slice(0, 12)}...</div>}
+              {c.auto_visual_description && (
+                <details className="mt-1 cursor-pointer">
+                  <summary className="text-[#5A677D]">وصف بصري (vision)</summary>
+                  <p className="mt-1 text-[10px] text-[#2D3748] whitespace-pre-wrap">{c.auto_visual_description}</p>
+                </details>
+              )}
+              {c.error_message && <div className="text-[#B8612F] mt-1">{c.error_message}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -36,6 +36,7 @@ STAGE_ORDER = [
     "scenario_generation",
     "production_planning",
     "child_character_i2i",
+    "extra_character_i2i",
     "scene_image_generation",
     "narration_generation",
     "book_assets_generation",
@@ -457,6 +458,113 @@ async def _stage_child_character_i2i(order: dict, pipeline_cfg: dict) -> dict:
     }
 
 
+async def _stage_extra_character_i2i(order: dict, pipeline_cfg: dict) -> dict:
+    """Aggregate status for all visible extra characters with uploaded images."""
+    enabled = (pipeline_cfg.get("stages", {}).get("extra_character_i2i") or {}).get("enabled", False)
+    chars = ((order.get("data") or {}).get("characters") or [])
+    eligible = [
+        {"character_index": i, "type": c.get("type"), "name": c.get("name"),
+         "role": c.get("role"), "source_image_url": c.get("image_url"),
+         "auto_visual_description": c.get("visual_description_auto")}
+        for i, c in enumerate(chars)
+        if c.get("role") == "visible" and c.get("image_url")
+    ]
+    assets = await db.extra_character_assets.find(
+        {"order_id": order["id"]}, {"_id": 0}
+    ).sort("character_index", 1).to_list(20)
+    assets_by_idx = {a["character_index"]: a for a in assets}
+
+    if not eligible:
+        status = "skipped"
+        reason = "no_visible_character_with_image"
+    elif not enabled:
+        status = "skipped"
+        reason = "stage_disabled"
+    else:
+        if all(assets_by_idx.get(e["character_index"], {}).get("status") == "completed" for e in eligible):
+            status = "completed"
+        elif any(assets_by_idx.get(e["character_index"], {}).get("status") == "failed" for e in eligible):
+            status = "failed"
+        elif any(assets_by_idx.get(e["character_index"]) for e in eligible):
+            status = "running"
+        else:
+            status = "pending"
+        reason = ""
+
+    # Timing: earliest created / latest updated across children assets.
+    started_at = min((a.get("created_at") for a in assets if a.get("created_at")), default=None)
+    ended_at   = max((a.get("updated_at") for a in assets if a.get("updated_at")), default=None)
+    model = await _resolve_model_current("extra_character_i2i")
+    prompt_info = await _resolve_prompt_current("child_character_i2i")  # reuses same template
+    any_mock = any(a.get("mock") for a in assets)
+    any_fb = any(a.get("fallback_used") for a in assets)
+
+    characters_out = []
+    for e in eligible:
+        a = assets_by_idx.get(e["character_index"])
+        characters_out.append({
+            **e,
+            "generated_image_url": (a or {}).get("generated_image_url"),
+            "provider":            (a or {}).get("provider"),
+            "model_name":          (a or {}).get("model_name"),
+            "status":              (a or {}).get("status") or "pending",
+            "mock":                (a or {}).get("mock", False),
+            "fallback_used":       (a or {}).get("fallback_used", False),
+            "prompt_hash":         _prompt_hash((a or {}).get("prompt_used")),
+            "error_message":       (a or {}).get("error_message"),
+        })
+
+    events = []
+    for a in assets:
+        events.append({
+            "at": a.get("updated_at"),
+            "type": "asset",
+            "message": f"char_idx={a.get('character_index')} name={a.get('character_name')} "
+                       f"status={a.get('status')} mock={a.get('mock', False)}",
+        })
+        if a.get("error_message"):
+            events.append({"at": a.get("updated_at"), "type": "error",
+                           "message": a["error_message"][:300]})
+
+    return {
+        "stage_key": "extra_character_i2i",
+        "name_ar": _display_name("extra_character_i2i")["ar"],
+        "name_en": _display_name("extra_character_i2i")["en"],
+        "config_enabled": enabled,
+        "status": status,
+        "started_at": started_at,
+        "ended_at":   ended_at,
+        "latency_ms_estimate": _latency_ms(started_at, ended_at),
+        "latency_is_estimate": True,
+        "attempts": len(assets),
+        "provider": model[0],
+        "model_name": model[1],
+        "model_source": model[2],
+        **prompt_info,
+        "prompt_used": None,  # per-character prompts live on each asset
+        "prompt_hash": None,
+        "fallback_used": any_fb,
+        "error_message": next((a.get("error_message") for a in assets if a.get("error_message")), None),
+        "mock_mode": any_mock,
+        "input_summary": {
+            "eligible_count": len(eligible),
+            "reason": reason or None,
+        },
+        "output_summary": {
+            "characters": characters_out,
+            "any_mock": any_mock,
+            "any_fallback": any_fb,
+        },
+        "events": events,
+        "actions": {
+            "regenerate_endpoint": None,
+            "supports_copy_prompt": False,
+            "download_url": None,
+        },
+    }
+
+
+
 async def _stage_scene_image_generation(order: dict, pipeline_cfg: dict,
                                          scene_plans: list[dict]) -> dict:
     enabled = (pipeline_cfg.get("stages", {}).get("scene_image_generation") or {}).get("enabled", True)
@@ -811,6 +919,7 @@ async def get_storyboard(order_id: str) -> dict[str, Any]:
         await _stage_scenario_generation(order, pipeline_cfg),
         await _stage_production_planning(order, pipeline_cfg),
         await _stage_child_character_i2i(order, pipeline_cfg),
+        await _stage_extra_character_i2i(order, pipeline_cfg),
         await _stage_scene_image_generation(order, pipeline_cfg, scene_plans),
         await _stage_narration(order, pipeline_cfg),
         await _stage_book_assets(order, pipeline_cfg),
@@ -833,6 +942,7 @@ async def get_storyboard(order_id: str) -> dict[str, Any]:
     ]
 
     child = (order.get("data") or {}).get("child") or {}
+    pers = (order.get("data") or {}).get("personalization") or {}
     return {
         "order": {
             "id":       order["id"],
@@ -841,6 +951,11 @@ async def get_storyboard(order_id: str) -> dict[str, Any]:
             "child_name": child.get("name"),
             "child_age":  child.get("age"),
             "child_image_url": child.get("image_url"),
+            "child_appearance_notes": child.get("appearance_notes"),
+            "child_hijab": child.get("hijab"),
+            "toy_image_url":          pers.get("toy_image_url"),
+            "toy_description_auto":   pers.get("toy_description_auto"),
+            "custom_notes":           pers.get("custom_notes"),
             "duration": order.get("duration"),
             "production_approved": bool(order.get("production_approved")),
             "created_at": order.get("created_at"),
