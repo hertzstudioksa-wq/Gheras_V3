@@ -92,6 +92,7 @@ logger = logging.getLogger("gheras")
 async def on_startup():
     await ensure_indexes()
     await seed_all()
+    from db import db
     try:
         from services.secret_overrides_service import apply_overrides_to_env
         n = await apply_overrides_to_env()
@@ -106,6 +107,39 @@ async def on_startup():
             logger.info(f"seeded {n} preset stacks")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"preset seeding skipped: {e}")
+    try:
+        from services.config_service import DEFAULT_PIPELINE
+        existing = await db.pipeline_config.find_one({"id": "default"})
+        if existing:
+            # Phase I — sync any missing stages from DEFAULT_PIPELINE without
+            # disturbing admin's customizations on existing stages.
+            cur_order = existing.get("order") or []
+            cur_stages = existing.get("stages") or {}
+            patch = {}
+            new_order = list(cur_order)
+            # Phase I — drop legacy stages no longer in SUPPORTED_STAGES.
+            from services.stage_lab_service import SUPPORTED_STAGES as _SUPPORTED
+            new_order = [s for s in new_order if s in _SUPPORTED]
+            for s in DEFAULT_PIPELINE["order"]:
+                if s not in new_order:
+                    new_order.append(s)
+            new_stages = {k: v for k, v in cur_stages.items() if k in _SUPPORTED}
+            for s, cfg in DEFAULT_PIPELINE["stages"].items():
+                if s not in new_stages:
+                    new_stages[s] = cfg
+                else:
+                    # Forward-fill new flags introduced in Phase I (gated_by_output_type, etc.)
+                    merged = dict(cfg)
+                    merged.update(new_stages[s])
+                    new_stages[s] = merged
+            if new_order != cur_order or new_stages != cur_stages:
+                await db.pipeline_config.update_one(
+                    {"id": "default"},
+                    {"$set": {"order": new_order, "stages": new_stages}},
+                )
+                logger.info(f"pipeline_config migrated to include all {len(DEFAULT_PIPELINE['order'])} stages")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"pipeline_config migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

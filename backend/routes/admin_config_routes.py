@@ -122,6 +122,17 @@ async def get_pipeline_config():
     return doc
 
 
+@router.get("/pipeline-readiness")
+async def get_pipeline_readiness():
+    """Phase I — single source of truth for /admin/pipeline.
+
+    Joins SUPPORTED_STAGES + EXECUTOR_STATUS + pipeline_config + model_registry
+    + prompt_templates + pricing + secret_overrides + active preset stack.
+    """
+    from services.pipeline_readiness_service import build_readiness
+    return await build_readiness()
+
+
 @router.patch("/pipeline-config")
 async def patch_pipeline_config(payload: PipelineUpdate):
     patch = {k: v for k, v in payload.model_dump().items() if v is not None}

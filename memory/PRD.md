@@ -746,6 +746,94 @@ The admin can now, without any code edits or deployment:
   • book_page_image_generation (reuses scene image)
   • video_assembly + pdf_assembly (local binaries)
 
+### Phase I — System Consistency / Pipeline Sync (Feb 2026) ✅
+
+**What was incomplete before**
+- `/admin/pipeline` knew only 6 stages (with legacy `final_assembly`) — completely
+  out of sync with the 11-stage reality after Phase G/H.
+- `DEFAULT_PIPELINE` in `services/config_service.py` still had `final_assembly`
+  and was missing book_page_image_generation, video_generation,
+  music_generation, video_assembly, pdf_assembly.
+- `pipeline_service.per_stage_costs` was missing `book_page_image_generation`.
+- No single-source-of-truth endpoint that joins lab + pipeline + presets +
+  models + secrets + prompts.
+
+**What was added**
+- `services/config_service.DEFAULT_PIPELINE` rewritten:
+  * 11 stages (legacy `final_assembly` removed)
+  * Per-stage flags: `audio_aware`, `reference_aware`, `local_binary`,
+    `reuses_scene_image_today`, `runs_before_scene_generation`,
+    `gated_by_output_type` (`video`/`pdf`/`both`).
+- Auto-migration on startup (`server.py`): existing `pipeline_config` doc is
+  upgraded — new stages added, legacy `final_assembly` purged, admin
+  customizations preserved per existing stage.
+- `services/pipeline_readiness_service.build_readiness()` — new SSoT joining:
+  SUPPORTED_STAGES + EXECUTOR_STATUS + STAGE_NOTES_AR + pipeline_config +
+  model_registry (with DEFAULT_MODELS fallback) + prompt_templates +
+  pricing.per_stage_costs + secret_overrides_service.secret_source +
+  active preset.
+- New endpoint `GET /api/admin/pipeline-readiness` exposes the consolidated
+  payload with integrity check (`orphan_stages_in_pipeline` /
+  `missing_stages_in_pipeline`) + `audio_aware_stages` /
+  `reference_aware_stages` summaries + active preset + per-stage flags.
+- `pages/admin/AdminPipeline.jsx` rewritten to consume the readiness endpoint:
+  shows all 11 stages with executor_status badge, prompt-driven badge with
+  version, preset provenance badge, provider/model/env/cost line,
+  Arabic flag pills, executor_notes, enabled/fallback/max_retries
+  controls (disabled honestly for `local-binary` / `reuse-from-other-stage`).
+
+**Cross-page consistency proof**
+The new `/admin/pipeline-readiness` and the existing `/admin/lab/stages`
+return EXACT SAME provider/model/preset/executor_status/secret_source for
+all 11 stages — verified diff-by-diff in TEST 2.
+
+**Tests** — 11 new unit tests (`tests/test_phase_i_pipeline_readiness.py`):
+DEFAULT_PIPELINE coverage (no orphans / no missing) · order matches stage
+set · no legacy final_assembly · all 11 stages present · local-binary flags
+on assembly · audio_aware on narration+music · reference_aware on
+scene_image · output_type gating on video chain + pdf chain · `_flags`
+helper correctness.
+
+7 live API tests:
+  TEST 1 pipeline-readiness: 11 supported/11 stages, integrity_ok=True. ✅
+  TEST 2 cross-page consistency: lab vs pipeline diff = 0 mismatches across
+  all 11 stages, active preset matches. ✅
+  TEST 3 output_type gating visible per stage: narration/music/video/
+  video_assembly → `gated:video,both`; book_page/pdf_assembly →
+  `gated:pdf,both`. duration propagated through context_used. ✅
+  TEST 4 references_aware + child_ref injected for real_order. ✅
+  TEST 5 all real-call/preview-only/not-yet-wired stages have
+  provider+prompt+secret. ✅
+  TEST 6 manual readiness checklist: 5 secrets visible, 4 providers
+  testable, 5 presets, 11 lab stages, 11 pipeline stages with active
+  preset reflected everywhere. ✅
+  TEST 7 zero regression: 54/54 unit tests + 11/11 stages preview ✅.
+
+**Files modified (5)**
+- `backend/services/config_service.py` (DEFAULT_PIPELINE rewritten)
+- `backend/services/pipeline_readiness_service.py` (NEW, 140 lines)
+- `backend/routes/admin_config_routes.py` (new endpoint)
+- `backend/services/pricing_service.py` (book_page_image_generation cost)
+- `backend/server.py` (auto-migration on startup)
+- `frontend/src/pages/admin/AdminPipeline.jsx` (rewritten consuming readiness)
+- `backend/tests/test_phase_i_pipeline_readiness.py` (NEW, 11 tests)
+
+**129/130 total** (11 I + 12 H + 9 G + 10 F + 25 E + 54 W1-4 + 8 D.5/D.3 — 1
+pre-existing async-pytest config fail).
+
+**Manual operator readiness — final state**
+The admin can now confidently begin manual testing because:
+  ✅ /admin/pipeline reflects 100% of the real backend structure
+  ✅ /admin/lab + /admin/pipeline + /admin/presets + /admin/secrets are diff-equal
+  ✅ Every stage's executor honesty is preserved (real-call vs preview-only vs
+    not-yet-wired vs local-binary vs reuse-from-other-stage)
+  ✅ Active preset is shown identically across pages
+  ✅ Provider/model/env_key/secret_source/prompt_source all aligned
+  ✅ Output_type gating + audio mode awareness + reference awareness are
+    visible flags, not hidden behaviors
+  ✅ Pricing structure matches the 11-stage reality
+  ✅ Zero regression — 54 unit tests + 11/11 preview stages green
+
 
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.

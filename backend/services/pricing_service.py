@@ -46,6 +46,7 @@ DEFAULT_PRICING_CONFIG: dict = {
         "child_character_i2i":     0.40,   # one OpenAI image edit
         "extra_character_i2i":     0.40,   # per visible extra character
         "scene_image_generation":  0.30,   # per generated scene image
+        "book_page_image_generation": 0.05, # reuse-from-scene today; cost when distinct executor lands
         "cover_image":             0.30,   # cover illustration
         "narration_audio":         0.05,   # per scene (mock today; bump on real TTS)
         "book_page_asset":         0.02,   # per book page (reuses scene image)
