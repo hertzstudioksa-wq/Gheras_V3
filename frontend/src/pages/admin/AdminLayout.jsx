@@ -4,7 +4,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import {
   LayoutDashboard, Users, BookOpen, Sprout, FileText, Wand2,
   CreditCard, Settings, LogOut, Palette, Cpu, Workflow, ShieldCheck,
-  Coins, Beaker, Lock, Package, ScrollText,
+  Coins, Beaker, Lock, Package, ScrollText, Library, Hourglass,
 } from "lucide-react";
 
 const LOGO_URL = "/gheras-logo.png";
@@ -24,6 +24,8 @@ const items = [
   { to: "/admin/bundles", label: "الباقات", icon: Package, tid: "admin-nav-bundles" },
   { to: "/admin/payment", label: "الدفع و Stripe", icon: CreditCard, tid: "admin-nav-payment" },
   { to: "/admin/audit", label: "سجل التدقيق", icon: ScrollText, tid: "admin-nav-audit" },
+  { to: "/admin/assets", label: "مكتبة الأصول", icon: Library, tid: "admin-nav-assets" },
+  { to: "/admin/retention", label: "سياسة الاحتفاظ", icon: Hourglass, tid: "admin-nav-retention" },
   { to: "/admin/secrets", label: "المفاتيح والمزوّدين", icon: Lock, tid: "admin-nav-secrets" },
   { to: "/admin/api-status", label: "حالة API", icon: ShieldCheck, tid: "admin-nav-api" },
   { to: "/admin/plans", label: "الأسعار والباقات (legacy)", icon: CreditCard, tid: "admin-nav-plans" },

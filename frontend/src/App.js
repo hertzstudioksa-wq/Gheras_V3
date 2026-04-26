@@ -36,6 +36,8 @@ import AdminSecrets from "./pages/admin/AdminSecrets";
 import AdminBundles from "./pages/admin/AdminBundles";
 import AdminAuditLog from "./pages/admin/AdminAuditLog";
 import AdminPaymentSettings from "./pages/admin/AdminPaymentSettings";
+import AdminAssetLibrary from "./pages/admin/AdminAssetLibrary";
+import AdminRetention from "./pages/admin/AdminRetention";
 import MyBundles from "./pages/MyBundles";
 import AdminSettings from "./pages/admin/AdminSettings";
 
@@ -128,6 +130,8 @@ function App() {
               <Route path="bundles" element={<AdminBundles />} />
               <Route path="payment" element={<AdminPaymentSettings />} />
               <Route path="audit" element={<AdminAuditLog />} />
+              <Route path="assets" element={<AdminAssetLibrary />} />
+              <Route path="retention" element={<AdminRetention />} />
               <Route path="lab" element={<AdminStageLab />} />
               <Route path="secrets" element={<AdminSecrets />} />
               <Route path="settings" element={<AdminSettings />} />

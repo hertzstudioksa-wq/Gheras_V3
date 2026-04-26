@@ -391,6 +391,60 @@ generating (Phase 6) → completed
 - 13 new unit cases (`test_wave3_bundles_audit_payment.py`).
 - **47/47 unit tests pass** (47 = 14 D.5 + 9 W1 + 12 W2 + 13 W3 — total).
 
+### Wave 4 — Asset Library + Retention (Feb 2026) ✅
+**Asset Library**
+- Service `services/asset_service.py` aggregates `final_videos` + `final_pdfs`
+  with per-asset metadata (age_days, order_status, user_email, has_active_bundle).
+- Endpoints (admin only):
+  * `GET /api/admin/assets` — filters: `asset_type`, `lifecycle_status`,
+    `order_status`, `user_id`, `min_age_days`, `max_age_days`, `limit`.
+  * `POST /api/admin/assets/{type}/{id}/archive[?force=true]`
+  * `POST /api/admin/assets/{type}/{id}/restore`
+  * `POST /api/admin/assets/{type}/{id}/purge[?force=true]`
+- New field `lifecycle_status` on `final_videos` & `final_pdfs` (defaults
+  to `live` for legacy assets via projection logic — no migration needed).
+
+**Lifecycle (`live` → `archived` → `purged`)**
+- `archive` — sets `lifecycle_status="archived"` + records `archived_at/by`.
+  Reversible via `restore`.
+- `restore` — flips back to `live`. NEVER works on `purged` assets.
+- `purge` — sets `lifecycle_status="purged"`, clears `*_url` fields (app stops
+  handing out URLs), preserves `*_url_pre_purge` for forensic audit only.
+  Storage caveat documented honestly: Emergent Object Storage exposes no
+  public delete API, so files may persist remotely; the application treats
+  them as gone.
+- All actions audited with full before/after.
+
+**Retention Policy**
+- Collection `retention_policy` (single doc, admin-tunable):
+  * `protect_recent_delivered_days: 30` (HARD guard — never archive/purge
+    within this window after DELIVERED).
+  * `protect_active_bundle_orders: true` (skip orders with reserved bundle).
+  * `min_age_for_archive_days: 30` (manual archive guard).
+  * `min_archived_days_before_purge: 30` (manual purge guard).
+  * `auto_archive_after_delivered_days: 30` (enforce rule).
+  * `auto_purge_after_archived_days: 60` (enforce rule).
+- Endpoints: `GET/PUT /admin/retention/config`, `GET /admin/retention/preview`,
+  `POST /admin/retention/enforce`.
+- **Preview** returns `to_archive`, `to_purge`, `skipped` lists with
+  `matched_rule` / `reason` per row — admin can inspect EXACTLY what would
+  happen before clicking enforce.
+- **Enforce** writes a `retention_runs` summary doc (archived_count,
+  purged_count, failed_count + per-failure reasons).
+- All guards bypassable per-asset only via explicit `force=true` (audited
+  with `forced: true` in metadata).
+
+**Frontend**
+- `AdminAssetLibrary.jsx` — filter bar + table + per-row archive/restore/
+  purge actions with confirmation + `needs_force` re-prompt.
+- `AdminRetention.jsx` — 6 config fields + preview button + enforce button
+  + side-by-side preview/skipped sections.
+- Storage transparency note rendered in admin UI.
+
+**Tests**
+- 7 new unit cases (`test_wave4_assets_retention.py`).
+- **54/54 unit tests pass** (14 D.5 + 9 W1 + 12 W2 + 13 W3 + 7 W4).
+
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
 - Video animation (Sora 2 or equivalent) using `animation_prompt`.
