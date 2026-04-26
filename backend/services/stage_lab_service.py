@@ -408,6 +408,74 @@ async def _build_stage_context(stage_key: str, input_payload: dict) -> dict:
             "setting":      (order_for_ctx.get("enriched") or {}).get("setting_name") or "",
         })
 
+    # Phase J — common Arabic-aware conveniences for ALL prompt stages.
+    order_for_ctx2 = real_order or fake
+    d_data = order_for_ctx2.get("data") or {}
+    enriched = order_for_ctx2.get("enriched") or {}
+    child_d = d_data.get("child") or {}
+    pers_d  = d_data.get("personalization") or {}
+    chars_d = d_data.get("characters") or []
+    duration_d = order_for_ctx2.get("duration") or {}
+
+    base.setdefault("child_hijab_note", "(بحجاب)" if child_d.get("hijab") else "")
+    base.setdefault("custom_notes", pers_d.get("custom_notes") or "لا يوجد")
+    base.setdefault("language", enriched.get("language_name") or "العربية الفصحى المبسّطة")
+    base.setdefault("voice", enriched.get("voice_name") or "")
+    base.setdefault("output_type", (d_data.get("output_type") or {}).get("type") or "both")
+    base.setdefault("audio_background_mode",
+                    (d_data.get("audio_background") or {}).get("mode") or "music")
+    base.setdefault("duration_label", duration_d.get("label") or "")
+    base.setdefault("scene_target", str(duration_d.get("scene_target") or "5"))
+    base.setdefault("target_duration", str(duration_d.get("target_seconds") or "90"))
+    sr = duration_d.get("scene_target_range") or duration_d.get("scene_range") or []
+    if isinstance(sr, list) and len(sr) == 2:
+        base.setdefault("scene_range", f"{sr[0]}–{sr[1]}")
+    else:
+        base.setdefault("scene_range", "3–10")
+
+    chars_brief = "، ".join(
+        f"{c.get('type','')}"
+        + (f" ({c.get('name')})" if c.get("name") else "")
+        + (" — ظاهر" if c.get("role") == "visible" else "")
+        for c in chars_d
+    ) or "لا يوجد"
+    base.setdefault("characters_brief", chars_brief)
+
+    fav_brief = "، ".join(
+        f"{k}: {(v or {}).get('name','')}"
+        for k, v in (pers_d.get("favorites") or {}).items()
+        if (v or {}).get("selected") and (v or {}).get("name")
+    ) or "لا يوجد"
+    base.setdefault("favorites_brief", fav_brief)
+
+    # Style fields commonly referenced by image templates.
+    sg_d = (real_plan or {}).get("style_guide") or {}
+    base.setdefault("art_direction", sg_d.get("art_direction", ""))
+    base.setdefault("palette",       sg_d.get("palette", ""))
+    base.setdefault("lighting",      sg_d.get("lighting", ""))
+    # `character_note` and `scene_prompt` are admin-template-friendly aliases
+    # for the longer keys the live context provides.
+    base.setdefault("character_note", base.get("character_reference_note") or
+                                       base.get("continuity_notes") or "")
+    base.setdefault("scene_prompt",   base.get("scene_title") or base.get("scene_goal") or "")
+
+    if stage_key == "production_planning":
+        sc = await db.scenarios.find_one(
+            {"order_id": (real_order or {}).get("id"),
+             "is_chosen": True, "is_archived": False},
+            {"_id": 0},
+        ) if real_order else None
+        if sc:
+            base.setdefault("scenario_title", sc.get("title") or "")
+            base.setdefault("scenario_summary", sc.get("short_summary") or "")
+            base.setdefault("scenario_emotional_angle", sc.get("emotional_angle") or "")
+            base.setdefault("scenario_learning_goal", sc.get("learning_goal") or "")
+        else:
+            base.setdefault("scenario_title", "(لم يُختر بعد)")
+            base.setdefault("scenario_summary", "")
+            base.setdefault("scenario_emotional_angle", "")
+            base.setdefault("scenario_learning_goal", "")
+
     # Final layer: explicit admin-supplied raw keys override everything (escape hatch).
     for k, v in (input_payload or {}).items():
         if k in ("order_id", "scene_index"):
