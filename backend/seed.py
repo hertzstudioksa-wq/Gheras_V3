@@ -301,12 +301,19 @@ async def seed_prompt_templates():
                 "Narrate the following Arabic scene text with warmth, gentle pace, and "
                 "clear diction suitable for a $child_age-year-old child. Emotional "
                 "delivery: $emotional_tone. Pacing: $pacing. Voice style: $voice_style. "
+                "Audio background mode for this story: $audio_background_mode. "
+                "Adjust pacing slightly to: when audio_background_mode='music' keep a "
+                "steady storytelling rhythm; when 'human_rhythm' shorten pauses and "
+                "feel more like a parent reading aloud; when 'none' speak slower with "
+                "longer pauses since there is no music or rhythm under the voice. "
                 "Scene text:\n$narration_text"
             ),
             "variables": [
-                "child_age", "emotional_tone", "pacing", "voice_style", "narration_text",
+                "child_age", "emotional_tone", "pacing", "voice_style",
+                "audio_background_mode", "narration_text",
             ],
-            "notes": "Narration/voice generation prompt. Consumed when a real TTS executor is wired.",
+            "notes": "Narration/voice generation prompt. Consumed when a real TTS executor is wired. "
+                     "Honors order.data.audio_background.mode (music | human_rhythm | none).",
         },
         {
             "stage_key": "video_generation",
@@ -330,16 +337,100 @@ async def seed_prompt_templates():
             "stage_key": "music_generation",
             "name": "Music per-story / per-scene (default, not yet wired)",
             "template_text": (
-                "Compose child-safe background music matching the story's emotional arc. "
-                "Story-level direction: $story_music_prompt. Keywords: $story_music_keywords. "
+                "Audio background mode for this story: $audio_background_mode. "
+                "If audio_background_mode='none', return an empty composition (no music "
+                "track). If 'human_rhythm', generate a soft hand-percussion / clap-only "
+                "rhythm with no instruments. Otherwise (mode='music'): compose child-safe "
+                "background music matching the story's emotional arc.\n"
+                "Story-level direction: $story_music_prompt. "
+                "Story-level keywords: $story_music_keywords. "
                 "Current scene cue: $music_prompt. Scene keywords: $music_keywords. "
                 "Duration: $estimated_duration_seconds s. Mood progression: $emotional_arc."
             ),
             "variables": [
+                "audio_background_mode",
                 "story_music_prompt", "story_music_keywords", "music_prompt",
                 "music_keywords", "estimated_duration_seconds", "emotional_arc",
             ],
-            "notes": "Editable now; will be consumed when a music-generation executor is added.",
+            "notes": "Editable now; will be consumed when a music-generation executor is added. "
+                     "Honors order.data.audio_background.mode (music | human_rhythm | none).",
+        },
+        {
+            "stage_key": "extra_character_i2i",
+            "name": "Extra Character (reuses child_character_i2i template by default)",
+            "template_text": (
+                "This is a supporting character for a children's storybook ($character_role). "
+                "Apply the same storybook transformation rules used for the main child "
+                "character so all characters share one consistent visual style.\n\n"
+                "Character name: $character_name. Type: $character_type. "
+                "Visible details: $character_visual_description.\n\n"
+                "Generate ONE single full-body standing version centered in frame, "
+                "transparent background, clean PNG, expressive but simple, animation-ready, "
+                "consistent palette: $palette, art_direction: $art_direction."
+            ),
+            "variables": [
+                "character_name", "character_type", "character_role",
+                "character_visual_description", "palette", "art_direction",
+            ],
+            "notes": "Per-character prompt. The live extra_characters_service currently "
+                     "reuses the child_character_i2i template at runtime (services/"
+                     "extra_characters_service.py:_build_character_prompt). Editing this "
+                     "template lets admin diverge later without touching the child template.",
+        },
+        {
+            "stage_key": "book_page_image_generation",
+            "name": "Book Page Illustration (currently reused from scene image)",
+            "template_text": (
+                "Generate a children's storybook page illustration in the SAME identity, "
+                "outfit, palette, and art direction as the corresponding scene image. "
+                "Page text (Arabic, will be overlaid or printed beside the illustration): "
+                "$book_text. Page number: $page_number of $total_pages. Scene index: "
+                "$scene_index. Scene title: $scene_title. Visual: $visual_description. "
+                "Key objects: $key_objects. Background setting: $background_setting. "
+                "Compose as a portrait-friendly print page (A5 landscape), generous "
+                "negative space on the right for the Arabic text block, RTL-safe layout. "
+                "Style: $art_direction, $palette, $lighting. Children's storybook print "
+                "feel, slightly more detailed than a frame intended for video."
+            ),
+            "variables": [
+                "book_text", "page_number", "total_pages", "scene_index", "scene_title",
+                "visual_description", "key_objects", "background_setting",
+                "art_direction", "palette", "lighting",
+            ],
+            "notes": "TODAY the pipeline reuses the corresponding scene_image (provider="
+                     "reused). This template is editable now and will be consumed when "
+                     "the orchestrator switches to a dedicated book illustration pass.",
+        },
+        {
+            "stage_key": "video_assembly",
+            "name": "Video Assembly (ffmpeg, local, no LLM)",
+            "template_text": (
+                "[INFORMATIONAL — ffmpeg local binary, no LLM provider, no API cost]\n\n"
+                "Cover (2s) + N scene clips back-to-back, 1280×720, H.264, "
+                "audio_background_mode=$audio_background_mode "
+                "(music | human_rhythm | none). Scene clip duration computed from "
+                "narration word count at 2.2 WPS for Arabic. Output: MP4 in "
+                "$output_dir. Audio mixing for music/human_rhythm is deferred until a "
+                "real TTS+music pipeline is wired."
+            ),
+            "variables": ["audio_background_mode", "output_dir"],
+            "notes": "ffmpeg is a local binary, not a provider. This template documents "
+                     "the assembly settings for admin visibility — not used at runtime.",
+        },
+        {
+            "stage_key": "pdf_assembly",
+            "name": "PDF Assembly (reportlab, local, no LLM)",
+            "template_text": (
+                "[INFORMATIONAL — reportlab local, no LLM provider, no API cost]\n\n"
+                "A5 landscape, Arabic RTL. Cover page (cover_image + title) → per-scene "
+                "pages (illustration on one half, RTL Arabic text on the other) → back "
+                "page with main_message. Font: Amiri (loaded from "
+                "/app/backend/fonts/Amiri-Regular.ttf). Arabic shaping via "
+                "arabic-reshaper + python-bidi. Output: PDF in $output_dir."
+            ),
+            "variables": ["output_dir"],
+            "notes": "reportlab local. This template documents the layout choices for "
+                     "admin visibility — not consumed at runtime.",
         },
     ]
     for s in seeds:

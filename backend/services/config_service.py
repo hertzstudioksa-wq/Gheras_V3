@@ -94,8 +94,12 @@ STAGE_DISPLAY_NAMES = {
     "child_character_i2i":   {"ar": "تحويل صورة الطفل لشخصية",   "en": "Child Character I2I"},
     "extra_character_i2i":   {"ar": "تحويل شخصيات إضافية",       "en": "Extra Characters I2I"},
     "scene_image_generation":{"ar": "توليد صور المشاهد",         "en": "Scene Image Generation"},
+    "book_page_image_generation": {"ar": "إيضاحات صفحات الكتاب", "en": "Book Page Image Generation"},
     "narration_generation":  {"ar": "توليد السرد الصوتي",         "en": "Narration Generation"},
     "video_generation":      {"ar": "توليد الفيديو",               "en": "Video Generation"},
+    "music_generation":      {"ar": "توليد الموسيقى",              "en": "Music Generation"},
+    "video_assembly":        {"ar": "تجميع الفيديو النهائي",       "en": "Video Assembly (ffmpeg)"},
+    "pdf_assembly":          {"ar": "تجميع الكتاب PDF",            "en": "PDF Assembly (reportlab)"},
     "final_assembly":        {"ar": "التجميع النهائي",             "en": "Final Assembly"},
     "pdf_generation":        {"ar": "توليد الكتاب PDF",            "en": "PDF Generation"},
 }

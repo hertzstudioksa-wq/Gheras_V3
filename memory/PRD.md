@@ -558,6 +558,75 @@ provider, WITHOUT consuming API credit, WITHOUT requiring `acknowledged_cost`.
 **97/98 total** (10 new Phase F + 25 Phase E + 54 Wave 1-4 + 8 D.5/D.3 — 1
 unrelated pre-existing async-pytest config fail).
 
+### Phase G — Lab Control Gaps Closure (Feb 2026) ✅
+**Stages added** (4 new): `extra_character_i2i`, `book_page_image_generation`,
+`video_assembly`, `pdf_assembly`. Total `SUPPORTED_STAGES` = **11**.
+
+**`executor_status` taxonomy** (5 categories):
+  * `real-call` (4) — scenario_generation, production_planning,
+    child_character_i2i, extra_character_i2i. Burns API.
+  * `preview-only` (1) — scene_image_generation. Real exec but lab can't
+    drive without real order context.
+  * `not-yet-wired` (3) — narration_generation, video_generation,
+    music_generation. Templates editable; provider exec lands later.
+  * `local-binary` (2) — video_assembly (ffmpeg), pdf_assembly (reportlab).
+    No LLM, no API cost; templates are informational settings docs.
+  * `reuse-from-other-stage` (1) — book_page_image_generation. Today reuses
+    scene_image; template ready when admin wants distinct illustrations.
+
+**Prompt inventory** — 4 new seed templates with REAL editable defaults:
+  * `extra_character_i2i` — character-aware prompt (live extra service still
+    reuses child template; admin can override here).
+  * `book_page_image_generation` — A5 RTL print-friendly illustration prompt.
+  * `video_assembly` — informational ffmpeg settings + audio_background_mode.
+  * `pdf_assembly` — informational reportlab + Amiri font settings.
+
+**Audio choice propagation** — `narration_generation` and `music_generation`
+templates **bumped to v2** (old v1 deactivated, archived for audit). Both now:
+  * Read `$audio_background_mode` from order context.
+  * Branch behavior per mode in the prompt itself: `music` keeps storytelling
+    rhythm, `human_rhythm` shortens pauses + clap-only beats, `none` slower
+    pacing + empty composition.
+  * Verified: each of the 3 modes produces a DIFFERENT prompt_hash.
+
+**`/api/admin/lab/stages` enriched** — every stage now exposes:
+  `name_ar, name_en, real_call, executor_status, prompt_driven (bool),
+   estimated_cost, currency, notes_ar`.
+
+**Frontend** — `pages/admin/AdminStageLab.jsx`:
+  * Selector now lists all 11 stages with `• executor_status` suffix.
+  * Status badge (color-coded per category) + `prompt-driven` pill +
+    Arabic explanation panel under the selector explaining WHY a stage
+    is preview-only / local-binary / not-yet-wired.
+
+**Tests**
+  * 9 new unit tests (`tests/test_phase_g_lab_gaps.py`):
+    new stages added / executor_status coverage / executor_status values valid /
+    extra_character_i2i is real-call / video_assembly+pdf_assembly local-binary /
+    book_page_image_generation reuse / not-yet-wired set / Arabic notes presence.
+  * 5 live API tests via curl:
+    TEST 1 stages catalogue (11 stages, all classified) ✅
+    TEST 2 4 new templates have prompt_source=admin, version=1, 0 unresolved ✅
+    TEST 3 5 distinct executor_status buckets correctly populated ✅
+    TEST 4 audio_background_mode produces distinct hashes for music/human_rhythm/none in BOTH narration + music ✅
+    TEST 5 Phase F regression: all 7 original stages still respond unchanged ✅
+
+**Files modified**
+  * `services/stage_lab_service.py` (+ EXECUTOR_STATUS, STAGE_NOTES_AR,
+    extended SUPPORTED_STAGES + REAL_CALL_STAGES; richer
+    `_build_stage_context` for new stages).
+  * `routes/admin_lab_routes.py` (`/stages` returns full classification).
+  * `services/config_service.py` (added 4 new STAGE_DISPLAY_NAMES).
+  * `seed.py` (4 new prompt template seeds + narration/music templates
+    documented as audio-aware in `notes`).
+  * `pages/admin/AdminStageLab.jsx` (status badges + notes panel).
+  * `tests/test_phase_g_lab_gaps.py` (NEW, 9 tests).
+  * Live DB migration: narration_generation v1 deactivated → v2 active +
+    music_generation v1 deactivated → v2 active.
+
+**106/107 total** (9 G + 10 F + 25 E + 54 W1-4 + 8 D.5/D.3 — 1 pre-existing
+async-pytest config fail).
+
 
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.

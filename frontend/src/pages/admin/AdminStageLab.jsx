@@ -7,10 +7,22 @@ const STAGE_LABELS = {
   scenario_generation:    "توليد السيناريوهات (نص)",
   production_planning:    "خطة الإنتاج (نص JSON ضخم)",
   child_character_i2i:    "إعادة رسم الطفل (i2i)",
-  scene_image_generation: "صورة مشهد (preview)",
-  narration_generation:   "السرد الصوتي (preview)",
-  video_generation:       "فيديو لكل مشهد (preview)",
-  music_generation:       "موسيقى المشهد (preview)",
+  extra_character_i2i:    "إعادة رسم شخصيات إضافية (i2i)",
+  scene_image_generation: "صورة مشهد",
+  book_page_image_generation: "إيضاحات صفحات الكتاب",
+  narration_generation:   "السرد الصوتي",
+  video_generation:       "فيديو لكل مشهد",
+  music_generation:       "موسيقى المشهد",
+  video_assembly:         "تجميع الفيديو (ffmpeg)",
+  pdf_assembly:           "تجميع الكتاب (PDF)",
+};
+
+const STATUS_BADGE = {
+  "real-call":               { label: "REAL CALL",     bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]" },
+  "preview-only":            { label: "preview-only",  bg: "bg-[#F8F1E7]", fg: "text-[#8B5A2B]" },
+  "not-yet-wired":           { label: "not-yet-wired", bg: "bg-[#EEE9E0]", fg: "text-[#5A677D]" },
+  "local-binary":            { label: "local-binary",  bg: "bg-[#DEEBCF]", fg: "text-[#3F5B2E]" },
+  "reuse-from-other-stage":  { label: "reuse-from-other", bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]" },
 };
 
 export default function AdminStageLab() {
@@ -112,23 +124,45 @@ export default function AdminStageLab() {
       </div>
 
       <section className="bg-white rounded-2xl p-5 border border-[#E2D8C9] mb-5">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
           <select
             value={stageKey}
             onChange={(e) => { setStageKey(e.target.value); setAcknowledged(false); setLatestRun(null); }}
-            className="input flex-1"
+            className="input flex-1 min-w-[200px]"
             data-testid="lab-stage-select"
           >
             {catalog.map((s) => (
               <option key={s.stage_key} value={s.stage_key}>
-                {STAGE_LABELS[s.stage_key] || s.stage_key} {s.real_call ? "• REAL" : "• preview"}
+                {STAGE_LABELS[s.stage_key] || s.stage_key} • {s.executor_status}
               </option>
             ))}
           </select>
+          {stageMeta && (
+            <span
+              className={`text-[10px] font-bold rounded-full px-2 py-1 whitespace-nowrap ${
+                (STATUS_BADGE[stageMeta.executor_status] || STATUS_BADGE["preview-only"]).bg
+              } ${(STATUS_BADGE[stageMeta.executor_status] || STATUS_BADGE["preview-only"]).fg}`}
+              data-testid="lab-executor-status-badge"
+              title={stageMeta.notes_ar}
+            >
+              {(STATUS_BADGE[stageMeta.executor_status] || STATUS_BADGE["preview-only"]).label}
+            </span>
+          )}
+          {stageMeta?.prompt_driven && (
+            <span className="text-[10px] font-bold rounded-full px-2 py-1 bg-[#E8F0E1] text-[#4F6B3B]" data-testid="lab-prompt-driven-badge">
+              prompt-driven
+            </span>
+          )}
           <span className="text-xs font-body text-[#5A677D] whitespace-nowrap">
             تكلفة تقديرية: <b className="text-[#2D3748]">{estCost} {currency}</b>
           </span>
         </div>
+
+        {stageMeta?.notes_ar && (
+          <p className="text-[11px] font-body text-[#5A677D] bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-2 mb-4" data-testid="lab-stage-notes">
+            {stageMeta.notes_ar}
+          </p>
+        )}
 
         {isRealCall && (
           <div className="bg-[#FCE6D4] border border-[#E07A5F]/40 rounded-2xl p-3 mb-4 flex items-start gap-2 text-sm" data-testid="lab-cost-warning">

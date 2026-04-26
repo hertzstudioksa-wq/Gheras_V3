@@ -4,11 +4,13 @@ from typing import Any
 
 from auth import require_admin
 from services.stage_lab_service import (
-    SUPPORTED_STAGES, REAL_CALL_STAGES,
+    SUPPORTED_STAGES, REAL_CALL_STAGES, EXECUTOR_STATUS, STAGE_NOTES_AR,
     run_stage_test, list_stage_test_runs, get_stage_test_run,
     build_effective_prompt_preview,
 )
 from services.pricing_service import get_pricing_config
+from services.config_service import STAGE_DISPLAY_NAMES
+from db import db
 
 router = APIRouter(
     prefix="/admin/lab",
@@ -21,17 +23,31 @@ router = APIRouter(
 async def list_stages():
     """Return the catalogue of stages the lab can drive + their nature.
 
-    The frontend uses this to render the stage picker and show whether
-    running a stage will burn budget (real-call) or just preview prompts.
+    The frontend uses this to render the stage picker, the executor-status
+    badge, the cost preview, and the "why is this preview-only" tooltip.
     """
     cfg = await get_pricing_config()
+    # Snapshot which stages have an active prompt template (prompt_driven).
+    rows = await db.prompt_templates.find(
+        {"active": True}, {"_id": 0, "stage_key": 1}
+    ).to_list(50)
+    has_template = {r.get("stage_key") for r in rows}
+
     stages = []
     for s in SUPPORTED_STAGES:
+        executor_status = EXECUTOR_STATUS.get(s, "preview-only")
+        # `real_call` kept for back-compat with the existing UI checkbox.
+        real_call = (executor_status == "real-call")
         stages.append({
             "stage_key": s,
-            "real_call": s in REAL_CALL_STAGES,
+            "name_ar": (STAGE_DISPLAY_NAMES.get(s) or {}).get("ar") or s,
+            "name_en": (STAGE_DISPLAY_NAMES.get(s) or {}).get("en") or s,
+            "real_call": real_call,
+            "executor_status": executor_status,
+            "prompt_driven": s in has_template,
             "estimated_cost": float(cfg.get("per_stage_costs", {}).get(s, 0.0)),
             "currency": cfg.get("currency", "SAR"),
+            "notes_ar": STAGE_NOTES_AR.get(s, ""),
         })
     return {"stages": stages}
 

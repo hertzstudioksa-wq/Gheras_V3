@@ -34,16 +34,59 @@ SUPPORTED_STAGES = (
     "scenario_generation",
     "production_planning",
     "child_character_i2i",
+    "extra_character_i2i",
     "scene_image_generation",
+    "book_page_image_generation",
     "narration_generation",
     "video_generation",
     "music_generation",
+    "video_assembly",
+    "pdf_assembly",
 )
 
 REAL_CALL_STAGES = {
     "scenario_generation",
     "production_planning",
     "child_character_i2i",
+    "extra_character_i2i",
+}
+
+# Phase G — `executor_status` classifies WHY a stage is callable or not:
+#   real-call            — admin can run it live, burns API budget
+#   preview-only         — has a real executor but lab won't run it without a real
+#                          order context (scene_image needs scene_plans + plan)
+#   not-yet-wired        — admin template exists, but no executor calls a provider yet
+#                          (video_generation, music_generation today)
+#   local-binary         — runs locally (ffmpeg/reportlab), no LLM provider, no
+#                          editable prompt — visibility-only in lab
+#   reuse-from-other-stage — stage exists but reuses another stage's output verbatim
+#                          (book_page_image_generation today reuses scene_image)
+EXECUTOR_STATUS: dict[str, str] = {
+    "scenario_generation":      "real-call",
+    "production_planning":      "real-call",
+    "child_character_i2i":      "real-call",
+    "extra_character_i2i":      "real-call",
+    "scene_image_generation":   "preview-only",   # needs real order context
+    "book_page_image_generation": "reuse-from-other-stage",
+    "narration_generation":     "not-yet-wired",  # mock today; prompt editable for when TTS lands
+    "video_generation":         "not-yet-wired",
+    "music_generation":         "not-yet-wired",
+    "video_assembly":           "local-binary",
+    "pdf_assembly":             "local-binary",
+}
+
+STAGE_NOTES_AR: dict[str, str] = {
+    "scenario_generation":      "استدعاء حقيقي لـ Claude/GPT-5 — يستهلك رصيد API.",
+    "production_planning":      "استدعاء حقيقي لـ Claude/GPT-5.2 (mega-JSON) — يستهلك رصيد API.",
+    "child_character_i2i":      "استدعاء حقيقي لـ OpenAI gpt-image-1 — يستهلك رصيد API.",
+    "extra_character_i2i":      "يستدعي نفس موفّر child_character_i2i لكل شخصية إضافية مرئيّة. يعيد استخدام قالب الـ child_character_i2i افتراضياً.",
+    "scene_image_generation":   "استدعاء حقيقي عبر خط الإنتاج فقط — في lab معاينة فقط لأنها تحتاج سياق طلب فعلي.",
+    "book_page_image_generation": "حالياً يُعاد استخدام صورة المشهد المقابلة (provider=reused). القالب جاهز لتوليد إيضاحات كتاب مستقلّة عند توصيل executor.",
+    "narration_generation":     "محاكاة (mock) حالياً — مدّة فقط بدون صوت. القالب جاهز لاستهلاك TTS فعلي لاحقاً.",
+    "video_generation":         "غير موصَّل بعد — القالب جاهز لتوصيل Sora 2 / Kling لاحقاً.",
+    "music_generation":         "غير موصَّل بعد — القالب جاهز لتوصيل Suno / ElevenLabs Music لاحقاً.",
+    "video_assembly":           "تجميع محلّي بـ ffmpeg (لا موفّر LLM، لا تكلفة API). الإعدادات تظهر للفحص فقط.",
+    "pdf_assembly":             "تجميع محلّي بـ reportlab (لا موفّر LLM، لا تكلفة API). الإعدادات تظهر للفحص فقط.",
 }
 
 
@@ -281,8 +324,9 @@ async def _build_stage_context(stage_key: str, input_payload: dict) -> dict:
                 real_scene = None
 
     # Stage-specific enrichment.
-    if stage_key in ("scene_image_generation", "narration_generation",
-                     "video_generation", "music_generation"):
+    if stage_key in ("scene_image_generation", "book_page_image_generation",
+                     "narration_generation", "video_generation",
+                     "music_generation", "video_assembly"):
         try:
             from services.generation_orchestrator import _build_scene_image_context
             order_for_ctx = real_order or fake
@@ -305,6 +349,47 @@ async def _build_stage_context(stage_key: str, input_payload: dict) -> dict:
             base.update(scene_ctx)
         except Exception:  # noqa: BLE001 — preview must never crash on context build
             pass
+
+    # Phase G — book_page_image_generation extras (page metadata).
+    if stage_key == "book_page_image_generation":
+        # Try to derive page_number / total_pages from real plan when available.
+        page_number = input_payload.get("page_number") or 1
+        total_pages = input_payload.get("total_pages")
+        if not total_pages and real_plan:
+            try:
+                total_pages = await db.book_pages.count_documents({
+                    "production_plan_id": real_plan["id"], "is_archived": False,
+                })
+            except Exception:  # noqa: BLE001
+                total_pages = None
+        base["page_number"] = page_number
+        base["total_pages"] = total_pages or 1
+        # Style fields commonly referenced
+        sg = (real_plan or {}).get("style_guide") or {}
+        base.setdefault("art_direction", sg.get("art_direction", ""))
+        base.setdefault("palette",       sg.get("palette", ""))
+        base.setdefault("lighting",      sg.get("lighting", ""))
+
+    # Phase G — extra_character_i2i extras.
+    if stage_key == "extra_character_i2i":
+        base.setdefault("character_name", input_payload.get("character_name", "صديق"))
+        base.setdefault("character_type", input_payload.get("character_type", "friend"))
+        base.setdefault("character_role", input_payload.get("character_role", "supporting"))
+        base.setdefault("character_visual_description",
+                        input_payload.get("character_visual_description", ""))
+        sg = (real_plan or {}).get("style_guide") or {}
+        base.setdefault("palette", sg.get("palette", ""))
+        base.setdefault("art_direction", sg.get("art_direction", ""))
+
+    # Phase G — assembly stages: surface output_dir + audio_background_mode.
+    if stage_key in ("video_assembly", "pdf_assembly"):
+        base.setdefault("output_dir", input_payload.get("output_dir", "/app/storage/exports"))
+        # audio_background_mode already set by _build_scene_image_context for video_assembly
+        if stage_key == "pdf_assembly":
+            # PDF doesn't need audio mode but we keep base context safe.
+            base.setdefault("audio_background_mode",
+                            ((real_order or fake).get("data") or {}).get(
+                                "audio_background", {}).get("mode", "music"))
 
     if stage_key in ("scenario_generation", "production_planning"):
         # These use ad-hoc Claude prompts hardcoded inside their services; admin
