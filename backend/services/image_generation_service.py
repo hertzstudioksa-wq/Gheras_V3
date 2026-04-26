@@ -1,16 +1,27 @@
 """Image generation service — Nano Banana (Gemini 3.1 Flash Image Preview).
 
 Contract:
-  generate_image(prompt, session_id) -> (image_bytes, mime_type, provider_meta)
+  generate_image(prompt, session_id, references=...) -> (image_bytes, mime_type, provider_meta)
   Falls back to a placeholder generator on any failure (returns 1x1 png, provider='fallback').
+
+Phase E — multi-provider safe path for visual reference injection:
+  * If `references` is provided, the service first tries Nano Banana with
+    those reference images attached (via emergentintegrations ImageContent).
+    On any failure it retries WITHOUT references using the augmented text
+    prompt only — and the retry path is reflected in `provider_meta` as
+    `references_attempted=True, references_used=False, fallback_path="text-only"`.
+  * For providers that do NOT support image inputs, the caller can pass
+    `support_true_refs=False`. The text augmentation is still applied; the
+    meta will record `references_used=False, fallback_path="provider-no-image-input"`.
 """
 import os
 import base64
 import logging
 import uuid
 from typing import Tuple
+import httpx
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
 logger = logging.getLogger("image_generation_service")
 
