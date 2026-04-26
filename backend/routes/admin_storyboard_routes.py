@@ -632,9 +632,12 @@ async def _stage_scene_image_generation(order: dict, pipeline_cfg: dict,
                                          and j.get("target_id") == img.get("scene_plan_id")]
         last_job = sorted(scene_jobs, key=lambda x: x.get("updated_at") or "", reverse=True)
         last_job = last_job[0] if last_job else None
+        # Phase E — pull reference_log from the matching scene_plan.
+        plan_for_scene = plans_by_idx.get(img.get("scene_index")) or {}
+        ref_log = plan_for_scene.get("scene_reference_log") or {}
         scene_details.append({
             "scene_index":   img.get("scene_index"),
-            "scene_title":   (plans_by_idx.get(img.get("scene_index")) or {}).get("title"),
+            "scene_title":   plan_for_scene.get("title"),
             "image_url":     img.get("image_url"),
             "prompt_preview": (img.get("prompt_used") or "")[:200],
             "prompt_hash":    _prompt_hash(img.get("prompt_used")),
@@ -646,6 +649,20 @@ async def _stage_scene_image_generation(order: dict, pipeline_cfg: dict,
             "attempts":      (last_job or {}).get("attempt_count"),
             "status":        (last_job or {}).get("status"),
             "error_message": (last_job or {}).get("error_message"),
+            # Phase E — references panel
+            "references": {
+                "available":                ref_log.get("available") or {},
+                "child_used":               bool(ref_log.get("child_reference_used")),
+                "extra_ids_used":           ref_log.get("extra_character_reference_ids_used") or [],
+                "extra_indexes_used":       ref_log.get("extra_character_reference_indexes_used") or [],
+                "toy_used":                 bool(ref_log.get("toy_reference_used")),
+                "injected_count":           ref_log.get("references_injected_count") or 0,
+                "attempted":                bool(ref_log.get("references_attempted")),
+                "used":                     bool(ref_log.get("references_used")),
+                "fallback_path":            ref_log.get("fallback_path"),
+                "fallback_reason":          ref_log.get("fallback_reason"),
+                "skipped_reasons":          ref_log.get("skipped_reasons") or [],
+            },
         })
     cover_img = next((i for i in images if i.get("kind") == "cover"), None)
     cover_info = None
@@ -667,6 +684,9 @@ async def _stage_scene_image_generation(order: dict, pipeline_cfg: dict,
         "cover": cover_info,
         "scene_count_generated": len(scene_details),
         "fallback_count": sum(1 for s in scene_details if s["fallback_used"]),
+        "references_total_injected": sum(s["references"]["injected_count"] for s in scene_details),
+        "references_used_scene_count": sum(1 for s in scene_details if s["references"]["used"]),
+        "references_skipped_total": sum(len(s["references"]["skipped_reasons"]) for s in scene_details),
         "scenes": scene_details,
     }
     events = _history_for_stage(order.get("status_history", []), "scene_image_generation") \

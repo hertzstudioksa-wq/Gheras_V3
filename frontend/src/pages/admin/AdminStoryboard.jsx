@@ -694,9 +694,22 @@ function OutChildCharacter({ o, stage }) {
 function OutSceneImages({ o }) {
   return (
     <div className="space-y-2">
-      <div className="text-[11px] text-[#5A677D]">
-        تم توليد <b>{o.scene_count_generated}</b> مشهد ·{" "}
+      <div className="text-[11px] text-[#5A677D] flex items-center gap-3 flex-wrap">
+        <span>تم توليد <b>{o.scene_count_generated}</b> مشهد</span>
+        <span>·</span>
         <span className={o.fallback_count > 0 ? "text-[#B8612F]" : ""}>fallback: {o.fallback_count}</span>
+        <span>·</span>
+        <span data-testid="storyboard-refs-injected-total">
+          مراجع مُحقَّنة: <b>{o.references_total_injected || 0}</b>
+        </span>
+        <span data-testid="storyboard-refs-used-scenes">
+          (في {o.references_used_scene_count || 0} مشهد)
+        </span>
+        {o.references_skipped_total > 0 && (
+          <span className="text-[#8B5A2B]" data-testid="storyboard-refs-skipped-total">
+            تخطٍّ: {o.references_skipped_total}
+          </span>
+        )}
       </div>
       {o.cover && (
         <div className="bg-white rounded-xl p-2 border border-[#E2D8C9] flex gap-2">
@@ -715,6 +728,11 @@ function OutSceneImages({ o }) {
               {s.image_url && <img src={fileSrc(s.image_url)} alt={`scene ${s.scene_index}`} className="w-full h-full object-cover" />}
               <span className="absolute top-1 right-1 bg-[#87A96B] text-white rounded-full w-6 h-6 grid place-content-center text-[10px] font-bold">{s.scene_index}</span>
               {s.fallback_used && <span className="absolute bottom-1 right-1 bg-[#FCE6D4] text-[#B8612F] rounded px-1 text-[9px] font-bold">fallback</span>}
+              {s.references?.used && (
+                <span className="absolute top-1 left-1 bg-[#DEEBCF] text-[#3F5B2E] rounded px-1 text-[9px] font-bold" data-testid={`scene-refs-badge-${s.scene_index}`}>
+                  refs×{s.references.injected_count}
+                </span>
+              )}
             </div>
             <div className="text-[10px] font-bold text-[#2D3748] truncate">{s.scene_title || "—"}</div>
             <div className="text-[9px] text-[#8A9AB0] font-mono flex items-center gap-1 flex-wrap">
@@ -729,6 +747,51 @@ function OutSceneImages({ o }) {
               <summary className="text-[9px] text-[#5A677D]">prompt</summary>
               <p className="text-[9px] font-mono text-[#2D3748] mt-1 max-h-20 overflow-auto">{s.prompt_preview}</p>
             </details>
+            {/* Phase E — Reference panel */}
+            {s.references && (
+              <details className="mt-1 cursor-pointer" data-testid={`scene-refs-panel-${s.scene_index}`}>
+                <summary className="text-[9px] text-[#5A677D]">
+                  مراجع: مُحقَّنة <b>{s.references.injected_count}</b>
+                  {" · "}متاحة (طفل:{s.references.available?.child ? "✓" : "—"} / إضافيين:{(s.references.available?.extras || []).length} / لعبة:{s.references.available?.toy ? "✓" : "—"})
+                </summary>
+                <div className="mt-1 space-y-1 text-[9px]">
+                  <div className="flex flex-wrap gap-1">
+                    {s.references.child_used && (
+                      <span className="bg-[#DEEBCF] text-[#3F5B2E] rounded px-1 font-bold">child ✓</span>
+                    )}
+                    {(s.references.extra_indexes_used || []).map((idx) => (
+                      <span key={`x${idx}`} className="bg-[#DEEBCF] text-[#3F5B2E] rounded px-1 font-bold">extra#{idx} ✓</span>
+                    ))}
+                    {s.references.toy_used && (
+                      <span className="bg-[#DEEBCF] text-[#3F5B2E] rounded px-1 font-bold">toy ✓</span>
+                    )}
+                    {!s.references.used && s.references.attempted && (
+                      <span className="bg-[#FCE6D4] text-[#B8612F] rounded px-1 font-bold">references attempted but not used</span>
+                    )}
+                  </div>
+                  {s.references.fallback_path && (
+                    <div className="text-[#8B5A2B]">
+                      fallback: <b>{s.references.fallback_path}</b>
+                      {s.references.fallback_reason && <> · {s.references.fallback_reason}</>}
+                    </div>
+                  )}
+                  {(s.references.skipped_reasons || []).length > 0 && (
+                    <div>
+                      <div className="text-[#5A677D] font-bold">تخطٍّ ({s.references.skipped_reasons.length}):</div>
+                      <ul className="space-y-0.5 mt-0.5">
+                        {s.references.skipped_reasons.map((r, i) => (
+                          <li key={i} className="bg-[#FDFBF7] rounded px-1 py-0.5 border border-[#E2D8C9]">
+                            <span className="text-[#8A9AB0]">[{r.kind}]</span>{" "}
+                            <span className="text-[#2D3748]">{r.name || r.id || "—"}</span>{" → "}
+                            <span className="text-[#B8612F] font-mono">{r.reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
             {s.error_message && <div className="text-[9px] text-[#B8612F] mt-1">{s.error_message}</div>}
           </div>
         ))}

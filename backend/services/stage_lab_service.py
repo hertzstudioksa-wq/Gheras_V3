@@ -183,11 +183,56 @@ async def _run_preview_only(stage_key: str, input_payload: dict) -> dict:
     """Render the prompt template the live pipeline would have used; do NOT call the provider."""
     ctx = dict(input_payload)
     rendered, source, reason = await resolve_prompt(stage_key, ctx)
+
+    extra: dict = {}
+
+    # Phase E — for scene_image_generation, dry-run the reference resolver if
+    # the admin supplied a real `order_id` and `scene_index`. Shows what would
+    # be injected, what would be skipped, and why — without touching provider.
+    if stage_key == "scene_image_generation":
+        order_id = input_payload.get("order_id")
+        scene_index = input_payload.get("scene_index")
+        if order_id and scene_index is not None:
+            try:
+                from services.scene_reference_service import resolve_scene_references
+                order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+                if order:
+                    plan = await db.production_plans.find_one(
+                        {"id": order.get("production_plan_id")}, {"_id": 0},
+                    )
+                    scene = await db.scene_plans.find_one(
+                        {"order_id": order_id, "scene_index": int(scene_index),
+                         "is_archived": False},
+                        {"_id": 0},
+                    )
+                    if plan and scene:
+                        ref_pkg = await resolve_scene_references(order, plan, scene)
+                        # Strip raw URLs we don't need to surface in the lab.
+                        def _trim(r):
+                            return {k: v for k, v in r.items() if k != "url"} if isinstance(r, dict) else r
+                        extra["reference_dry_run"] = {
+                            "child_ref":         _trim(ref_pkg.get("child_ref")),
+                            "extra_char_refs":   [_trim(r) for r in (ref_pkg.get("extra_char_refs") or [])],
+                            "toy_ref":           _trim(ref_pkg.get("toy_ref")),
+                            "available":         ref_pkg.get("available"),
+                            "skipped_reasons":   ref_pkg.get("skipped_reasons"),
+                            "injected_count":    ref_pkg.get("injected_count"),
+                            "prompt_augmentation": ref_pkg.get("prompt_augmentation"),
+                            "scene_title":       scene.get("title"),
+                        }
+                    else:
+                        extra["reference_dry_run_error"] = "scene or plan not found for order_id+scene_index"
+                else:
+                    extra["reference_dry_run_error"] = f"order {order_id} not found"
+            except Exception as e:  # noqa: BLE001
+                extra["reference_dry_run_error"] = f"{type(e).__name__}: {e}"
+
     return {
         "output_preview": {
             "rendered_prompt_preview": (rendered or "")[:1000],
             "prompt_source": source,
             "render_note": reason,
+            **extra,
         },
         "result_summary": "preview-only (provider not called in lab)",
     }

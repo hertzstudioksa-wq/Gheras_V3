@@ -52,6 +52,7 @@ DEFAULT_PRICING_CONFIG: dict = {
         "vision_describe":         0.10,   # per uploaded toy/character analysis
         "video_assembly":          0.40,   # ffmpeg render
         "pdf_assembly":            0.20,   # reportlab render
+        "scene_reference_injection": 0.05, # per ACTUAL reference image attached to a scene call
     },
     # Each retry attempt re-burns this fraction of the stage's unit cost.
     "retry_attempt_cost_fraction": 0.30,
@@ -362,6 +363,29 @@ async def actual_cost(order: dict) -> dict:
             "quantity": 1,
             "unit_cost": unit,
             "line_cost": round(unit, 4),
+        })
+
+    # 6) Phase E — actual scene reference injections (count only what was
+    #    really attached to a successful provider call, NOT what was
+    #    available). Counted from scene_plans.scene_reference_log.
+    inj_total = 0
+    scene_logs = await db.scene_plans.find(
+        {"order_id": order_id, "is_archived": False,
+         "scene_reference_log.references_used": True},
+        {"_id": 0, "scene_reference_log.references_injected_count": 1},
+    ).to_list(50)
+    for sp in scene_logs:
+        inj_total += int(((sp or {}).get("scene_reference_log") or {})
+                          .get("references_injected_count") or 0)
+    if inj_total > 0:
+        unit = float(stage_costs.get("scene_reference_injection", 0.0))
+        items.append({
+            "stage": "scene_reference_injection",
+            "label": "scene_reference_injection",
+            "quantity": inj_total,
+            "unit_cost": unit,
+            "line_cost": round(unit * inj_total, 4),
+            "note": "references actually attached across scenes",
         })
 
     base_cost = sum(it["line_cost"] for it in items)

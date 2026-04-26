@@ -22,8 +22,9 @@ from storage import put_object, APP_NAME
 from services.image_generation_service import generate_image
 from services.audio_generation_service import generate_audio, estimate_duration_seconds
 from services.config_service import resolve_prompt
-from services.child_character_service import safe_run as run_child_character_stage
+from services.child_character_service import safe_run as run_child_character_stage, _fetch_source_bytes
 from services.extra_characters_service import safe_run as run_extra_characters_stage
+from services.scene_reference_service import resolve_scene_references
 
 logger = logging.getLogger("generation_orchestrator")
 
@@ -293,13 +294,73 @@ async def _execute_scene_image(job: dict, order: dict, plan: dict) -> tuple[str,
     if extra_visuals:
         img_prompt = (img_prompt or "") + " Extra characters visual hints — " + " | ".join(extra_visuals)
 
+    # Phase E — Reference Asset Injection -----------------------------------
+    # Resolve which existing reference images (child/extras/toy) belong in this
+    # scene, then fetch their bytes from internal storage. Failures are
+    # recorded as granular `skipped_reasons` so the storyboard shows the truth.
+    ref_pkg = await resolve_scene_references(order, plan, scene)
+    ref_payload: list[dict] = []
+    ref_skipped: list[dict] = list(ref_pkg.get("skipped_reasons") or [])
+
+    async def _attach(kind: str, ref: dict | None):
+        if not ref or not ref.get("url"):
+            return
+        bytes_tuple = await _fetch_source_bytes(ref["url"])
+        if not bytes_tuple:
+            ref_skipped.append({
+                "kind": kind, "id": ref.get("character_id"),
+                "character_index": ref.get("character_index"),
+                "name": ref.get("name"),
+                "reason": "reference_fetch_failed",
+            })
+            return
+        ref_payload.append({
+            "image_bytes": bytes_tuple[0],
+            "mime_type":   bytes_tuple[1],
+            "kind":        kind,
+            "name":        ref.get("name"),
+        })
+
+    await _attach("child", ref_pkg.get("child_ref"))
+    for r in ref_pkg.get("extra_char_refs") or []:
+        await _attach("extra", r)
+    await _attach("toy", ref_pkg.get("toy_ref"))
+
     image_bytes, mime, meta = await generate_image(
         scene_prompt=img_prompt,
         style_guide=plan.get("style_guide"),
         character_note=char_note,
         session_hint=f"scene-{scene.get('scene_index')}-{order['id'][:6]}",
+        references=ref_payload,
+        support_true_refs=True,
+        prompt_augmentation=ref_pkg.get("prompt_augmentation", ""),
     )
     url = await _save_image_to_storage(order["id"], "scene", image_bytes, mime, order["user_id"])
+
+    # Phase E — record reference usage on scene_plans for storyboard + cost.
+    log_extra_ids = [r.get("character_id") for r in ref_pkg.get("extra_char_refs", []) if r.get("character_id")]
+    log_extra_idxs = [r.get("character_index") for r in ref_pkg.get("extra_char_refs", [])
+                      if r.get("character_index") is not None]
+    scene_ref_log = {
+        "available": ref_pkg.get("available", {}),
+        "child_reference_used":             bool(ref_pkg.get("child_ref")),
+        "extra_character_reference_ids_used":   log_extra_ids,
+        "extra_character_reference_indexes_used": log_extra_idxs,
+        "toy_reference_used":               bool(ref_pkg.get("toy_ref")),
+        "references_injected_count":        meta.get("references_count", 0) if meta.get("references_used") else 0,
+        "references_attempted":             bool(meta.get("references_attempted")),
+        "references_used":                  bool(meta.get("references_used")),
+        "fallback_path":                    meta.get("fallback_path"),
+        "fallback_reason":                  meta.get("fallback_reason"),
+        "skipped_reasons":                  ref_skipped,
+        "final_effective_image_prompt":     meta.get("prompt_used"),
+        "updated_at":                       _now(),
+    }
+    await db.scene_plans.update_one(
+        {"id": scene["id"]},
+        {"$set": {"scene_reference_log": scene_ref_log}},
+    )
+
     await db.scene_images.insert_one({
         "id": str(uuid.uuid4()),
         "order_id": order["id"],
@@ -312,6 +373,9 @@ async def _execute_scene_image(job: dict, order: dict, plan: dict) -> tuple[str,
         "prompt_used": meta.get("prompt_used"),
         "provider": meta.get("provider"),
         "source_type": meta.get("provider"),
+        "references_used": bool(meta.get("references_used")),
+        "references_count": meta.get("references_count", 0),
+        "reference_fallback_path": meta.get("fallback_path"),
         "created_at": _now(),
     })
     return url, meta

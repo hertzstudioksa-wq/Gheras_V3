@@ -136,6 +136,18 @@ export default function AdminStageLab() {
           <LabInput label="رابط صورة الطفل (داخلي مثل /api/uploads/file/{id})" value={inputs.child_image_url} onChange={(v) => setInput("child_image_url", v)} testId="lab-input-child-image" />
         )}
 
+        {stageKey === "scene_image_generation" && (
+          <div className="bg-[#F8F1E7] border border-[#D4A373]/40 rounded-2xl p-3 mb-2 space-y-2" data-testid="lab-scene-refs-block">
+            <div className="text-xs font-bold text-[#8B5A2B]">
+              معاينة المراجع للمشهد (Phase E) — مرّر معرّف الطلب ورقم المشهد لرؤية ماذا سيُحقَن وماذا سيُتخطّى
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <LabInput label="order_id" value={inputs.order_id} onChange={(v) => setInput("order_id", v)} testId="lab-input-order-id" />
+              <LabInput label="scene_index" type="number" value={inputs.scene_index} onChange={(v) => setInput("scene_index", v)} testId="lab-input-scene-index" />
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex justify-end">
           <button
             onClick={onRun}

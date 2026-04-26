@@ -4,18 +4,15 @@ Resolves which existing reference assets (child portrait, extra characters,
 toy/object) are RELEVANT to a given scene and assembles them into a structured
 package that the scene_image_generation step can consume.
 
-Relevance rules (Phase E):
-  * child reference        → injected if available in EVERY scene where the
-    child's name is referenced OR scene's `present_characters` includes a
-    child marker. Falls back to "always inject when child reference exists"
-    if neither hint is present.
-  * extra-character refs   → injected for scenes whose `present_characters`
-    explicitly names that character. Cap: max 2 per scene.
-  * toy / object reference → injected when the toy name appears in the
-    scene's `key_objects` array OR in narration_text/image_prompt. Cap: 1.
-
 Caps (per scene):
   child: 1, extras: 2, toy: 1   → max 4 reference images per scene call.
+
+Granular `skipped_reasons` codes:
+  scene_not_relevant            — character/toy is not in this scene
+  missing_asset                 — no generated_image_url to attach
+  too_many_references_trimmed   — extras over the cap dropped
+  reference_fetch_failed        — present at resolve time but bytes failed (filled by orchestrator)
+  provider_no_reference_support — provider does not accept image inputs (filled by image service)
 
 Backward compatibility:
   * If no references exist for the order, returns an "empty" package and the
@@ -33,16 +30,16 @@ MAX_EXTRA_REFS = 2
 MAX_TOY_REFS   = 1
 
 
-def _name_in(text: str, name: str) -> bool:
-    if not text or not name:
+def _name_in(haystack: str, needle: str) -> bool:
+    if not haystack or not needle:
         return False
-    n = name.strip().lower()
-    return bool(n) and n in (text or "").lower()
+    n = (needle or "").strip().lower()
+    return bool(n) and n in (haystack or "").lower()
 
 
 async def _load_child_asset(order_id: str) -> dict | None:
     return await db.child_character_assets.find_one(
-        {"order_id": order_id, "is_active": {"$ne": False}, "generated_image_url": {"$ne": None}},
+        {"order_id": order_id, "generated_image_url": {"$ne": None}},
         {"_id": 0},
         sort=[("created_at", -1)],
     )
@@ -56,24 +53,47 @@ async def _load_extra_assets(order_id: str) -> list[dict]:
     return rows
 
 
+async def _load_character_profiles(order_id: str, plan_id: str | None) -> dict[str, dict]:
+    """Return character_profiles keyed by id (only for the active plan)."""
+    q = {"order_id": order_id, "is_archived": False}
+    if plan_id:
+        q["production_plan_id"] = plan_id
+    rows = await db.character_profiles.find(q, {"_id": 0}).to_list(50)
+    return {r["id"]: r for r in rows if r.get("id")}
+
+
+def _scene_text_blob(scene: dict) -> str:
+    """All searchable text on the scene, lowercased once at call sites."""
+    img_prompt = scene.get("image_prompt") or {}
+    return " ".join(filter(None, [
+        scene.get("title"), scene.get("scene_goal"),
+        scene.get("narration_text"), scene.get("book_text"),
+        scene.get("visual_description"), scene.get("background_setting"),
+        img_prompt.get("prompt_text") if isinstance(img_prompt, dict) else "",
+    ]))
+
+
 async def resolve_scene_references(order: dict, plan: dict, scene: dict) -> dict:
     """Compute which references should be attached to this scene's image call.
 
     Returns:
-        {
-          "child_ref":        {"url", "name"} | None,
-          "extra_char_refs":  [{"url", "name", "character_id"} ...]   (≤ 2),
-          "toy_ref":          {"url", "name", "description"} | None,
-          "injected_count":   int,
-          "available": {
-              "child":   bool,
-              "extras":  [character_id ...],
-              "toy":     bool,
-          },
-          "skipped_reasons": [{"kind", "id", "reason"} ...],
-          "prompt_augmentation": "...string to APPEND to the text prompt..."
-        }
+      {
+        "child_ref":        {"url", "name", "type"} | None,
+        "extra_char_refs":  [ {"url","name","type","character_id","character_index"} ... ]   (≤ 2),
+        "toy_ref":          {"url","name","description"} | None,
+        "injected_count":   int,
+        "available": {
+            "child":  bool,
+            "extras": [ {"character_id","character_index","name","type"} ... ],
+            "toy":    bool,
+        },
+        "skipped_reasons": [ {"kind","id","name","reason"} ... ],
+        "prompt_augmentation": "...string to APPEND to the text prompt..."
+      }
     """
+    order_id = order["id"]
+    plan_id = (plan or {}).get("id") or order.get("production_plan_id")
+
     out: dict = {
         "child_ref": None,
         "extra_char_refs": [],
@@ -90,66 +110,144 @@ async def resolve_scene_references(order: dict, plan: dict, scene: dict) -> dict
     chars = data.get("characters") or []
     child_name = (child.get("name") or "").strip()
 
-    scene_present  = [str(x).strip() for x in (scene.get("present_characters") or [])]
-    scene_objects  = [str(x).strip() for x in (scene.get("key_objects") or [])]
-    scene_text_blob = " ".join(filter(None, [
-        scene.get("image_prompt"), scene.get("narration_text"),
-        scene.get("book_text"),   scene.get("scene_summary"),
-    ]))
+    # Scene shape — characters_in_scene is a list of {character_profile_id, role_in_scene}.
+    chars_in_scene_raw = scene.get("characters_in_scene") or []
+    scene_role_types: list[str] = []   # e.g., ["child", "mother", "friend"]
+    scene_profile_ids: list[str] = []
+    for entry in chars_in_scene_raw:
+        if isinstance(entry, dict):
+            if entry.get("role_in_scene"):
+                scene_role_types.append(str(entry["role_in_scene"]).strip().lower())
+            if entry.get("character_profile_id"):
+                scene_profile_ids.append(entry["character_profile_id"])
+        elif isinstance(entry, str):
+            scene_role_types.append(entry.strip().lower())
 
-    # ---- Child reference -----------------------------------------------------
-    child_asset = await _load_child_asset(order["id"])
-    out["available"]["child"] = bool(child_asset)
-    if child_asset:
+    scene_objects = [str(x).strip() for x in (scene.get("key_objects") or []) if x]
+    scene_text_blob = _scene_text_blob(scene)
+
+    # ---- Child reference ----------------------------------------------------
+    child_asset = await _load_child_asset(order_id)
+    out["available"]["child"] = bool(child_asset and child_asset.get("generated_image_url"))
+    if child_asset and child_asset.get("generated_image_url"):
+        # Child is relevant when:
+        #   a) "child" appears in scene_role_types, OR
+        #   b) child name appears in scene text (defensive), OR
+        #   c) scene has no characters_in_scene at all (no signal → assume protagonist)
         scene_has_child = (
-            any(_name_in(p, child_name) for p in scene_present) or
-            _name_in(scene_text_blob, child_name) or
-            (not scene_present)  # missing hint → assume child appears
+            "child" in scene_role_types or
+            (child_name and _name_in(scene_text_blob, child_name)) or
+            (not scene_role_types)
         )
         if scene_has_child:
-            out["child_ref"] = {"url": child_asset["generated_image_url"], "name": child_name or "child"}
+            out["child_ref"] = {
+                "url":  child_asset["generated_image_url"],
+                "name": child_name or "child",
+                "type": "child",
+            }
             out["injected_count"] += 1
         else:
-            out["skipped_reasons"].append({"kind": "child", "reason": "child not present in this scene"})
-
-    # ---- Extra-character references ----------------------------------------
-    extra_assets = await _load_extra_assets(order["id"])
-    by_char_id   = {a.get("character_id"): a for a in extra_assets}
-    out["available"]["extras"] = list(by_char_id.keys())
-
-    char_meta = {c.get("id"): c for c in chars if c.get("id")}
-    relevant: list[tuple[dict, dict]] = []   # (char, asset)
-    for cid, asset in by_char_id.items():
-        meta = char_meta.get(cid) or {}
-        cname = (meta.get("name") or asset.get("character_name") or "").strip()
-        if not cname:
-            continue
-        present = (
-            any(_name_in(p, cname) for p in scene_present) or
-            _name_in(scene_text_blob, cname)
-        )
-        if present:
-            relevant.append((meta, asset))
-        else:
-            out["skipped_reasons"].append({"kind": "extra", "id": cid,
-                                            "reason": f"'{cname}' not present in this scene"})
-
-    # Apply MAX_EXTRA_REFS cap.
-    if len(relevant) > MAX_EXTRA_REFS:
-        for meta, asset in relevant[MAX_EXTRA_REFS:]:
             out["skipped_reasons"].append({
-                "kind": "extra", "id": meta.get("id"),
-                "reason": f"capped (only {MAX_EXTRA_REFS} extras per scene)",
+                "kind": "child", "id": None, "name": child_name or "child",
+                "reason": "scene_not_relevant",
+            })
+    else:
+        # Asset not generated yet — silent (don't pollute storyboard with noise).
+        pass
+
+    # ---- Extra-character references -----------------------------------------
+    profiles_by_id = await _load_character_profiles(order_id, plan_id)
+
+    extra_assets = await _load_extra_assets(order_id)
+
+    # Surface availability summary regardless of relevance.
+    for a in extra_assets:
+        out["available"]["extras"].append({
+            "character_index": a.get("character_index"),
+            "character_id":    None,  # filled below if matched to a profile
+            "name":            a.get("character_name") or "",
+            "type":            a.get("character_type") or "",
+        })
+
+    relevant: list[dict] = []
+    seen_keys: set[str] = set()
+
+    # Index into data.characters by position (character_index aligns with order).
+    chars_by_index = {i: c for i, c in enumerate(chars)}
+
+    # Index profiles by lowercased type (first profile per type wins, mirrors build_docs).
+    profiles_by_type: dict[str, dict] = {}
+    for p in profiles_by_id.values():
+        t = (p.get("type") or "").strip().lower()
+        if t and t not in profiles_by_type:
+            profiles_by_type[t] = p
+
+    for asset in extra_assets:
+        idx = asset.get("character_index")
+        ctype = (asset.get("character_type") or "").strip().lower()
+        cname = (asset.get("character_name") or "").strip()
+        char_meta = chars_by_index.get(idx) or {}
+
+        # Match strategy:
+        #   * by character type (most reliable — production planner stores `role_in_scene` = type)
+        #   * by character name (fallback — only when scene text mentions name)
+        type_match = bool(ctype) and ctype in scene_role_types
+        # exclude "child" — that's handled separately above
+        if ctype == "child":
+            type_match = False
+        name_match = bool(cname) and _name_in(scene_text_blob, cname)
+        is_present = type_match or name_match
+
+        # Resolve character_id for storyboard linking
+        prof = profiles_by_type.get(ctype) if ctype else None
+        char_id = (prof or {}).get("id")
+
+        if not is_present:
+            out["skipped_reasons"].append({
+                "kind": "extra",
+                "id": char_id,
+                "character_index": idx,
+                "name": cname or ctype or f"#{idx}",
+                "reason": "scene_not_relevant",
+            })
+            continue
+
+        if not asset.get("generated_image_url"):
+            out["skipped_reasons"].append({
+                "kind": "extra",
+                "id": char_id,
+                "character_index": idx,
+                "name": cname or ctype or f"#{idx}",
+                "reason": "missing_asset",
+            })
+            continue
+
+        key = char_id or f"idx:{idx}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        relevant.append({
+            "url":              asset["generated_image_url"],
+            "name":             cname or (char_meta.get("name") or ctype),
+            "type":             ctype,
+            "character_id":     char_id,
+            "character_index":  idx,
+        })
+
+    # Apply MAX_EXTRA_REFS cap with a granular reason.
+    if len(relevant) > MAX_EXTRA_REFS:
+        for trimmed in relevant[MAX_EXTRA_REFS:]:
+            out["skipped_reasons"].append({
+                "kind": "extra",
+                "id": trimmed.get("character_id"),
+                "character_index": trimmed.get("character_index"),
+                "name": trimmed.get("name"),
+                "reason": "too_many_references_trimmed",
             })
         relevant = relevant[:MAX_EXTRA_REFS]
 
-    for meta, asset in relevant:
-        out["extra_char_refs"].append({
-            "url":          asset["generated_image_url"],
-            "name":         meta.get("name") or asset.get("character_name"),
-            "character_id": meta.get("id"),
-        })
-    out["injected_count"] += len(out["extra_char_refs"])
+    out["extra_char_refs"] = relevant
+    out["injected_count"] += len(relevant)
 
     # ---- Toy / object reference ---------------------------------------------
     toy_url   = pers.get("toy_image_url") or ""
@@ -160,28 +258,37 @@ async def resolve_scene_references(order: dict, plan: dict, scene: dict) -> dict
         toy_relevant = (
             (toy_name and any(_name_in(o, toy_name) for o in scene_objects)) or
             (toy_name and _name_in(scene_text_blob, toy_name)) or
-            # If no name was supplied at all, accept the toy as relevant when
-            # the scene mentions an object cue ("توي", "لعبة") OR has any
-            # key_objects at all.
+            # No toy name supplied — accept when scene declares any key_objects.
             (not toy_name and bool(scene_objects))
         )
-        if toy_relevant and out["injected_count"] - len(out["extra_char_refs"]) < MAX_TOY_REFS:
-            # MAX_TOY_REFS already 1; we keep the inequality for clarity.
-            out["toy_ref"] = {"url": toy_url, "name": toy_name or "object", "description": toy_desc}
+        if toy_relevant:
+            out["toy_ref"] = {
+                "url":         toy_url,
+                "name":        toy_name or "object",
+                "description": toy_desc,
+            }
             out["injected_count"] += 1
         else:
             out["skipped_reasons"].append({
                 "kind": "toy",
-                "reason": "toy not present in this scene's key_objects" if not toy_relevant else "toy cap reached",
+                "id": None,
+                "name": toy_name or "toy",
+                "reason": "scene_not_relevant",
             })
 
     # ---- Text augmentation (used for all providers as a baseline) -----------
     aug_lines: list[str] = []
     if out["child_ref"]:
-        aug_lines.append(f"CHILD reference (image attached): keep {out['child_ref']['name']}'s face, hair and outfit consistent across scenes.")
+        aug_lines.append(
+            f"CHILD reference (image attached): keep {out['child_ref']['name']}'s face, "
+            "hair and outfit consistent across scenes."
+        )
     if out["extra_char_refs"]:
-        names = ", ".join(c["name"] for c in out["extra_char_refs"])
-        aug_lines.append(f"EXTRA CHARACTER reference(s) attached for: {names}. Keep their faces and outfits consistent.")
+        names = ", ".join(c["name"] or c.get("type") or "" for c in out["extra_char_refs"])
+        aug_lines.append(
+            f"EXTRA CHARACTER reference(s) attached for: {names}. "
+            "Keep their faces and outfits consistent."
+        )
     if out["toy_ref"]:
         toy = out["toy_ref"]
         bits = [f"TOY/OBJECT reference (image attached) — {toy['name']}"]
