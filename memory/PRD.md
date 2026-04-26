@@ -272,6 +272,59 @@ generating (Phase 6) → completed
   (no separate seed needed; verified in `services/extra_characters_service:128`).
 - No new prompt seeds required for Wave 1.
 
+### Wave 2 — Product Ops II (Feb 2026) ✅
+**Pricing snapshot + internal cost visibility**
+- New collection `pricing_config` (single doc id="default"). Built-in defaults
+  override missing fields gracefully; admin edits are deep-merged.
+- New collection `order_pricing` with two snapshot kinds per order: `estimate`
+  + `actual`. Mirrored as compact `pricing_estimate` / `pricing_actual` on the
+  `orders` doc for fast reads.
+- Service: `services/pricing_service.py` — `estimate_cost()` derives from
+  production_plan + delivery + characters; `actual_cost()` derives from
+  `generation_jobs` aggregated by `job_type` with retry-attempt cost fraction.
+- Hooks (best-effort, never block pipeline):
+  * `production_routes.run_production_generation` → `snapshot_estimate`.
+  * `final_delivery_service.run_final_assembly` (DELIVERED branch) →
+    `snapshot_actual`.
+- Admin endpoints: `GET/PUT /api/admin/pricing/config`,
+  `GET /api/admin/orders/{id}/pricing`,
+  `POST /api/admin/orders/{id}/pricing/snapshot?kind=estimate|actual`.
+- Default config: SAR currency, 35% markup, SAR 49 minimum, 11 stage costs,
+  `pdf` modifier 0.65 vs `both`/`video` 1.0, `high` tier modifier 1.15.
+- Pricing math: `sell = max(min_price, cost * (1+markup%))` with rounding
+  step. `pdf`-only orders are ~35% cheaper internally.
+
+**Stage Testing Lab**
+- New collection `stage_test_runs`. Service: `services/stage_lab_service.py`.
+- Admin endpoints under `/api/admin/lab`: `GET /stages`, `POST /run`,
+  `GET /runs[/{id}]`.
+- Real-call stages: `scenario_generation`, `production_planning`,
+  `child_character_i2i` — gated behind explicit `acknowledged_cost: true`
+  flag (the API rejects with 400 in Arabic if missing).
+- Preview-only stages: `scene_image_generation`, `narration_generation`,
+  `video_generation`, `music_generation` — render the live admin prompt and
+  return provider/model metadata WITHOUT calling the provider.
+- Records: stage_key, provider, model_name, model_source, transport,
+  env_key, prompt_source, prompt_hash, prompt_preview, latency_ms,
+  estimated_cost, fallback_used, status, error_message, output_preview.
+
+**Secret Management (read-only + masked)**
+- New routes: `GET /api/admin/secrets/status` (READ-ONLY by design — there is
+  NO POST/PUT/PATCH).
+- Reports per known env key: `configured` (bool), `masked` (`***ABCD`),
+  `purpose`, full `rotation_instructions` in Arabic, `system` flag for
+  non-rotatable keys (e.g. `MONGO_URL`).
+- Curated keys: `OPENAI_API_KEY`, `EMERGENT_LLM_KEY`, `MONGO_URL`.
+- No plaintext storage in DB. No `.env` editing from admin. Direct admin
+  contract: rotate at the deployment layer, then verify status here.
+
+**Frontend**
+- New admin pages: `AdminPricing.jsx`, `AdminStageLab.jsx`, `AdminSecrets.jsx`.
+- Admin order modal: new `pricing` tab with both snapshots + fresh recompute
+  + manual snapshot triggers.
+- Admin nav: 3 new entries (Lab / Pricing / Secrets) with proper icons.
+- Tests: 9 new + 25 existing = **34/34 unit tests pass**.
+
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
 - Video animation (Sora 2 or equivalent) using `animation_prompt`.

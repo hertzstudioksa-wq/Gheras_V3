@@ -92,6 +92,14 @@ async def run_production_generation(order_id: str, run_id: str):
         )
         await _append_status(order_id, order.get("status"), OrderStatus.PRODUCTION_READY.value, "system",
                              reason=f"production plan via {source} (run {run_id[:8]})")
+        # Wave 2 — best-effort pricing estimate snapshot. Never blocks the flow.
+        try:
+            from services.pricing_service import snapshot_estimate
+            fresh_order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+            if fresh_order:
+                await snapshot_estimate(fresh_order)
+        except Exception:  # noqa: BLE001 — pricing is observability, not critical path
+            pass
     except Exception as e:
         await db.orders.update_one(
             {"id": order_id},

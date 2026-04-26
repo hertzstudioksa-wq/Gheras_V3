@@ -201,11 +201,12 @@ export default function AdminOrders() {
                 { k: "scenarios", l: "السيناريوهات" },
                 { k: "production", l: "خطة الإنتاج" },
                 { k: "media", l: "الوسائط" },
+                { k: "pricing", l: "التسعير" },
                 { k: "history", l: "سجل الحالات" },
                 { k: "json", l: "JSON" },
                 { k: "prompt", l: "البرومبت" },
               ].map((t) => (
-                <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm font-body font-bold border-b-2 whitespace-nowrap ${tab === t.k ? "border-[#87A96B] text-[#4F6B3B]" : "border-transparent text-[#8A9AB0]"}`}>
+                <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm font-body font-bold border-b-2 whitespace-nowrap ${tab === t.k ? "border-[#87A96B] text-[#4F6B3B]" : "border-transparent text-[#8A9AB0]"}`} data-testid={`admin-order-tab-${t.k}`}>
                   {t.l}
                 </button>
               ))}
@@ -265,6 +266,10 @@ export default function AdminOrders() {
 
             {tab === "media" && (
               <AdminMediaTab orderId={detail.id} />
+            )}
+
+            {tab === "pricing" && (
+              <AdminPricingTab orderId={detail.id} />
             )}
 
             {tab === "history" && (
@@ -1243,6 +1248,140 @@ function AdminProductionTab({ orderId }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+
+function AdminPricingTab({ orderId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [snapshotting, setSnapshotting] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get(`/admin/orders/${orderId}/pricing`);
+      setData(data);
+    } catch {
+      toast.error("تعذّر تحميل التسعير");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, [orderId]);
+
+  const doSnapshot = async (kind) => {
+    setSnapshotting(kind);
+    try {
+      await api.post(`/admin/orders/${orderId}/pricing/snapshot?kind=${kind}`);
+      toast.success(`تم حفظ snapshot (${kind === "estimate" ? "تقديري" : "نهائي"})`);
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "فشل");
+    } finally {
+      setSnapshotting(null);
+    }
+  };
+
+  if (loading || !data) {
+    return <div className="py-8 text-center font-body text-[#8A9AB0]">جاري التحميل...</div>;
+  }
+
+  return (
+    <div data-testid="admin-pricing-tab" className="space-y-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <PricingCard
+          title="تقديري (عند production_ready)"
+          subtitle="estimate — قبل بدء توليد الوسائط"
+          stored={data?.snapshots?.estimate}
+          fresh={data?.fresh?.estimate}
+          color="amber"
+          onSnapshot={() => doSnapshot("estimate")}
+          busy={snapshotting === "estimate"}
+        />
+        <PricingCard
+          title="نهائي (عند delivered)"
+          subtitle="actual — بعد تنفيذ كل المراحل"
+          stored={data?.snapshots?.actual}
+          fresh={data?.fresh?.actual}
+          color="green"
+          onSnapshot={() => doSnapshot("actual")}
+          busy={snapshotting === "actual"}
+        />
+      </div>
+
+      <p className="text-xs text-[#8A9AB0] font-body" data-testid="pricing-tab-help">
+        Internal Cost = تكلفة الموارد الفعلية | Sell Price = السعر للعميل (مع هامش الربح والحد الأدنى) | Margin = الربح.
+      </p>
+    </div>
+  );
+}
+
+function PricingCard({ title, subtitle, stored, fresh, color, onSnapshot, busy }) {
+  const tone = color === "amber"
+    ? { bg: "bg-[#F8F1E7]", border: "border-[#D4A373]/40", chip: "text-[#8B5A2B]" }
+    : { bg: "bg-[#E8F0E1]", border: "border-[#87A96B]/40", chip: "text-[#4F6B3B]" };
+  return (
+    <div className={`rounded-2xl p-4 border-2 ${tone.bg} ${tone.border}`}>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div>
+          <h4 className={`font-heading font-bold ${tone.chip}`}>{title}</h4>
+          <p className="text-xs text-[#5A677D] font-body">{subtitle}</p>
+        </div>
+        <button
+          onClick={onSnapshot}
+          disabled={busy}
+          className="text-xs bg-white hover:bg-[#FDFBF7] border border-[#E2D8C9] rounded-full px-3 py-1 font-body font-bold text-[#5A677D] disabled:opacity-50"
+          data-testid={`snapshot-${color === "amber" ? "estimate" : "actual"}-btn`}
+        >
+          {busy ? "..." : "حفظ snapshot"}
+        </button>
+      </div>
+
+      {stored ? (
+        <div className="space-y-1 text-sm font-body bg-white rounded-2xl p-3 border border-[#E2D8C9]" data-testid={`stored-${color === "amber" ? "estimate" : "actual"}`}>
+          <Row label="Internal cost" value={`${stored.internal_cost} ${stored.currency}`} />
+          <Row label="Sell price" value={`${stored.sell_price} ${stored.currency}`} bold />
+          <Row label="Margin" value={`${stored.margin} ${stored.currency}`} />
+          <Row label="Output type" value={stored.output_type} small />
+          <Row label="At" value={(stored.created_at || "").slice(0, 16)} small />
+        </div>
+      ) : (
+        <div className="text-xs text-[#8A9AB0] font-body italic mb-2">لم يُحفظ snapshot بعد.</div>
+      )}
+
+      {fresh && (
+        <details className="mt-3 bg-white rounded-2xl border border-[#E2D8C9]">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-body text-[#5A677D] font-bold">
+            إعادة الحساب الآن: {fresh.sell_price} {fresh.currency} (تفاصيل {fresh.items?.length || 0} مرحلة)
+          </summary>
+          <div className="p-3 text-xs font-body space-y-1">
+            <div className="text-[#5A677D]">base: {fresh.base_cost} → ×{fresh.modifiers?.output} (output) ×{fresh.modifiers?.cost_tier} (tier) = <b>{fresh.internal_cost}</b></div>
+            <table className="w-full text-xs mt-2">
+              <tbody>
+                {(fresh.items || []).map((it, i) => (
+                  <tr key={i} className="border-t border-[#E2D8C9]">
+                    <td className="py-1 text-[#2D3748]">{it.label || it.stage}</td>
+                    <td className="py-1 text-[#5A677D]">×{it.quantity}</td>
+                    <td className="py-1 text-[#5A677D]">@{it.unit_cost}</td>
+                    <td className="py-1 text-[#2D3748] font-bold">{it.line_cost}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, bold, small }) {
+  return (
+    <div className={`flex items-center justify-between ${small ? "text-xs" : ""}`}>
+      <span className={`text-[#5A677D] font-body ${bold ? "font-bold" : ""}`}>{label}</span>
+      <span className={`text-[#2D3748] font-body ${bold ? "font-bold" : ""}`}>{value}</span>
     </div>
   );
 }

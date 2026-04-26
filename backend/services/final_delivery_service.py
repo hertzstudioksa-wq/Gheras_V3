@@ -223,6 +223,14 @@ async def run_final_assembly(order_id: str, run_id: str):
     if results and all(results.values()):
         await _append_status(order_id, OrderStatus.ASSEMBLING.value, OrderStatus.DELIVERED.value, "system",
                              reason=f"final {output_type} ready")
+        # Wave 2 — actual cost snapshot at delivery. Best-effort, never raises.
+        try:
+            from services.pricing_service import snapshot_actual
+            fresh_order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+            if fresh_order:
+                await snapshot_actual(fresh_order)
+        except Exception:  # noqa: BLE001
+            pass
     else:
         missing = ", ".join(k for k, v in results.items() if not v) or "no jobs"
         await _append_status(order_id, OrderStatus.ASSEMBLING.value, OrderStatus.MEDIA_FAILED.value, "system",

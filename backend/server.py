@@ -24,6 +24,9 @@ from routes.production_routes import user_router as production_user_router, admi
 from routes.media_routes import user_router as media_user_router, admin_router as media_admin_router  # noqa: E402
 from routes.admin_config_routes import router as admin_config_router  # noqa: E402
 from routes.admin_storyboard_routes import router as admin_storyboard_router  # noqa: E402
+from routes.admin_pricing_routes import router as admin_pricing_router, order_router as admin_pricing_orders_router  # noqa: E402
+from routes.admin_lab_routes import router as admin_lab_router  # noqa: E402
+from routes.admin_secrets_routes import router as admin_secrets_router  # noqa: E402
 
 app = FastAPI(title="Gheras API v2", description="Arabic AI storytelling platform")
 api_router = APIRouter(prefix="/api")
@@ -46,6 +49,10 @@ api_router.include_router(media_user_router)
 api_router.include_router(media_admin_router)
 api_router.include_router(admin_config_router)
 api_router.include_router(admin_storyboard_router)
+api_router.include_router(admin_pricing_router)
+api_router.include_router(admin_pricing_orders_router)
+api_router.include_router(admin_lab_router)
+api_router.include_router(admin_secrets_router)
 
 app.include_router(api_router)
 

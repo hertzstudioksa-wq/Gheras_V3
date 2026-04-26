@@ -30,6 +30,9 @@ import AdminModels from "./pages/admin/AdminModels";
 import AdminPipeline from "./pages/admin/AdminPipeline";
 import AdminApiStatus from "./pages/admin/AdminApiStatus";
 import AdminPlans from "./pages/admin/AdminPlans";
+import AdminPricing from "./pages/admin/AdminPricing";
+import AdminStageLab from "./pages/admin/AdminStageLab";
+import AdminSecrets from "./pages/admin/AdminSecrets";
 import AdminSettings from "./pages/admin/AdminSettings";
 
 function App() {
@@ -109,6 +112,9 @@ function App() {
               <Route path="pipeline" element={<AdminPipeline />} />
               <Route path="api-status" element={<AdminApiStatus />} />
               <Route path="plans" element={<AdminPlans />} />
+              <Route path="pricing" element={<AdminPricing />} />
+              <Route path="lab" element={<AdminStageLab />} />
+              <Route path="secrets" element={<AdminSecrets />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
 
