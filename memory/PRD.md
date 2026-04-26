@@ -445,6 +445,62 @@ generating (Phase 6) → completed
 - 7 new unit cases (`test_wave4_assets_retention.py`).
 - **54/54 unit tests pass** (14 D.5 + 9 W1 + 12 W2 + 13 W3 + 7 W4).
 
+### Phase E — Scene Reference Injection (Feb 2026) ✅
+**What was built**
+- New service `services/scene_reference_service.py` resolves which existing reference
+  images (child portrait, extra-character portraits, toy/object) belong in EACH scene
+  based on `scene_plans.characters_in_scene[].role_in_scene` (matched against
+  `extra_character_assets.character_type`) and `scene_plans.key_objects` (matched
+  against `personalization.toy_image_url` + favorites.toy.name).
+- Hard caps per scene: child=1, extras≤2, toy=1 (max 4 reference images per call).
+- Granular `skipped_reasons` codes: `scene_not_relevant`, `missing_asset`,
+  `too_many_references_trimmed`, `reference_fetch_failed` (orchestrator),
+  `provider_no_reference_support` (image service).
+
+**Multi-provider safe path** — `services/image_generation_service.generate_image()`
+now accepts `references=list[dict{image_bytes,mime_type,kind,name}]`,
+`support_true_refs=True`, and `prompt_augmentation=str`:
+  1. With references → Nano Banana call with `ImageContent(image_base64=...)` list.
+  2. On failure → retry text-only; record `fallback_path="text-only"` + reason.
+  3. `support_true_refs=False` → text-only from start (`provider-no-image-input`).
+  4. Total failure → 1×1 PNG placeholder (`placeholder`).
+
+**Orchestrator wiring** — `_execute_scene_image()`:
+  * Resolves refs per scene, fetches bytes via `_fetch_source_bytes()`.
+  * Writes `scene_reference_log` per scene_plans (available, child_reference_used,
+    extra_character_reference_ids_used, extra_character_reference_indexes_used,
+    toy_reference_used, references_injected_count, references_attempted,
+    references_used, fallback_path, fallback_reason, skipped_reasons,
+    final_effective_image_prompt).
+  * Mirrors `references_used / references_count / reference_fallback_path` on `scene_images`.
+
+**Pricing (actual_cost only)** — new stage `scene_reference_injection` (0.05 SAR/ref).
+Counted ONLY when `scene_plans.scene_reference_log.references_used==true` AND
+`references_injected_count>0`. Estimate snapshot intentionally excludes it.
+
+**Admin Storyboard** — `_stage_scene_image_generation`:
+  * Aggregates: `references_total_injected`, `references_used_scene_count`,
+    `references_skipped_total`.
+  * Per-scene `references` object surfaced for the UI.
+  * `AdminStoryboard.jsx` `OutSceneImages` shows `refs×N` badge + collapsible
+    panel with skipped reasons table.
+
+**Admin Stage Lab — Reference Dry-Run**:
+  * `scene_image_generation` preview accepts `order_id` + `scene_index` and
+    returns `output_preview.reference_dry_run` (no provider call).
+  * `AdminStageLab.jsx` shows a contextual inputs block for that stage.
+
+**Backward compatibility verified**:
+  * Legacy delivered orders (no scene_reference_log) → references default to
+    false/0/empty/null. Storyboard returns 200 (verified 14-scene order 4c357bfc).
+  * `pricing_actual.items` excludes `scene_reference_injection` for legacy orders.
+  * Old `generate_image(scene_prompt, style_guide, character_note, session_hint)`
+    signature preserved; new params are keyword-only with safe defaults.
+
+**Tests** — 12 unit tests + 13 live-API tests = 25 new green for Phase E.
+**87/88 total** (1 unrelated pre-existing async-pytest config fail).
+
+
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
 - Video animation (Sora 2 or equivalent) using `animation_prompt`.
