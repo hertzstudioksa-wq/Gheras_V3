@@ -500,6 +500,64 @@ Counted ONLY when `scene_plans.scene_reference_log.references_used==true` AND
 **Tests** — 12 unit tests + 13 live-API tests = 25 new green for Phase E.
 **87/88 total** (1 unrelated pre-existing async-pytest config fail).
 
+### Phase F — Effective Prompt Preview (Feb 2026) ✅
+**Goal**: admin productivity / debug tool — preview the FINAL effective
+prompt for any of the 7 admin-controlled stages WITHOUT calling the
+provider, WITHOUT consuming API credit, WITHOUT requiring `acknowledged_cost`.
+
+**Backend**
+- New service function `services/stage_lab_service.build_effective_prompt_preview(stage_key, input_payload)`.
+  Loads the active admin template, builds the FULL variable context (real
+  order data when `order_id`+`scene_index` provided, synthetic otherwise),
+  renders via `string.Template.safe_substitute`, and returns:
+  * `stage_key, provider, model_name, model_source, transport, env_key`
+  * `prompt_source` (admin/default), `template_id`, `template_version`,
+    `template_text_preview`, `render_note`, `fallback_would_happen`
+  * `effective_prompt` (final string, with `${var}` left in place when missing)
+  * `prompt_hash` (sha256:<16>)
+  * `unresolved_placeholders` (list of `${var}` left unrendered)
+  * `warnings` (Arabic, e.g. "القالب موجود لكنه لم يُستخدم: required_missing:child")
+  * `context_source` (real_order / synthetic), `context_used`
+  * `scene_image_extras` (for scene_image_generation: full reference dry-run)
+  * `estimated_cost`, `currency`
+- Two endpoint surfaces:
+  * `POST /api/admin/lab/preview` — returns the preview directly, no DB write.
+  * `POST /api/admin/lab/run` with `preview_only=true` — same payload but also
+    persists a `stage_test_runs` row for the history. Bypasses the
+    `acknowledged_cost` gate even for REAL_CALL_STAGES.
+- Backwards-compatible: existing `/run` calls without `preview_only` still
+  enforce `acknowledged_cost` for `scenario_generation`, `production_planning`,
+  and `child_character_i2i` exactly as before.
+
+**Frontend** — `pages/admin/AdminStageLab.jsx`
+- New "معاينة Prompt الفعّال" button next to "تشغيل المرحلة" (admin chooses).
+- Dedicated preview result panel surfaces every debug field + warnings +
+  unresolved placeholder pills + copy-prompt button + collapsible
+  "Scene References (dry-run)" + "السياق المُستخدَم في الـ render".
+- Existing "تشغيل المرحلة" path unchanged.
+
+**Stages supported (7)**
+  scenario_generation, production_planning, scene_image_generation,
+  child_character_i2i, narration_generation, video_generation, music_generation.
+
+**Tests**
+  * 10 new unit tests (`tests/test_phase_f_prompt_preview.py`):
+    placeholder detector / required stages / debug fields shape /
+    fallback when no admin template / template-present-but-unused /
+    unsupported stage / estimated_cost.
+  * 5 live API tests (curl) verified end-to-end on preview environment:
+    TEST 1 scenario_generation OK · TEST 2 production_planning fallback
+    surfaces correct `required_missing:child` warning · TEST 3
+    scene_image_generation with real order shows scene_image_extras +
+    references resolved · TEST 4 (broken/missing template) renders raw
+    `${var}` and surfaces unresolved_placeholders + warnings · TEST 5
+    REAL_CALL stage (`child_character_i2i`) preview returns in 120ms
+    without `acknowledged_cost`, regression intact (without `preview_only`
+    still 400s without ack).
+
+**97/98 total** (10 new Phase F + 25 Phase E + 54 Wave 1-4 + 8 D.5/D.3 — 1
+unrelated pre-existing async-pytest config fail).
+
 
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.

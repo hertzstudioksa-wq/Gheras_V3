@@ -6,6 +6,7 @@ from auth import require_admin
 from services.stage_lab_service import (
     SUPPORTED_STAGES, REAL_CALL_STAGES,
     run_stage_test, list_stage_test_runs, get_stage_test_run,
+    build_effective_prompt_preview,
 )
 from services.pricing_service import get_pricing_config
 
@@ -45,14 +46,36 @@ async def run(payload: dict[str, Any], admin=Depends(require_admin)):
     inputs = payload.get("inputs") or {}
     if not isinstance(inputs, dict):
         raise HTTPException(status_code=400, detail="inputs must be a dict")
-    # Cost-confirmation gate — admin must explicitly acknowledge real-call cost.
-    if stage_key in REAL_CALL_STAGES and not bool(payload.get("acknowledged_cost")):
+    preview_only = bool(payload.get("preview_only"))
+    # Cost-confirmation gate — admin must explicitly acknowledge real-call cost,
+    # but ONLY when this is NOT a preview-only run.
+    if not preview_only and stage_key in REAL_CALL_STAGES and not bool(payload.get("acknowledged_cost")):
         raise HTTPException(
             status_code=400,
-            detail="هذه المرحلة تستهلك رصيد API. أرسل acknowledged_cost=true للتأكيد.",
+            detail="هذه المرحلة تستهلك رصيد API. أرسل acknowledged_cost=true للتأكيد، أو preview_only=true للمعاينة فقط.",
         )
-    record = await run_stage_test(stage_key, inputs, admin_id=admin.get("id"))
+    record = await run_stage_test(stage_key, inputs, admin_id=admin.get("id"),
+                                   preview_only=preview_only)
     return record
+
+
+@router.post("/preview")
+async def preview(payload: dict[str, Any], admin=Depends(require_admin)):
+    """Phase F — dedicated Effective Prompt Preview endpoint.
+
+    Equivalent to POST /run with preview_only=true, but never persists a
+    stage_test_runs record (this is for fast iteration). Returns the preview
+    payload directly.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    stage_key = payload.get("stage_key")
+    if stage_key not in SUPPORTED_STAGES:
+        raise HTTPException(status_code=400, detail=f"Unsupported stage_key: {stage_key}")
+    inputs = payload.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise HTTPException(status_code=400, detail="inputs must be a dict")
+    return await build_effective_prompt_preview(stage_key, inputs)
 
 
 @router.get("/runs")

@@ -181,7 +181,7 @@ async def _run_child_character_i2i(input_payload: dict) -> dict:
 # ---------------------------------------------------------------------------
 async def _run_preview_only(stage_key: str, input_payload: dict) -> dict:
     """Render the prompt template the live pipeline would have used; do NOT call the provider."""
-    ctx = dict(input_payload)
+    ctx = await _build_stage_context(stage_key, input_payload)
     rendered, source, reason = await resolve_prompt(stage_key, ctx)
 
     extra: dict = {}
@@ -239,9 +239,269 @@ async def _run_preview_only(stage_key: str, input_payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Phase F — Effective Prompt Preview (admin-only, no provider execution)
+# ---------------------------------------------------------------------------
+async def _build_stage_context(stage_key: str, input_payload: dict) -> dict:
+    """Build the FULL variable context the live pipeline would have rendered with.
+
+    If `order_id` (and `scene_index` for per-scene stages) is provided, real
+    order/plan/scene fields are loaded and merged. Otherwise a synthetic
+    context is built from `_fake_order` so admins can preview without a real
+    order. Admin-supplied raw keys in `input_payload` win over both, allowing
+    fast tweaking.
+    """
+    base: dict = {}
+    fake = _fake_order(input_payload)
+    base["child_name"]   = (fake["data"]["child"].get("name") or "")
+    base["child_age"]    = str(fake["data"]["child"].get("age") or "")
+    base["child_gender"] = "ولد" if fake["data"]["child"].get("gender") == "male" else "بنت"
+
+    order_id = input_payload.get("order_id")
+    scene_index = input_payload.get("scene_index")
+    real_order = None
+    real_plan = None
+    real_scene = None
+    if order_id:
+        real_order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if real_order:
+        real_plan = await db.production_plans.find_one(
+            {"id": real_order.get("production_plan_id"), "is_archived": False},
+            {"_id": 0},
+        )
+        if scene_index is not None and real_plan:
+            try:
+                real_scene = await db.scene_plans.find_one(
+                    {"order_id": order_id,
+                     "production_plan_id": real_plan["id"],
+                     "scene_index": int(scene_index),
+                     "is_archived": False},
+                    {"_id": 0},
+                )
+            except (TypeError, ValueError):
+                real_scene = None
+
+    # Stage-specific enrichment.
+    if stage_key in ("scene_image_generation", "narration_generation",
+                     "video_generation", "music_generation"):
+        try:
+            from services.generation_orchestrator import _build_scene_image_context
+            order_for_ctx = real_order or fake
+            plan_for_ctx = real_plan or {"title": "اختبار", "style_guide": {}}
+            scene_for_ctx = real_scene or {
+                "scene_index": input_payload.get("scene_index", 1),
+                "title": input_payload.get("scene_title", "مشهد تجريبي"),
+                "scene_goal": input_payload.get("scene_goal", "تعليم المشاركة"),
+                "narration_text": input_payload.get("narration_text", "نصّ سرد قصير."),
+                "book_text": input_payload.get("book_text", "نصّ كتاب قصير."),
+                "emotional_tone": input_payload.get("emotional_tone", "warm"),
+                "visual_description": input_payload.get("visual_description", ""),
+                "background_setting": input_payload.get("background_setting", "غرفة هادئة"),
+                "key_objects": input_payload.get("key_objects", []),
+                "continuity_notes": "",
+                "image_prompt": {"prompt_text": "", "style_reference": "",
+                                 "character_reference_note": ""},
+            }
+            scene_ctx = _build_scene_image_context(order_for_ctx, plan_for_ctx, scene_for_ctx)
+            base.update(scene_ctx)
+        except Exception:  # noqa: BLE001 — preview must never crash on context build
+            pass
+
+    if stage_key in ("scenario_generation", "production_planning"):
+        # These use ad-hoc Claude prompts hardcoded inside their services; admin
+        # templates exist for completeness so render against the available
+        # synthetic/real order fields.
+        order_for_ctx = real_order or fake
+        d = order_for_ctx.get("data") or {}
+        base.update({
+            "child_name":   (d.get("child") or {}).get("name") or "",
+            "child_age":    str((d.get("child") or {}).get("age") or ""),
+            "child_gender": "ولد" if (d.get("child") or {}).get("gender") == "male" else "بنت",
+            "context":      (d.get("goal") or {}).get("context") or "",
+            "category":     (order_for_ctx.get("enriched") or {}).get("category_name") or "",
+            "story_type":   (order_for_ctx.get("enriched") or {}).get("type_name") or "",
+            "tone":         (order_for_ctx.get("enriched") or {}).get("tone_name") or "",
+            "setting":      (order_for_ctx.get("enriched") or {}).get("setting_name") or "",
+        })
+
+    # Final layer: explicit admin-supplied raw keys override everything (escape hatch).
+    for k, v in (input_payload or {}).items():
+        if k in ("order_id", "scene_index"):
+            continue
+        if isinstance(v, (str, int, float, bool)):
+            base[k] = v
+
+    return base
+
+
+def _detect_unresolved(rendered: str | None) -> list[str]:
+    """Return the list of `${var}` / `$var` placeholders still left in the
+    rendered text — these are signs of a broken template or missing variable."""
+    if not rendered:
+        return []
+    from services.config_service import _extract_placeholders
+    return sorted(_extract_placeholders(rendered))
+
+
+async def build_effective_prompt_preview(stage_key: str, input_payload: dict) -> dict:
+    """Phase F — return everything an admin needs to inspect the FINAL prompt
+    without calling the provider.
+
+    Returns:
+        {
+          "stage_key": str,
+          "provider": str, "model_name": str, "model_source": "admin"|"fallback",
+          "transport": str, "env_key": str,
+          "prompt_source": "admin"|"default",
+          "template_id": str|None, "template_version": int|None,
+          "template_text_preview": str (first 1000 chars of admin template, if any),
+          "render_note": str,                  # template_id=... version=... | reason
+          "fallback_would_happen": bool,
+          "effective_prompt": str,             # the FINAL rendered text
+          "prompt_hash": str,
+          "unresolved_placeholders": list[str],
+          "warnings": list[str],
+          "context_source": "real_order" | "synthetic" | "mixed",
+          "context_used": dict,                # what we rendered with
+          "scene_image_extras": dict|None,     # for scene_image_generation only
+          "estimated_cost": float, "currency": str,
+        }
+    """
+    if stage_key not in SUPPORTED_STAGES:
+        raise ValueError(f"Unsupported stage_key: {stage_key}")
+
+    # 1. Resolve provider/model exactly as the live pipeline would.
+    provider, model_name, model_source = await resolve_model(
+        stage_key, "anthropic", "claude-sonnet-4-5-20250929",
+    )
+    transport = await resolve_transport(stage_key) \
+        if stage_key in ("scenario_generation", "production_planning") else "n/a"
+    env_key = PROVIDER_ENV_MAP.get(provider) or "—"
+
+    # 2. Build the full variable context.
+    ctx = await _build_stage_context(stage_key, input_payload)
+    context_source = "real_order" if input_payload.get("order_id") else "synthetic"
+    if context_source == "real_order" and not await db.orders.find_one(
+        {"id": input_payload.get("order_id")}, {"_id": 1}
+    ):
+        context_source = "synthetic"  # order_id supplied but not found
+
+    # 3. Pull the active admin template (if any) for full debug visibility.
+    tpl_doc = await db.prompt_templates.find_one(
+        {"stage_key": stage_key, "active": True},
+        {"_id": 0, "id": 1, "template_text": 1, "version": 1, "variables": 1},
+    )
+
+    # 4. Render via the standard resolver (admin → admin text; default → None).
+    rendered, prompt_source, render_note = await resolve_prompt(stage_key, ctx)
+
+    # 5. The FINAL effective prompt: admin-rendered if available, else the
+    #    deterministic default. To produce the default WITHOUT calling the
+    #    provider, fall back to the template's own text if present, otherwise
+    #    a stage-specific "would use service default" placeholder.
+    fallback_would_happen = (prompt_source != "admin")
+    if rendered:
+        effective_prompt = rendered
+    elif tpl_doc and tpl_doc.get("template_text"):
+        # Render with safe_substitute so the admin sees what the template
+        # WOULD have produced, with `${var}` left in place for missing vars.
+        from string import Template
+        try:
+            effective_prompt = Template(tpl_doc["template_text"]).safe_substitute(
+                {k: str(v) for k, v in ctx.items() if v is not None}
+            )
+        except Exception:  # noqa: BLE001
+            effective_prompt = tpl_doc["template_text"]
+    else:
+        effective_prompt = (
+            f"[NO ADMIN TEMPLATE — service-internal default for "
+            f"`{stage_key}` will be used at runtime.]"
+        )
+
+    unresolved = _detect_unresolved(effective_prompt)
+
+    warnings: list[str] = []
+    if not tpl_doc:
+        warnings.append("لا يوجد قالب admin مفعّل لهذه المرحلة — سيتم استخدام prompt افتراضي من الكود")
+    if fallback_would_happen and tpl_doc:
+        # Template exists but resolve_prompt rejected it — surface why.
+        warnings.append(f"القالب موجود لكنه لم يُستخدم: {render_note}")
+    if unresolved:
+        warnings.append(f"متغيّرات غير محلولة في الناتج: {', '.join(unresolved[:5])}")
+    if provider in ("mock",) and stage_key in ("narration_generation",):
+        warnings.append("الموفّر الحالي mock — لن تُولَّد صوتيات حقيقية في خط الإنتاج")
+    if env_key and isinstance(env_key, dict):
+        env_key_label = env_key.get("env_key") or env_key.get("label") or "—"
+    else:
+        env_key_label = env_key
+
+    out: dict = {
+        "stage_key": stage_key,
+        "provider": provider,
+        "model_name": model_name,
+        "model_source": model_source,
+        "transport": transport,
+        "env_key": env_key_label,
+        "prompt_source": prompt_source,
+        "template_id": (tpl_doc or {}).get("id"),
+        "template_version": (tpl_doc or {}).get("version"),
+        "template_text_preview": ((tpl_doc or {}).get("template_text") or "")[:1000],
+        "render_note": render_note,
+        "fallback_would_happen": fallback_would_happen,
+        "effective_prompt": effective_prompt,
+        "prompt_hash": _hash(effective_prompt),
+        "unresolved_placeholders": unresolved,
+        "warnings": warnings,
+        "context_source": context_source,
+        "context_used": {k: (v if isinstance(v, (str, int, float, bool, list)) else str(v))
+                         for k, v in ctx.items()},
+        "estimated_cost": await _estimated_cost_for(stage_key),
+        "currency": "SAR",
+    }
+
+    # Stage-specific extras.
+    if stage_key == "scene_image_generation":
+        order_id = input_payload.get("order_id")
+        scene_index = input_payload.get("scene_index")
+        extras: dict | None = None
+        if order_id and scene_index is not None:
+            try:
+                from services.scene_reference_service import resolve_scene_references
+                order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+                plan = await db.production_plans.find_one(
+                    {"id": (order or {}).get("production_plan_id"), "is_archived": False},
+                    {"_id": 0},
+                ) if order else None
+                scene = await db.scene_plans.find_one(
+                    {"order_id": order_id, "scene_index": int(scene_index),
+                     "is_archived": False},
+                    {"_id": 0},
+                ) if plan else None
+                if order and plan and scene:
+                    pkg = await resolve_scene_references(order, plan, scene)
+                    def _trim(r):
+                        return {k: v for k, v in r.items() if k != "url"} if isinstance(r, dict) else r
+                    extras = {
+                        "child_ref": _trim(pkg.get("child_ref")),
+                        "extra_char_refs": [_trim(r) for r in (pkg.get("extra_char_refs") or [])],
+                        "toy_ref": _trim(pkg.get("toy_ref")),
+                        "available": pkg.get("available"),
+                        "skipped_reasons": pkg.get("skipped_reasons"),
+                        "injected_count": pkg.get("injected_count"),
+                        "prompt_augmentation": pkg.get("prompt_augmentation"),
+                        "support_true_refs": True,
+                    }
+            except Exception as e:  # noqa: BLE001
+                extras = {"error": f"{type(e).__name__}: {e}"}
+        out["scene_image_extras"] = extras
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Public entry
 # ---------------------------------------------------------------------------
-async def run_stage_test(stage_key: str, input_payload: dict, admin_id: str | None) -> dict:
+async def run_stage_test(stage_key: str, input_payload: dict, admin_id: str | None,
+                         preview_only: bool = False) -> dict:
     if stage_key not in SUPPORTED_STAGES:
         raise ValueError(f"Unsupported stage_key: {stage_key}")
     started = time.monotonic()
@@ -262,24 +522,41 @@ async def run_stage_test(stage_key: str, input_payload: dict, admin_id: str | No
     result_summary = ""
     status = "success"
 
-    try:
-        if stage_key == "scenario_generation":
-            res = await _run_scenario_generation(input_payload)
-        elif stage_key == "production_planning":
-            res = await _run_production_planning(input_payload)
-        elif stage_key == "child_character_i2i":
-            res = await _run_child_character_i2i(input_payload)
-        else:
-            res = await _run_preview_only(stage_key, input_payload)
+    # Phase F — Effective Prompt Preview short-circuits ALL executors.
+    # No provider call, no API budget, no acknowledged_cost requirement.
+    if preview_only:
+        try:
+            preview = await build_effective_prompt_preview(stage_key, input_payload)
+            output_preview = preview
+            prompt_used_for_hash = preview.get("effective_prompt", "")
+            prompt_hash = preview.get("prompt_hash") or prompt_hash
+            prompt_src = preview.get("prompt_source", prompt_src)
             status = "preview-only"
-        output_preview = res.get("output_preview")
-        result_summary = res.get("result_summary", "")
-    except Exception as e:  # noqa: BLE001
-        status = "failed"
-        error_message = f"{type(e).__name__}: {e}"
-        fallback_used = False  # the lab does not auto-fallback — admin sees the truth
-        output_preview = None
-        result_summary = error_message[:200]
+            result_summary = "effective prompt preview (no provider call)"
+        except Exception as e:  # noqa: BLE001
+            status = "failed"
+            error_message = f"{type(e).__name__}: {e}"
+            output_preview = None
+            result_summary = error_message[:200]
+    else:
+        try:
+            if stage_key == "scenario_generation":
+                res = await _run_scenario_generation(input_payload)
+            elif stage_key == "production_planning":
+                res = await _run_production_planning(input_payload)
+            elif stage_key == "child_character_i2i":
+                res = await _run_child_character_i2i(input_payload)
+            else:
+                res = await _run_preview_only(stage_key, input_payload)
+                status = "preview-only"
+            output_preview = res.get("output_preview")
+            result_summary = res.get("result_summary", "")
+        except Exception as e:  # noqa: BLE001
+            status = "failed"
+            error_message = f"{type(e).__name__}: {e}"
+            fallback_used = False  # the lab does not auto-fallback — admin sees the truth
+            output_preview = None
+            result_summary = error_message[:200]
 
     latency_ms = int((time.monotonic() - started) * 1000)
 

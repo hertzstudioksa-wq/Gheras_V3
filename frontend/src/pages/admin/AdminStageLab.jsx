@@ -43,6 +43,26 @@ export default function AdminStageLab() {
 
   const setInput = (k, v) => setInputs((cur) => ({ ...cur, [k]: v }));
 
+  const [preview, setPreview] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+
+  const onPreview = async () => {
+    setPreviewing(true);
+    setPreview(null);
+    try {
+      const { data } = await api.post("/admin/lab/preview", {
+        stage_key: stageKey,
+        inputs: inputs,
+      });
+      setPreview(data);
+      toast.success("Effective Prompt جاهز (بدون استدعاء موفّر)");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "فشل المعاينة");
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const onRun = async () => {
     if (isRealCall && !acknowledged) {
       toast.error("يجب تأكيد التكلفة قبل التشغيل");
@@ -64,6 +84,14 @@ export default function AdminStageLab() {
     } finally {
       setRunning(false);
     }
+  };
+
+  const copyPrompt = () => {
+    if (!preview?.effective_prompt) return;
+    navigator.clipboard.writeText(preview.effective_prompt).then(
+      () => toast.success("نُسخ الـ prompt"),
+      () => toast.error("تعذّر النسخ"),
+    );
   };
 
   return (
@@ -148,7 +176,17 @@ export default function AdminStageLab() {
           </div>
         )}
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-end gap-2 flex-wrap">
+          <button
+            onClick={onPreview}
+            disabled={previewing}
+            className="rounded-full bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] px-5 py-2 text-sm font-bold inline-flex items-center gap-2 disabled:opacity-50"
+            data-testid="lab-preview-btn"
+            title="معاينة الـ prompt النهائي بدون استدعاء أي موفّر — مجانية"
+          >
+            {previewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Beaker className="w-4 h-4" />}
+            معاينة Prompt الفعّال
+          </button>
           <button
             onClick={onRun}
             disabled={running || (isRealCall && !acknowledged)}
@@ -160,6 +198,82 @@ export default function AdminStageLab() {
           </button>
         </div>
       </section>
+
+      {preview && (
+        <section className="bg-white rounded-2xl p-5 border-2 border-[#D4A373]/50 mb-5" data-testid="lab-preview-result">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <Beaker className="w-5 h-5 text-[#8B5A2B]" />
+            <span className="font-heading font-bold text-[#2D3748]">Effective Prompt — {preview.stage_key}</span>
+            <span className="text-[10px] bg-[#F8F1E7] text-[#8B5A2B] rounded-full px-2 py-0.5 font-bold">
+              لم يُستدعَ أي موفّر
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-xs font-body">
+            <Stat label="provider" value={preview.provider} />
+            <Stat label="model" value={preview.model_name} />
+            <Stat label="model_source" value={preview.model_source} />
+            <Stat label="transport" value={preview.transport} />
+            <Stat label="prompt_source" value={preview.prompt_source} />
+            <Stat label="template_id" value={(preview.template_id || "—").slice(0, 8)} />
+            <Stat label="version" value={preview.template_version ?? "—"} />
+            <Stat label="prompt_hash" value={(preview.prompt_hash || "").slice(7, 19)} />
+            <Stat label="context_source" value={preview.context_source} />
+            <Stat label="fallback_would_happen" value={String(preview.fallback_would_happen)} />
+            <Stat label="est. cost" value={`${preview.estimated_cost} ${preview.currency}`} />
+            <Stat label="env_key" value={preview.env_key} />
+          </div>
+
+          {preview.warnings?.length > 0 && (
+            <div className="bg-[#FCE6D4] border border-[#E07A5F]/40 rounded-2xl p-3 mb-3 text-sm" data-testid="preview-warnings">
+              <div className="font-bold text-[#B8612F] inline-flex items-center gap-1 mb-1">
+                <AlertTriangle className="w-4 h-4" /> تنبيهات ({preview.warnings.length})
+              </div>
+              <ul className="text-[#8B3A1F] text-xs space-y-1 list-disc pr-4">
+                {preview.warnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {preview.unresolved_placeholders?.length > 0 && (
+            <div className="bg-[#FCE6D4] border border-[#E07A5F]/40 rounded-2xl p-2 mb-3 text-xs font-mono" data-testid="preview-unresolved">
+              <span className="font-bold text-[#B8612F]">متغيّرات غير محلولة:</span>{" "}
+              {preview.unresolved_placeholders.map((p, i) => (
+                <span key={i} className="bg-white text-[#B8612F] rounded px-1 mx-0.5">${p}</span>
+              ))}
+            </div>
+          )}
+
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-bold text-[#5A677D] uppercase">الـ prompt النهائي</span>
+            <button
+              onClick={copyPrompt}
+              className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-3 py-1 text-xs font-bold inline-flex items-center gap-1"
+              data-testid="preview-copy-btn"
+            >
+              نسخ
+            </button>
+          </div>
+          <pre className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl p-3 text-xs whitespace-pre-wrap break-words max-h-96 overflow-auto font-mono" data-testid="preview-effective-prompt">
+            {preview.effective_prompt}
+          </pre>
+
+          {preview.scene_image_extras && (
+            <details className="mt-3 cursor-pointer" data-testid="preview-scene-extras">
+              <summary className="text-[11px] font-bold text-[#5A677D] uppercase">Scene References (dry-run)</summary>
+              <pre className="mt-2 bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-3 text-[10px] whitespace-pre-wrap font-mono">
+                {JSON.stringify(preview.scene_image_extras, null, 2)}
+              </pre>
+            </details>
+          )}
+
+          <details className="mt-3 cursor-pointer">
+            <summary className="text-[11px] font-bold text-[#5A677D] uppercase">السياق المُستخدَم في الـ render</summary>
+            <pre className="mt-2 bg-[#FDFBF7] border border-[#E2D8C9] rounded-xl p-3 text-[10px] whitespace-pre-wrap font-mono">
+              {JSON.stringify(preview.context_used, null, 2)}
+            </pre>
+          </details>
+        </section>
+      )}
 
       {latestRun && (
         <section className="bg-white rounded-2xl p-5 border-2 border-[#87A96B]/40 mb-5" data-testid="lab-result">
