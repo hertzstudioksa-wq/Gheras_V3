@@ -133,7 +133,7 @@ async def admin_list_scenarios(order_id: str):
         {"id": order_id},
         {"_id": 0, "scenarios_generation": 1, "selected_scenario_id": 1,
          "status": 1, "current_scenario_batch_id": 1, "selected_scenario_batch_id": 1,
-         "regeneration_count": 1, "max_regenerations": 1, "duration": 1},
+         "regeneration_count": 1, "max_regenerations": 1, "duration": 1, "data": 1},
     ) or {}
     items = await db.scenarios.find({"order_id": order_id}, {"_id": 0}).sort([("created_at", -1), ("scenario_index", 1)]).to_list(200)
     # Group by batch
@@ -169,6 +169,7 @@ async def admin_list_scenarios(order_id: str):
         "max_regenerations": max_regen,
         "regenerations_remaining": max(0, max_regen - used),
         "duration": o.get("duration"),
+        "output_type": ((o.get("data") or {}).get("delivery") or {}).get("output_type") or "both",
     }
 
 

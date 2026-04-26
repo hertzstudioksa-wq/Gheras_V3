@@ -128,6 +128,7 @@ async def trigger_production_planning(order_id: str, background: BackgroundTasks
 def _user_summary(plan: dict | None, order: dict) -> dict | None:
     if not plan:
         return None
+    output_type = ((order.get("data") or {}).get("delivery") or {}).get("output_type") or "both"
     return {
         "plan_id": plan["id"],
         "title": plan.get("title"),
@@ -138,6 +139,7 @@ def _user_summary(plan: dict | None, order: dict) -> dict | None:
         "duration_label": plan.get("duration_label"),
         "duration_seconds": plan.get("duration_seconds"),
         "audio_background": plan.get("audio_background") or {"mode": "music"},
+        "output_type": output_type,
         "safety_check": plan.get("safety_check"),
         "generated_at": (order.get("production_plan_snapshot") or {}).get("generated_at"),
     }

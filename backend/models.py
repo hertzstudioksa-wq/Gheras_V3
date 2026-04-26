@@ -203,6 +203,33 @@ class AudioBackgroundPayload(BaseModel):
     mode: str = "music"  # one of AUDIO_BACKGROUND_MODES
 
 
+def get_order_output_type(order: dict | None) -> str:
+    """Read the requested deliverable type from an order doc.
+
+    Backwards-compatible:
+      * Legacy orders without `data.delivery` default to "both" (the full
+        pipeline that always ran). This guarantees ZERO regression on orders
+        created before Wave 1.
+      * Unknown/invalid values also fall back to "both".
+    """
+    if not order:
+        return "both"
+    data = order.get("data") or {}
+    delivery = data.get("delivery") or {}
+    ot = delivery.get("output_type")
+    if ot in OUTPUT_TYPES:
+        return ot
+    return "both"
+
+
+# Phase Wave-1 — deliverable type. Drives pricing + which pipeline stages run.
+OUTPUT_TYPES = ("video", "pdf", "both")
+
+
+class DeliveryPayload(BaseModel):
+    output_type: str = "both"  # one of OUTPUT_TYPES; default keeps legacy full pipeline
+
+
 class StoryData(BaseModel):
     goal: GoalPayload
     child: ChildPayload
@@ -211,6 +238,7 @@ class StoryData(BaseModel):
     style: StylePayload = StylePayload()
     duration: DurationPayload = DurationPayload()
     audio_background: AudioBackgroundPayload = AudioBackgroundPayload()
+    delivery: DeliveryPayload = DeliveryPayload()
 
 
 # =========================

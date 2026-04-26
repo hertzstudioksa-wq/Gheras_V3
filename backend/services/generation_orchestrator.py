@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 
 from db import db
-from models import OrderStatus, ORDER_STATUS_AR
+from models import OrderStatus, ORDER_STATUS_AR, get_order_output_type
 from storage import put_object, APP_NAME
 from services.image_generation_service import generate_image
 from services.audio_generation_service import generate_audio, estimate_duration_seconds
@@ -62,21 +62,28 @@ async def _plan_jobs(order: dict) -> list[dict]:
     ).sort("page_number", 1).to_list(50)
 
     jobs = []
-    # 1 cover image
+    output_type = get_order_output_type(order)
+    needs_video = output_type in ("video", "both")
+    needs_pdf = output_type in ("pdf", "both")
+
+    # 1 cover image — always (used by both video and PDF cover page)
     jobs.append({
         "job_type": "cover_image",
         "target_id": plan["id"],
         "meta": {"plan_id": plan["id"]},
     })
-    # scene images (1 per scene)
+    # scene images (1 per scene) — always (shared by video frames and book pages)
     for s in scenes:
         jobs.append({"job_type": "scene_image", "target_id": s["id"], "meta": {"scene_index": s["scene_index"]}})
-    # narration audio (1 per scene)
-    for s in scenes:
-        jobs.append({"job_type": "narration_audio", "target_id": s["id"], "meta": {"scene_index": s["scene_index"]}})
-    # book_asset (1 per page) — reuses scene image URL once scene image is ready
-    for p in pages:
-        jobs.append({"job_type": "book_page_asset", "target_id": p["id"], "meta": {"page_number": p["page_number"]}})
+    # narration audio (1 per scene) — only when video is requested.
+    # (Wave 1 PDF is text + image; narration is only consumed by the video.)
+    if needs_video:
+        for s in scenes:
+            jobs.append({"job_type": "narration_audio", "target_id": s["id"], "meta": {"scene_index": s["scene_index"]}})
+    # book_asset (1 per page) — only when PDF is requested.
+    if needs_pdf:
+        for p in pages:
+            jobs.append({"job_type": "book_page_asset", "target_id": p["id"], "meta": {"page_number": p["page_number"]}})
     return jobs
 
 
@@ -515,8 +522,16 @@ async def run_asset_generation(order_id: str, run_id: str):
         )
 
     # Decide terminal status
-    # Mandatory = cover + all scene_images + all narration + all book_assets
-    mandatory_types = {"cover_image", "scene_image", "narration_audio", "book_page_asset"}
+    # Mandatory job set depends on the requested deliverable:
+    #   * video only → cover + scene_images + narration
+    #   * pdf   only → cover + scene_images + book_assets
+    #   * both       → cover + scene_images + narration + book_assets
+    output_type = get_order_output_type(order)
+    mandatory_types: set[str] = {"cover_image", "scene_image"}
+    if output_type in ("video", "both"):
+        mandatory_types.add("narration_audio")
+    if output_type in ("pdf", "both"):
+        mandatory_types.add("book_page_asset")
     failed_mandatory = await db.generation_jobs.count_documents({
         "order_id": order_id,
         "run_id": run_id,

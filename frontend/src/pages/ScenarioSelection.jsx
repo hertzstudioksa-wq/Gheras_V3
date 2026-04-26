@@ -6,7 +6,7 @@ import Footer from "../components/gheras/Footer";
 import {
   Sprout, Heart, BookOpen, Rocket, CheckCircle2, RefreshCcw,
   Sparkles, Loader2, AlertTriangle, ArrowRight, Award,
-  Lightbulb, ShieldAlert, Clock,
+  Lightbulb, ShieldAlert, Clock, History, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,6 +27,9 @@ export default function ScenarioSelection() {
   const [polling, setPolling] = useState(true);
   const [selectingId, setSelectingId] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [batches, setBatches] = useState([]); // Wave 1 — full batch history
+  const [showHistory, setShowHistory] = useState(false);
+  const [expandedBatches, setExpandedBatches] = useState({}); // {batchId: bool}
   const pollRef = useRef(null);
 
   const errorShownRef = useRef(false);
@@ -52,9 +55,20 @@ export default function ScenarioSelection() {
     }
   };
 
+  // Wave 1 — fetch the full scenario batch history (sanitized).
+  const fetchBatches = async () => {
+    try {
+      const { data } = await api.get(`/orders/${id}/scenarios/batches`);
+      setBatches(data?.batches || []);
+    } catch {
+      // Silent — history is a non-critical add-on.
+    }
+  };
+
   useEffect(() => {
     // Initial fetch: allow toast for permanent errors.
     fetchData();
+    fetchBatches();
     // Polling: silent — never toast.
     pollRef.current = setInterval(() => {
       if (polling) fetchData({ silent: true });
@@ -82,6 +96,8 @@ export default function ScenarioSelection() {
       setState((s) => ({ ...s, status: "scenarios_generating", scenarios: [], generation: null, selected_scenario_id: null }));
       setPolling(true);
       toast.success("جاري إعادة التوليد...");
+      // Refresh history so the (about-to-arrive) new batch shows up promptly.
+      setTimeout(fetchBatches, 1500);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "فشل");
     } finally {
@@ -312,6 +328,124 @@ export default function ScenarioSelection() {
                 {limitReached ? "استُهلكت المحاولات" : regenerating ? "جاري..." : "إعادة توليد 3 أفكار جديدة"}
               </button>
             </div>
+
+            {/* Wave 1 — previous idea batches (collapsible). Only show when user has ≥2 batches. */}
+            {batches.length > 1 && (
+              <div className="mt-5 bg-white rounded-2xl border border-[#E2D8C9] overflow-hidden" data-testid="batch-history">
+                <button
+                  type="button"
+                  onClick={() => setShowHistory((v) => !v)}
+                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#FDFBF7]"
+                  data-testid="batch-history-toggle"
+                >
+                  <div className="inline-flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-[#F8F1E7] grid place-content-center">
+                      <History className="w-4 h-4 text-[#8B5A2B]" />
+                    </div>
+                    <div className="text-right">
+                      <div className="font-heading font-bold text-[#2D3748]">أفكار سابقة</div>
+                      <div className="text-xs text-[#8A9AB0] font-body">
+                        لديك {batches.length} مجموعة من الأفكار. يمكنك العودة لأي فكرة سابقة واختيارها.
+                      </div>
+                    </div>
+                  </div>
+                  {showHistory ? (
+                    <ChevronUp className="w-5 h-5 text-[#5A677D]" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-[#5A677D]" />
+                  )}
+                </button>
+
+                {showHistory && (
+                  <div className="border-t border-[#E2D8C9] divide-y divide-[#E2D8C9]" data-testid="batch-history-list">
+                    {batches.map((b, bIdx) => {
+                      const expanded = !!expandedBatches[b.batch_id];
+                      const isCurrent = b.is_current;
+                      return (
+                        <div key={b.batch_id} className="bg-[#FDFBF7]" data-testid={`batch-${b.batch_id}`}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedBatches((m) => ({ ...m, [b.batch_id]: !m[b.batch_id] }))
+                            }
+                            className="w-full flex items-center justify-between px-5 py-3 hover:bg-white"
+                            data-testid={`batch-toggle-${b.batch_id}`}
+                          >
+                            <div className="inline-flex items-center gap-2 flex-wrap">
+                              <span className="font-body font-bold text-[#2D3748] text-sm">
+                                مجموعة #{batches.length - bIdx}
+                              </span>
+                              {isCurrent && (
+                                <span className="text-[10px] font-bold bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5">
+                                  الحالية
+                                </span>
+                              )}
+                              <span className="text-xs text-[#8A9AB0] font-body">
+                                {b.created_at?.slice(0, 10)}
+                              </span>
+                            </div>
+                            {expanded ? <ChevronUp className="w-4 h-4 text-[#5A677D]" /> : <ChevronDown className="w-4 h-4 text-[#5A677D]" />}
+                          </button>
+
+                          {expanded && (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-5 pb-5">
+                              {b.scenarios.map((s) => {
+                                const meta = ANGLE_META[s.emotional_angle] || ANGLE_META.educational;
+                                const Icon = meta.icon;
+                                const sel = state.selected_scenario_id === s.id;
+                                return (
+                                  <div
+                                    key={s.id}
+                                    className={`bg-white rounded-2xl p-4 border ${
+                                      sel ? "border-[#87A96B]" : "border-[#E2D8C9]"
+                                    }`}
+                                    data-testid={`history-scenario-${s.id}`}
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className={`w-8 h-8 rounded-xl ${meta.bg} grid place-content-center`}>
+                                        <Icon className={`w-4 h-4 ${meta.fg}`} />
+                                      </div>
+                                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.bg} ${meta.fg}`}>
+                                        {meta.label}
+                                      </span>
+                                    </div>
+                                    <h4 className="font-heading text-base font-bold text-[#2D3748] mb-1 leading-snug">
+                                      {s.title}
+                                    </h4>
+                                    <p className="font-body text-xs text-[#5A677D] leading-relaxed mb-3 line-clamp-3">
+                                      {s.short_summary}
+                                    </p>
+                                    {sel ? (
+                                      <div className="rounded-full bg-[#87A96B] text-white py-2 text-xs font-bold text-center inline-flex items-center justify-center gap-1 w-full">
+                                        <CheckCircle2 className="w-3 h-3" /> مختار
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={() => select(s.id)}
+                                        disabled={selectingId !== null || isLocked}
+                                        className="w-full rounded-full bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] py-2 text-xs font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1"
+                                        data-testid={`history-select-${s.id}`}
+                                      >
+                                        {selectingId === s.id ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Sprout className="w-3 h-3" />
+                                        )}
+                                        اختر هذه الفكرة
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

@@ -365,6 +365,13 @@ function AdminScenariosTab({ scenariosData, onRegenerate, onDelete, onSelect }) 
               <Coins className="w-3 h-3" /> {duration.cost_tier}
             </span>
           )}
+          {scenariosData?.output_type && (
+            <span className="bg-[#FDFBF7] text-[#2D3748] rounded-full px-3 py-1 text-xs inline-flex items-center gap-1 border border-[#E2D8C9]" data-testid="admin-output-type-badge">
+              نوع التسليم: <b>{
+                {video: "فيديو", pdf: "كتاب PDF", both: "فيديو + كتاب"}[scenariosData.output_type] || scenariosData.output_type
+              }</b>
+            </span>
+          )}
         </div>
         <div className="flex gap-2">
           <button

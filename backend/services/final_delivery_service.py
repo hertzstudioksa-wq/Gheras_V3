@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 
 from db import db
-from models import OrderStatus, ORDER_STATUS_AR
+from models import OrderStatus, ORDER_STATUS_AR, get_order_output_type
 from services.video_assembly_service import assemble_video
 from services.pdf_assembly_service import assemble_pdf
 
@@ -156,15 +156,23 @@ async def run_final_assembly(order_id: str, run_id: str):
     await db.final_videos.delete_many({"order_id": order_id})
     await db.final_pdfs.delete_many({"order_id": order_id})
 
+    # Wave-1 — gate assembly jobs by requested deliverable.
+    output_type = get_order_output_type(order)
+    job_types: list[str] = []
+    if output_type in ("video", "both"):
+        job_types.append("final_video_assembly")
+    if output_type in ("pdf", "both"):
+        job_types.append("final_pdf_assembly")
+
     jobs = []
-    for jt in ["final_video_assembly", "final_pdf_assembly"]:
+    for jt in job_types:
         j = {
             "id": str(uuid.uuid4()),
             "order_id": order_id,
             "run_id": run_id,
             "job_type": jt,
             "target_id": plan["id"],
-            "meta": {"plan_id": plan["id"]},
+            "meta": {"plan_id": plan["id"], "output_type": output_type},
             "status": "queued",
             "provider": None,
             "attempt_count": 0,
@@ -176,21 +184,23 @@ async def run_final_assembly(order_id: str, run_id: str):
             "updated_at": _now(),
         }
         jobs.append(j)
-    await db.generation_jobs.insert_many(jobs)
+    if jobs:
+        await db.generation_jobs.insert_many(jobs)
 
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {
             "final_assembly_run_id": run_id,
             "final_assembly_started_at": _now(),
-            "final_assembly_summary": {"total": 2, "completed": 0, "failed": 0},
+            "final_assembly_summary": {"total": len(jobs), "completed": 0, "failed": 0,
+                                        "output_type": output_type},
         }},
     )
     await _append_status(order_id, order.get("status"), OrderStatus.ASSEMBLING.value, "system",
-                         reason=f"start final assembly (run {run_id[:8]})")
+                         reason=f"start final assembly (run {run_id[:8]}, output_type={output_type})")
 
-    # Run video first, then PDF
-    results = {"video": False, "pdf": False}
+    # Run requested assembly jobs (video first when present, then PDF).
+    results: dict[str, bool] = {}
     for job in jobs:
         executor = _run_video_job if job["job_type"] == "final_video_assembly" else _run_pdf_job
         ok = await _process_with_retry(job, order, plan, executor)
@@ -209,12 +219,12 @@ async def run_final_assembly(order_id: str, run_id: str):
         {"id": order_id},
         {"$set": {"final_assembly_completed_at": _now()}},
     )
-    # Delivery is successful only if BOTH assembled
-    if all(results.values()):
+    # Delivery is successful only if every REQUESTED deliverable assembled.
+    if results and all(results.values()):
         await _append_status(order_id, OrderStatus.ASSEMBLING.value, OrderStatus.DELIVERED.value, "system",
-                             reason="final video + PDF ready")
+                             reason=f"final {output_type} ready")
     else:
-        missing = ", ".join(k for k, v in results.items() if not v)
+        missing = ", ".join(k for k, v in results.items() if not v) or "no jobs"
         await _append_status(order_id, OrderStatus.ASSEMBLING.value, OrderStatus.MEDIA_FAILED.value, "system",
                              reason=f"final assembly failed: {missing}")
 
@@ -229,11 +239,17 @@ async def retry_single_assembly_job(job_id: str) -> dict:
     job = await db.generation_jobs.find_one({"id": job_id}, {"_id": 0})
     executor = _run_video_job if job["job_type"] == "final_video_assembly" else _run_pdf_job
     ok = await _process_with_retry(job, order, plan, executor)
-    # Re-evaluate order status if both complete
+    # Re-evaluate order status if every requested deliverable is complete.
     order = await db.orders.find_one({"id": job["order_id"]}, {"_id": 0})
+    output_type = get_order_output_type(order)
     video = await db.final_videos.find_one({"order_id": job["order_id"]}, {"_id": 0})
     pdf = await db.final_pdfs.find_one({"order_id": job["order_id"]}, {"_id": 0})
-    if video and pdf and order.get("status") != OrderStatus.DELIVERED.value:
+    requirements_met = (
+        (output_type == "video" and video) or
+        (output_type == "pdf"   and pdf)   or
+        (output_type == "both"  and video and pdf)
+    )
+    if requirements_met and order.get("status") != OrderStatus.DELIVERED.value:
         await _append_status(job["order_id"], order.get("status"), OrderStatus.DELIVERED.value, "admin",
-                             reason="both finals present after retry")
+                             reason="all required finals present after retry")
     return {"ok": ok}

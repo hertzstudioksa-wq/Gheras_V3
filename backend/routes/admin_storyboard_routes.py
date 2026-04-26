@@ -247,6 +247,8 @@ async def _stage_scenario_generation(order: dict, pipeline_cfg: dict) -> dict:
         "subcategory":   ((order.get("data") or {}).get("subcategory") or {}).get("name"),
         "duration_label": (order.get("duration") or {}).get("label"),
         "scene_target":  (order.get("duration") or {}).get("scene_target"),
+        "scene_target_bucket": (order.get("duration") or {}).get("scene_target_bucket"),
+        "output_type":   ((order.get("data") or {}).get("delivery") or {}).get("output_type") or "both",
         "regeneration_count": order.get("regeneration_count", 0),
     }
     output_summary = {
@@ -334,7 +336,9 @@ async def _stage_production_planning(order: dict, pipeline_cfg: dict) -> dict:
         "selected_scenario_title": (order.get("selected_scenario_snapshot") or {}).get("title"),
         "duration_seconds": (order.get("duration") or {}).get("seconds"),
         "scene_target":     (order.get("duration") or {}).get("scene_target"),
+        "scene_target_bucket": (order.get("duration") or {}).get("scene_target_bucket"),
         "audio_background": ((order.get("data") or {}).get("audio_background") or {}).get("mode"),
+        "output_type":      ((order.get("data") or {}).get("delivery") or {}).get("output_type") or "both",
     }
     output_summary = {
         "plan_id": plan_id,

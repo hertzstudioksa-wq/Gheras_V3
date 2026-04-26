@@ -228,15 +228,49 @@ generating (Phase 6) → completed
 - `services/production_service._generate_via_claude` enforces the range:
   `min ≤ len(scenes) ≤ max` for new orders, exact-match for legacy orders.
 - **Final-scene quality guard** (`_enforce_final_scene_quality`) added in `build_docs`:
-  ensures last scene `narration_text ≥ 12` words and `book_text ≥ 8` words. Short endings
-  are padded in Arabic with a warm closing line that references the child by name. Never
-  raises — the LLM prompt already asks for strong endings; this is a defensive mirror.
-- `routes/production_routes.run_production_generation` picks a concrete `target_scenes`
-  inside the bucket (honouring the selected scenario's `estimated_scene_count` when in range).
-- Admin prompt templates gain `scene_target_min`, `scene_target_max`, `scene_target_bucket`
-  variables for `scenario_generation` and `production_planning`.
-- Tests: 14/14 new unit tests green (`/app/backend/tests/test_phase_d5_scene_target.py`).
-  End-to-end verified via REAL AI path (45s→4, 60s→5, 150s→8 scenes; final narration 49–62 words).
+  ensures last scene `narration_text ≥ 12` words and `book_text ≥ 8` words.
+- Tests: 14/14 unit tests green; E2E verified via REAL AI path (45s→4, 60s→5, 150s→8 scenes).
+
+### Wave 1 — Product Ops (Feb 2026) ✅
+**Scenario History (return to previous ideas)**
+- New endpoint: `GET /api/orders/{id}/scenarios/batches` lists ALL batches with sanitized scenarios.
+- `POST /api/orders/{id}/scenarios/{sid}/select` now allows selecting from a previous batch
+  (was rejected before). Selecting from an old batch promotes it to current so downstream
+  pipeline (filtered on `current_scenario_batch_id`) keeps working unchanged.
+- Frontend `ScenarioSelection.jsx`: collapsible "أفكار سابقة" section appears whenever the
+  user has ≥2 batches. Per-batch expander shows all 3 scenarios with a one-click select.
+- Verified E2E on a real 6-batch order: select from oldest batch → `promoted_batch=true`,
+  `current_batch_id` flipped, `selected_scenario_id` set correctly.
+
+**Output Type Selection (video / pdf / both)**
+- New `data.delivery.output_type` (one of `video`, `pdf`, `both`; default `both` for backward
+  compat). Persisted on new orders, ignored on legacy orders.
+- `models.get_order_output_type()` helper handles legacy + invalid + missing values.
+- **Pipeline gating**:
+  - `services/generation_orchestrator._plan_jobs`: `pdf`-only skips `narration_audio`;
+    `video`-only skips `book_page_asset`; `both` runs full pipeline (legacy default).
+  - Mandatory job set is computed dynamically per output_type.
+  - `services/final_delivery_service.run_final_assembly`: only enqueues the assembly jobs
+    needed for the requested deliverable; "delivered" status is granted when every
+    requested deliverable assembled.
+  - `retry_single_assembly_job` re-evaluates DELIVERED status using the same gating.
+- Frontend `StoryBuilder.jsx`: new `OutputTypePicker` in Step 5 with 3 options, plus a
+  Review-step field showing the chosen deliverable.
+- `routes/admin_routes.admin_list_scenarios`: returns `output_type`. AdminOrders modal renders
+  a badge ("نوع التسليم: فيديو + كتاب / فيديو / كتاب PDF").
+- `routes/admin_storyboard_routes` injects `output_type` and `scene_target_bucket` into both
+  `scenario_generation` and `production_planning` `input_summary`.
+- Tests: 9/9 new unit tests green (`/app/backend/tests/test_wave1_output_type.py`).
+- Backward compat: existing 6-batch order showed `output_type=both` automatically; new
+  pdf-only order persisted `delivery.output_type=pdf`; admin endpoints expose both correctly.
+
+**Prompt Inventory Audit**
+- All 7 admin-editable stages already exist: `child_character_i2i`, `scenario_generation`,
+  `production_planning`, `scene_image_generation`, `narration_generation`,
+  `video_generation`, `music_generation` — seeded by `seed_prompt_templates()`.
+- `extra_character_i2i` deliberately reuses the `child_character_i2i` template
+  (no separate seed needed; verified in `services/extra_characters_service:128`).
+- No new prompt seeds required for Wave 1.
 
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.

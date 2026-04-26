@@ -277,6 +277,60 @@ async def list_scenarios(order_id: str, current=Depends(get_current_user)):
     }
 
 
+# Wave 1 — scenario history (previous batches the user can return to).
+@router.get("/{order_id}/scenarios/batches")
+async def list_scenario_batches(order_id: str, current=Depends(get_current_user)):
+    """Return all scenario batches generated for this order (most recent first).
+
+    The UI uses this to render an "أفكار سابقة" / "previous ideas" expander on
+    the scenario selection page so the user can revisit any prior batch and
+    pick a scenario from it. Internal fields are stripped per
+    `_PUBLIC_SCENARIO_KEYS` to match the live `/scenarios` endpoint.
+    """
+    o = await db.orders.find_one(
+        {"id": order_id, "user_id": current["id"]},
+        {"_id": 0, "status": 1, "current_scenario_batch_id": 1,
+         "selected_scenario_id": 1, "selected_scenario_batch_id": 1},
+    )
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+
+    rows = await db.scenarios.find(
+        {"order_id": order_id}, {"_id": 0}
+    ).sort([("created_at", -1), ("scenario_index", 1)]).to_list(500)
+
+    batches_map: dict[str, dict] = {}
+    for s in rows:
+        bid = s.get("scenario_batch_id")
+        if not bid:
+            continue
+        if bid not in batches_map:
+            batches_map[bid] = {
+                "batch_id": bid,
+                "created_at": s.get("created_at"),
+                "is_current": bid == o.get("current_scenario_batch_id"),
+                "scenarios": [],
+            }
+        # Earliest created_at across the batch's scenarios → batch creation time.
+        if s.get("created_at") and s["created_at"] < batches_map[bid]["created_at"]:
+            batches_map[bid]["created_at"] = s["created_at"]
+        batches_map[bid]["scenarios"].append(
+            {k: v for k, v in s.items() if k in _PUBLIC_SCENARIO_KEYS}
+        )
+
+    batches = sorted(batches_map.values(), key=lambda b: b.get("created_at") or "", reverse=True)
+    for b in batches:
+        b["scenarios"].sort(key=lambda x: x.get("scenario_index", 0))
+
+    return {
+        "current_batch_id": o.get("current_scenario_batch_id"),
+        "selected_scenario_id": o.get("selected_scenario_id"),
+        "selected_scenario_batch_id": o.get("selected_scenario_batch_id"),
+        "batches": batches,
+        "batch_count": len(batches),
+    }
+
+
 @router.post("/{order_id}/scenarios/regenerate")
 async def regenerate_scenarios(order_id: str, background: BackgroundTasks, current=Depends(get_current_user)):
     o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
@@ -321,24 +375,33 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     if not scenario:
         raise HTTPException(status_code=404, detail="السيناريو غير موجود")
 
-    # Enforce selection only from the current batch
+    # Wave 1 — scenarios from a PREVIOUS batch are allowed. Selecting one
+    # promotes its batch back to current so the rest of the pipeline (which
+    # already filters on current_scenario_batch_id) keeps working unchanged.
+    selected_batch = scenario.get("scenario_batch_id")
     current_batch = o.get("current_scenario_batch_id")
-    if scenario.get("scenario_batch_id") != current_batch:
-        raise HTTPException(status_code=400, detail="لا يمكن اختيار سيناريو من دفعة قديمة")
+    promote_batch = bool(selected_batch and selected_batch != current_batch)
 
     await db.scenarios.update_many({"order_id": order_id}, {"$set": {"is_selected": False}})
     await db.scenarios.update_one({"id": scenario_id}, {"$set": {"is_selected": True}})
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {
-            "selected_scenario_id": scenario_id,
-            "selected_scenario_snapshot": scenario,
-            "selected_scenario_batch_id": current_batch,
-        }},
+    update_fields: dict = {
+        "selected_scenario_id": scenario_id,
+        "selected_scenario_snapshot": scenario,
+        "selected_scenario_batch_id": selected_batch,
+    }
+    if promote_batch:
+        update_fields["current_scenario_batch_id"] = selected_batch
+    await db.orders.update_one({"id": order_id}, {"$set": update_fields})
+
+    reason = (
+        f"selected scenario {scenario.get('scenario_index')}"
+        + (" (from previous batch)" if promote_batch else "")
     )
-    await append_status(order_id, o.get("status"), OrderStatus.SCENARIO_SELECTED.value, "user", actor_id=current["id"], reason=f"selected scenario {scenario.get('scenario_index')}")
-    await append_status(order_id, OrderStatus.SCENARIO_SELECTED.value, OrderStatus.READY_FOR_AI.value, "system", reason="auto after selection")
+    await append_status(order_id, o.get("status"), OrderStatus.SCENARIO_SELECTED.value, "user",
+                        actor_id=current["id"], reason=reason)
+    await append_status(order_id, OrderStatus.SCENARIO_SELECTED.value, OrderStatus.READY_FOR_AI.value,
+                        "system", reason="auto after selection")
     # Trigger production planning in background (phase 5)
     from routes.production_routes import trigger_production_planning
     await trigger_production_planning(order_id, background)
-    return {"ok": True}
+    return {"ok": True, "promoted_batch": promote_batch}

@@ -68,6 +68,13 @@ const AUDIO_BG_OPTIONS = [
   { v: "none",          l: "من دون خلفية صوتية",        i: VolumeX },
 ];
 
+// Wave 1 — deliverable type. Drives pricing + which pipeline stages run.
+const OUTPUT_TYPE_OPTIONS = [
+  { v: "both",  l: "فيديو + كتاب PDF",      d: "تجربة كاملة: فيديو وكتاب مصوّر",     i: Sparkles },
+  { v: "video", l: "فيديو فقط",             d: "قصة متحركة بالسرد الصوتي",            i: PenTool },
+  { v: "pdf",   l: "كتاب PDF فقط",          d: "كتاب مصوّر للقراءة معاً",              i: BookOpen },
+];
+
 const blankData = () => ({
   goal: { category_id: "", subcategory_id: "", custom_subcategory: "", context: "" },
   child: { name: "", age: 5, gender: "male", image_url: "", appearance_notes: "", hijab: false },
@@ -76,6 +83,7 @@ const blankData = () => ({
   style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "" },
   duration: { seconds: 90 },
   audio_background: { mode: "music" },
+  delivery: { output_type: "both" },
 });
 
 const LS_KEY = "gheras_story_draft_v2";
@@ -158,6 +166,8 @@ export default function StoryBuilder() {
   const updatePers = (patch) => setData((d) => ({ ...d, personalization: { ...d.personalization, ...patch } }));
   const updateDuration = (seconds) => setData((d) => ({ ...d, duration: { seconds } }));
   const updateAudioBg = (mode) => setData((d) => ({ ...d, audio_background: { mode } }));
+  const updateOutputType = (output_type) =>
+    setData((d) => ({ ...d, delivery: { ...(d.delivery || {}), output_type } }));
 
   const toggleFav = (key) => {
     const cur = data.personalization.favorites?.[key] || { selected: false, name: "" };
@@ -694,6 +704,11 @@ export default function StoryBuilder() {
                 onChange={updateAudioBg}
               />
 
+              <OutputTypePicker
+                value={data.delivery?.output_type || "both"}
+                onChange={updateOutputType}
+              />
+
               <OptionGroup label="نوع القصة" icon={Palette} items={options.type} value={data.style.type_id} onChange={(v) => updateStyle({ type_id: v })} testId="style-type" required />
               <OptionGroup label="النبرة" icon={Heart} items={options.tone} value={data.style.tone_id} onChange={(v) => updateStyle({ tone_id: v })} testId="style-tone" required />
               <OptionGroup label="البيئة" icon={MapPin} items={options.setting} value={data.style.setting_id} onChange={(v) => updateStyle({ setting_id: v })} testId="style-setting" />
@@ -863,6 +878,51 @@ function AudioBackgroundPicker({ mode, onChange }) {
   );
 }
 
+function OutputTypePicker({ value, onChange }) {
+  return (
+    <div className="mb-6" data-testid="output-type-picker">
+      <label className="text-sm font-bold text-[#2D3748] mb-3 font-body inline-flex items-center gap-2">
+        <FileText className="w-4 h-4 text-[#729352]" />
+        نوع التسليم
+      </label>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+        {OUTPUT_TYPE_OPTIONS.map((opt) => {
+          const selected = value === opt.v;
+          const Icon = opt.i;
+          return (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => onChange(opt.v)}
+              className={`text-right rounded-2xl px-4 py-3 border-2 transition flex items-start gap-3 ${
+                selected
+                  ? "bg-[#E8F0E1] border-[#87A96B] shadow-sm"
+                  : "bg-[#FDFBF7] border-[#E2D8C9] hover:border-[#87A96B]/60"
+              }`}
+              data-testid={`output-type-${opt.v}`}
+            >
+              <div className={`mt-1 w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                selected ? "bg-[#87A96B] text-white" : "bg-[#F8F1E7] text-[#5A677D]"
+              }`}>
+                <Icon className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <div className={`font-body text-sm font-bold ${selected ? "text-[#4F6B3B]" : "text-[#2D3748]"}`}>
+                  {opt.l}
+                </div>
+                <div className="text-xs text-[#8A9AB0] font-body mt-0.5">{opt.d}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-[#8A9AB0] font-body mt-2">
+        يمكنك اختيار الفيديو فقط، أو الكتاب PDF فقط، أو الاثنين معاً. هذا الخيار سيؤثر على التكلفة لاحقاً.
+      </p>
+    </div>
+  );
+}
+
 function OptionGroup({ label, icon: Icon, items, value, onChange, testId, required }) {
   if (!items?.length) return null;
   return (
@@ -900,6 +960,8 @@ function Review({ data, categories, options }) {
   const durMeta = DURATION_META[durSec] || DURATION_META[90];
   const audioBgMode = data.audio_background?.mode || "music";
   const audioBgLabel = (AUDIO_BG_OPTIONS.find((o) => o.v === audioBgMode) || AUDIO_BG_OPTIONS[0]).l;
+  const outputType = data.delivery?.output_type || "both";
+  const outputTypeLabel = (OUTPUT_TYPE_OPTIONS.find((o) => o.v === outputType) || OUTPUT_TYPE_OPTIONS[0]).l;
 
   return (
     <div data-testid="step-6-content">
@@ -917,6 +979,7 @@ function Review({ data, categories, options }) {
         <Field label="اللغة" value={findOpt("language", data.style.language_id)} />
         <Field label="مدة الفيديو" value={`${durMeta.label} • ~${durMeta.scene_target} مشاهد`} />
         <Field label="الخلفية الصوتية" value={audioBgLabel} />
+        <Field label="نوع التسليم" value={outputTypeLabel} />
       </div>
 
       <div className="bg-[#E8F0E1] rounded-2xl p-4 border border-[#87A96B]/30 mb-4">
