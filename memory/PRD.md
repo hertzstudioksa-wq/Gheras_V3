@@ -325,6 +325,72 @@ generating (Phase 6) → completed
 - Admin nav: 3 new entries (Lab / Pricing / Secrets) with proper icons.
 - Tests: 9 new + 25 existing = **34/34 unit tests pass**.
 
+### Wave 3 — Bundles + Audit Trail + Payment-Ready (Feb 2026) ✅
+**Bundles / Packages**
+- Collections: `bundles` (admin SKUs) + `bundle_purchases` (per-user inventory
+  with embedded reservations array).
+- 3 default seeded bundles (idempotent on virgin install): "5 فيديوهات" 199 SAR,
+  "10 كتب PDF" 249 SAR, "حزمة كاملة 5+5" 449 SAR.
+- Lifecycle states (per reservation): `reserved` → `consumed` | `refunded` | `expired`.
+- Idempotent reserve/consume/refund — race-safe via Mongo `$inc` + array filter
+  guards, and explicit "already-or-never" no-op response.
+- Pipeline hooks (best-effort, never block):
+  * `production_routes.trigger_production_planning` → `reserve_for_order` at
+    start of production (matches user spec: consume at start, refund on failure).
+  * `final_delivery_service.run_final_assembly` (DELIVERED) → `consume_for_order`.
+  * `final_delivery_service.run_final_assembly` (MEDIA_FAILED) → `refund_for_order`.
+- Admin endpoints: `GET/POST/PUT/DELETE /api/admin/bundles`,
+  `POST /api/admin/bundles/{id}/grant`, `GET /api/admin/bundles/users/{id}/purchases`.
+- User endpoints: `GET /api/bundles` (active SKUs), `GET /api/bundles/me`
+  (own inventory with computed `quantity_remaining` + `status`).
+- Frontend: `AdminBundles.jsx` (CRUD + grant modal) + `MyBundles.jsx` (customer
+  inventory + buy button → checkout or 503 if Stripe not configured).
+- `pricing_service` now emits `payment_source ∈ {bundle, paid, pending}` on every
+  estimate/actual snapshot — bundle wins over payment when both present.
+
+**Audit Trail**
+- Collection: `audit_log`. Service: `services/audit_service.py`.
+- Endpoint: `GET /api/admin/audit/log?entity_type=&actor_id=&action=&limit=`.
+- Tracked entity_types: `pricing_config`, `model_registry`, `pipeline_config`,
+  `prompt_template`, `bundle`, `bundle_purchase`, `payment_settings`, `payment`.
+- Tracked actions: `create`, `update`, `delete`, `grant`, `reserve`, `consume`,
+  `refund`, `expire`, `config_change`, `secret_rotation_attempt`.
+- Snapshots: `before` + `after` are auto-trimmed (drop `_id`, truncate strings
+  > 400 chars) so audit rows stay compact.
+- Hooks: pricing config update + bundle CRUD + bundle reservation lifecycle +
+  payment settings update + payment creation/finalization.
+- Frontend: `AdminAuditLog.jsx` with entity/action filters and per-row diff
+  expansion (before/after side-by-side).
+
+**Payment Architecture (Stripe — architecture-ready, sk_test_emergent active)**
+- Used `integration_playbook_expert_v2`. SDK used:
+  `emergentintegrations.payments.stripe.checkout.StripeCheckout`.
+- `STRIPE_API_KEY=sk_test_emergent` added to `backend/.env` for testing; LIVE key
+  swap is the only step remaining for production.
+- Collections: `payment_settings` (single doc, NON-secret values only) +
+  `payments` (full transaction log).
+- Service: `services/payment_service.py`. Endpoints:
+  * Admin: `GET/PUT /api/admin/payment/settings`, `GET /admin/payment/status`,
+    `GET /admin/payment/payments`.
+  * User: `POST /api/checkout/bundle/{id}` (returns Stripe session URL),
+    `GET /api/checkout/status/{session_id}` (polling — security-required).
+  * Webhook: `POST /api/webhook/stripe`.
+- 503 graceful guard — every payment endpoint returns
+  `503 الدفع غير مفعّل بعد` when `STRIPE_API_KEY` is missing.
+- Apple Pay handled correctly: appears as a CHECKOUT METHOD inside Stripe's
+  Payment Element on Apple devices when `card` is in `payment_methods`. NOT
+  a payout destination — `payout_destination_label` is informational text
+  describing the merchant bank. Verified by playbook + a unit test.
+- Idempotency: `_finalize_paid_payment` checks `bundle_purchase_id` before
+  granting, preventing double-credit on parallel webhook + status-poll.
+- Backend NEVER accepts amounts from frontend — bundle prices read from DB.
+- E2E verified: real Stripe test session created via `sk_test_emergent`
+  (returned `cs_test_a1ViGt4hUEeN...` URL).
+
+**Tests**
+- 13 new unit cases (`test_wave3_bundles_audit_payment.py`).
+- **47/47 unit tests pass** (47 = 14 D.5 + 9 W1 + 12 W2 + 13 W3 — total).
+
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
 - Video animation (Sora 2 or equivalent) using `animation_prompt`.

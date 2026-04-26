@@ -33,6 +33,10 @@ import AdminPlans from "./pages/admin/AdminPlans";
 import AdminPricing from "./pages/admin/AdminPricing";
 import AdminStageLab from "./pages/admin/AdminStageLab";
 import AdminSecrets from "./pages/admin/AdminSecrets";
+import AdminBundles from "./pages/admin/AdminBundles";
+import AdminAuditLog from "./pages/admin/AdminAuditLog";
+import AdminPaymentSettings from "./pages/admin/AdminPaymentSettings";
+import MyBundles from "./pages/MyBundles";
 import AdminSettings from "./pages/admin/AdminSettings";
 
 function App() {
@@ -91,6 +95,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/my-bundles"
+              element={
+                <ProtectedRoute>
+                  <MyBundles />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               path="/admin"
@@ -113,6 +125,9 @@ function App() {
               <Route path="api-status" element={<AdminApiStatus />} />
               <Route path="plans" element={<AdminPlans />} />
               <Route path="pricing" element={<AdminPricing />} />
+              <Route path="bundles" element={<AdminBundles />} />
+              <Route path="payment" element={<AdminPaymentSettings />} />
+              <Route path="audit" element={<AdminAuditLog />} />
               <Route path="lab" element={<AdminStageLab />} />
               <Route path="secrets" element={<AdminSecrets />} />
               <Route path="settings" element={<AdminSettings />} />

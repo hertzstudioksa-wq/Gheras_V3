@@ -120,13 +120,30 @@ async def _append_status(order_id, from_status, to_status, by, actor_id=None, re
 
 
 async def trigger_production_planning(order_id: str, background: BackgroundTasks):
-    """Called from order_routes after ready_for_ai transitions."""
+    """Called from order_routes after ready_for_ai transitions.
+
+    Wave 3 — try to RESERVE a bundle credit at this exact moment (start of
+    production). If no usable bundle exists the order proceeds as a normal
+    paid order; if a credit is reserved the order is linked to that purchase
+    and will either consume the credit on DELIVERED or refund it on FAILED.
+    """
     run_id = str(uuid.uuid4())
     await db.orders.update_one(
         {"id": order_id},
         {"$set": {"production_generation": {"run_id": run_id, "source": "pending", "error": None, "started_at": _now()}}},
     )
-    o = await db.orders.find_one({"id": order_id}, {"_id": 0, "status": 1})
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0, "status": 1, "user_id": 1, "data": 1})
+    if o:
+        try:
+            from services.bundle_service import reserve_for_order
+            from models import get_order_output_type
+            await reserve_for_order(
+                user_id=o.get("user_id"),
+                order_id=order_id,
+                output_type=get_order_output_type(o),
+            )
+        except Exception:  # noqa: BLE001
+            pass  # bundle reservation is best-effort, never blocks production
     await _append_status(order_id, (o or {}).get("status"), OrderStatus.PRODUCTION_PLANNING.value, "system",
                          reason="auto after ready_for_ai")
     background.add_task(run_production_generation, order_id, run_id)

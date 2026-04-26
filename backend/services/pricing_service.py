@@ -108,12 +108,25 @@ async def update_pricing_config(patch: dict, admin_id: str | None) -> dict:
     update: dict = {k: v for k, v in patch.items() if k in allowed}
     update["updated_at"] = _now()
     update["updated_by"] = admin_id
+    before = await db.pricing_config.find_one({"id": CONFIG_DOC_ID}, {"_id": 0})
     await db.pricing_config.update_one(
         {"id": CONFIG_DOC_ID},
         {"$set": update, "$setOnInsert": {"id": CONFIG_DOC_ID}},
         upsert=True,
     )
-    return await get_pricing_config()
+    cfg = await get_pricing_config()
+    # Wave 3 — audit pricing config changes.
+    try:
+        from services.audit_service import record_audit
+        await record_audit(
+            entity_type="pricing_config", entity_id=CONFIG_DOC_ID, action="config_change",
+            actor_id=admin_id, actor_email=None,
+            summary=f"pricing config updated: {sorted(update.keys())}",
+            before=before, after=cfg,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return cfg
 
 
 # =============================================================================
@@ -133,6 +146,22 @@ async def _count_extra_characters_with_image(order: dict) -> int:
 async def _has_toy_image(order: dict) -> bool:
     pers = (order.get("data") or {}).get("personalization") or {}
     return bool(pers.get("toy_image_url") or pers.get("toy_description_auto"))
+
+
+def _payment_source(order: dict) -> str:
+    """Wave 3 — classify how this order will be (or was) paid.
+
+    Returns one of:
+      "bundle"     — order has a bundle_reservation linked (consumed/reserved)
+      "paid"       — order has a successful payment row
+      "pending"    — neither bundle nor payment yet (free preview / unpaid)
+    """
+    res = order.get("bundle_reservation") or {}
+    if res and res.get("status") in ("reserved", "consumed"):
+        return "bundle"
+    if (order.get("payment") or {}).get("status") == "paid":
+        return "paid"
+    return "pending"
 
 
 async def estimate_cost(order: dict) -> dict:
@@ -216,6 +245,7 @@ async def estimate_cost(order: dict) -> dict:
         "margin": margin,
         "markup_percent": cfg["markup_percent"],
         "minimum_price": cfg["minimum_price"],
+        "payment_source": _payment_source(order),
         "computed_at": _now(),
     }
 
@@ -356,6 +386,7 @@ async def actual_cost(order: dict) -> dict:
         "margin": margin,
         "markup_percent": cfg["markup_percent"],
         "minimum_price": cfg["minimum_price"],
+        "payment_source": _payment_source(order),
         "computed_at": _now(),
     }
 

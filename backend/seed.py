@@ -370,3 +370,10 @@ async def seed_all():
     await seed_plans()
     await seed_settings()
     await seed_prompt_templates()
+    # Wave 3 — default bundles (only inserted on a virgin install).
+    try:
+        from services.bundle_service import seed_default_bundles
+        await seed_default_bundles()
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger("seed").warning(f"bundle seed failed: {e}")

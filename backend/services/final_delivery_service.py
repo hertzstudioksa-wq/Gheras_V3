@@ -231,10 +231,22 @@ async def run_final_assembly(order_id: str, run_id: str):
                 await snapshot_actual(fresh_order)
         except Exception:  # noqa: BLE001
             pass
+        # Wave 3 — finalize any reserved bundle credit.
+        try:
+            from services.bundle_service import consume_for_order
+            await consume_for_order(order_id)
+        except Exception:  # noqa: BLE001
+            pass
     else:
         missing = ", ".join(k for k, v in results.items() if not v) or "no jobs"
         await _append_status(order_id, OrderStatus.ASSEMBLING.value, OrderStatus.MEDIA_FAILED.value, "system",
                              reason=f"final assembly failed: {missing}")
+        # Wave 3 — refund any reserved bundle credit.
+        try:
+            from services.bundle_service import refund_for_order
+            await refund_for_order(order_id)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def retry_single_assembly_job(job_id: str) -> dict:
