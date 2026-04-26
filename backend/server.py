@@ -27,6 +27,7 @@ from routes.admin_storyboard_routes import router as admin_storyboard_router  # 
 from routes.admin_pricing_routes import router as admin_pricing_router, order_router as admin_pricing_orders_router  # noqa: E402
 from routes.admin_lab_routes import router as admin_lab_router  # noqa: E402
 from routes.admin_secrets_routes import router as admin_secrets_router  # noqa: E402
+from routes.admin_preset_stacks_routes import router as admin_preset_stacks_router  # noqa: E402
 from routes.admin_audit_routes import router as admin_audit_router  # noqa: E402
 from routes.admin_assets_routes import router as admin_assets_router  # noqa: E402
 from routes.bundle_routes import admin_router as admin_bundle_router, user_router as bundle_user_router  # noqa: E402
@@ -61,6 +62,7 @@ api_router.include_router(admin_pricing_router)
 api_router.include_router(admin_pricing_orders_router)
 api_router.include_router(admin_lab_router)
 api_router.include_router(admin_secrets_router)
+api_router.include_router(admin_preset_stacks_router)
 api_router.include_router(admin_audit_router)
 api_router.include_router(admin_assets_router)
 api_router.include_router(admin_bundle_router)
@@ -90,6 +92,20 @@ logger = logging.getLogger("gheras")
 async def on_startup():
     await ensure_indexes()
     await seed_all()
+    try:
+        from services.secret_overrides_service import apply_overrides_to_env
+        n = await apply_overrides_to_env()
+        if n:
+            logger.info(f"applied {n} secure secret overrides at startup")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"secret overrides apply skipped: {e}")
+    try:
+        from services.preset_stacks_service import seed_default_presets
+        n = await seed_default_presets()
+        if n:
+            logger.info(f"seeded {n} preset stacks")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"preset seeding skipped: {e}")
     try:
         init_storage()
     except Exception as e:

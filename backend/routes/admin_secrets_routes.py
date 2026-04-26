@@ -1,21 +1,28 @@
-"""Admin secrets routes — Wave 2.
+"""Admin secrets routes — Wave 2 + Phase H.
 
-READ-ONLY. The admin can:
-  * see WHICH provider env keys are configured (boolean) and their masked tail
-  * read static rotation instructions per provider
+Phase H additions:
+  * `PUT /admin/secrets/{env_key}`  — encrypted secure override (never echoes raw)
+  * `DELETE /admin/secrets/{env_key}` — remove an override (falls back to .env)
+  * `POST /admin/secrets/test/{provider}` — provider connectivity test
+  * `POST /admin/secrets/test-all`        — test every supported provider in parallel
 
-The admin CANNOT:
-  * read full secret values
-  * write/edit/delete secrets from the dashboard
-
-This is by design — secrets live in the deployment's `.env` and are rotated
-through the deployment pipeline, not through the user-facing admin UI.
+Security guarantees:
+  * The frontend NEVER sees the raw secret value after save.
+  * Overrides are stored in `secret_overrides` collection encrypted with
+    Fernet. See services/secret_overrides_service.py.
+  * Resolution precedence used everywhere: secure_override → process .env → None.
 """
 import os
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from auth import require_admin
 from services.config_service import PROVIDER_ENV_MAP
+from services.secret_overrides_service import (
+    list_overrides_status, set_override, delete_override,
+    secret_source, encryption_available,
+)
+from services.provider_test_service import test_provider, test_all_providers, PROVIDERS
+from services.audit_service import record_audit
 
 router = APIRouter(
     prefix="/admin/secrets",
@@ -32,12 +39,10 @@ KNOWN_ENV_KEYS: list[dict] = [
         "providers": ["openai"],
         "purpose": "نصوص (gpt-5.2, gpt-5-mini) + صور (gpt-image-1) + رؤية (gpt-4o vision)",
         "rotation_instructions": (
-            "1) سجّل دخول إلى https://platform.openai.com/api-keys\n"
-            "2) أنشئ مفتاحاً جديداً (Create new secret key)\n"
-            "3) ضعه في deployment .env تحت OPENAI_API_KEY\n"
-            "4) أعد تشغيل الـ backend: sudo supervisorctl restart backend\n"
-            "5) عُد لهنا للتأكد من حالة Configured."
+            "استخدم زرّ 'تحديث آمن' أعلاه — يُحفظ مشفّراً في DB ولا يحتاج إعادة تشغيل.\n"
+            "أو يدوياً: ضع المفتاح في .env تحت OPENAI_API_KEY ثم: sudo supervisorctl restart backend."
         ),
+        "test_provider_key": "openai",
     },
     {
         "key": "EMERGENT_LLM_KEY",
@@ -45,12 +50,34 @@ KNOWN_ENV_KEYS: list[dict] = [
         "providers": ["anthropic", "gemini", "openai-via-emergent"],
         "purpose": "Claude Sonnet 4.5 + Nano Banana + توليد الصور عبر بروكسي Emergent",
         "rotation_instructions": (
-            "1) افتح Emergent Profile → Universal Key.\n"
-            "2) أنشئ مفتاحاً جديداً أو زِد الرصيد عبر Add Balance.\n"
-            "3) ضع المفتاح في deployment .env تحت EMERGENT_LLM_KEY.\n"
-            "4) أعد تشغيل الـ backend.\n"
-            "Note: لو الرصيد قارب الانتهاء فعّل Auto top-up من نفس الصفحة."
+            "Profile → Universal Key على Emergent. ثم استخدم زرّ 'تحديث آمن' هنا."
         ),
+        "test_provider_key": "emergent",
+    },
+    {
+        "key": "ELEVENLABS_API_KEY",
+        "label": "ElevenLabs (TTS)",
+        "providers": ["elevenlabs"],
+        "purpose": "Text-to-Speech للسرد العربي (يحلّ محلّ المحاكاة الحالية).",
+        "rotation_instructions": (
+            "1) سجّل دخول إلى https://elevenlabs.io/app/settings/api-keys\n"
+            "2) أنشئ مفتاحاً جديداً.\n"
+            "3) استخدم زرّ 'تحديث آمن' هنا — لا يحتاج إعادة تشغيل."
+        ),
+        "test_provider_key": "elevenlabs",
+        "optional": True,
+    },
+    {
+        "key": "STRIPE_API_KEY",
+        "label": "Stripe",
+        "providers": ["stripe"],
+        "purpose": "بوّابة الدفع (test/sandbox أو live).",
+        "rotation_instructions": (
+            "1) https://dashboard.stripe.com/apikeys\n"
+            "2) Reveal sk_test أو sk_live → استخدم زرّ 'تحديث آمن' هنا."
+        ),
+        "test_provider_key": "stripe",
+        "optional": True,
     },
     {
         "key": "MONGO_URL",
@@ -59,15 +86,14 @@ KNOWN_ENV_KEYS: list[dict] = [
         "purpose": "تخزين كل بيانات التطبيق (orders, scenarios, plans, …)",
         "rotation_instructions": (
             "MongoDB URL يُدار على مستوى البنية التحتية فقط.\n"
-            "لا تغيّره من هذه اللوحة. إن احتجت تغيير URL تواصل مع DevOps."
+            "لا يمكن حفظه كـ override آمن. تواصل مع DevOps."
         ),
-        "system": True,  # not user-rotatable
+        "system": True,  # not user-rotatable via override
     },
 ]
 
 
 def _mask(value: str | None) -> str | None:
-    """Return a masked tail for safe display. None for empty values."""
     if not value:
         return None
     v = value.strip()
@@ -78,42 +104,139 @@ def _mask(value: str | None) -> str | None:
 
 @router.get("/status")
 async def get_secrets_status():
-    """Return read-only status for all known env keys.
+    """Per-key status with override-aware fields.
 
-    Response shape (per key):
-      {
-        key, label, providers, purpose,
-        configured: bool,
-        masked: "***ABCD" | null,
-        last_modified: null,           # not tracked — env-managed
-        rotation_instructions: "...",
-        system: bool                   # true for non-user-rotatable
-      }
+    Per item:
+      key, label, providers, purpose,
+      configured: bool        — true if EITHER override OR env is set
+      source: "override"|"env"|"missing"
+      masked: "***ABCD"|null
+      override_present: bool
+      override_updated_at: iso|null
+      override_updated_by: id|null
+      rotation_instructions, system, optional
     """
+    overrides = {o["env_key"]: o for o in await list_overrides_status()}
+
     items = []
     for spec in KNOWN_ENV_KEYS:
-        raw = os.environ.get(spec["key"]) or ""
+        key = spec["key"]
+        env_val = os.environ.get(key) or ""
+        ov = overrides.get(key)
+        # Source resolution
+        source = await secret_source(key)
+        if source == "override":
+            masked = ov.get("masked")
+        elif source == "env":
+            masked = _mask(env_val)
+        else:
+            masked = None
         items.append({
-            "key": spec["key"],
+            "key": key,
             "label": spec["label"],
             "providers": spec.get("providers") or [],
             "purpose": spec.get("purpose") or "",
-            "configured": bool(raw.strip()),
-            "masked": _mask(raw),
-            "last_modified": None,
+            "configured": source != "missing",
+            "source": source,
+            "masked": masked,
+            "override_present": bool(ov),
+            "override_updated_at": (ov or {}).get("updated_at"),
+            "override_updated_by": (ov or {}).get("updated_by"),
             "rotation_instructions": spec.get("rotation_instructions") or "",
             "system": bool(spec.get("system", False)),
+            "optional": bool(spec.get("optional", False)),
+            "test_provider_key": spec.get("test_provider_key"),
         })
-
-    # Provide the provider→env map so the UI can mark which Admin model rows
-    # are missing their credential.
-    provider_env_map = dict(PROVIDER_ENV_MAP)
 
     return {
         "items": items,
-        "provider_env_map": provider_env_map,
+        "provider_env_map": dict(PROVIDER_ENV_MAP),
+        "encryption_available": encryption_available(),
+        "supported_providers_for_test": list(PROVIDERS.keys()),
         "note_ar": (
-            "هذه اللوحة للقراءة فقط لأسباب أمنية. "
-            "لتدوير أي مفتاح اتبع تعليمات الـ rotation أدناه ثم أعد تشغيل الخدمة."
+            "تستطيع إضافة override آمن مشفّر في DB لأي مفتاح — لا يحتاج إعادة تشغيل ولا يكشف القيمة بعد الحفظ. "
+            "ترتيب الأولوية: secure override → .env → غير موجود."
         ),
     }
+
+
+# ---- Phase H — secure write/delete + provider tests -----------------------
+@router.put("/{env_key}")
+async def set_secret_override(env_key: str, payload: dict, admin=Depends(require_admin)):
+    """Store an encrypted override for the given env_key. Raw value is
+    encrypted with Fernet at rest and NEVER returned."""
+    spec = next((s for s in KNOWN_ENV_KEYS if s["key"] == env_key), None)
+    if not spec:
+        raise HTTPException(status_code=404, detail="unknown env_key")
+    if spec.get("system"):
+        raise HTTPException(status_code=400, detail="system keys are not rotatable from admin")
+    raw = (payload or {}).get("value")
+    if not raw or not str(raw).strip():
+        raise HTTPException(status_code=400, detail="value is required")
+    if not encryption_available():
+        raise HTTPException(status_code=503,
+                            detail="encryption not available — set SECRETS_ENCRYPTION_KEY in deployment")
+    try:
+        result = await set_override(env_key, str(raw), admin.get("id"))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"could not store override: {e}")
+
+    await record_audit(
+        entity_type="env_key",
+        entity_id=env_key,
+        action="secret_override.set",
+        actor_id=admin.get("id"),
+        actor_email=admin.get("email"),
+        summary=f"Stored encrypted override for {env_key}",
+        before={"override_present": False},
+        after={"override_present": True, "masked": result.get("masked"),
+               "rotated": result.get("rotated")},
+    )
+    return {"ok": True, "env_key": env_key, **result}
+
+
+@router.delete("/{env_key}")
+async def remove_secret_override(env_key: str, admin=Depends(require_admin)):
+    """Remove an override. Resolution will fall back to .env."""
+    spec = next((s for s in KNOWN_ENV_KEYS if s["key"] == env_key), None)
+    if not spec:
+        raise HTTPException(status_code=404, detail="unknown env_key")
+    removed = await delete_override(env_key, admin.get("id"))
+    if removed:
+        await record_audit(
+            entity_type="env_key",
+            entity_id=env_key,
+            action="secret_override.delete",
+            actor_id=admin.get("id"),
+            actor_email=admin.get("email"),
+            summary=f"Deleted encrypted override for {env_key} (now resolves from .env)",
+            before={"override_present": True},
+            after={"override_present": False},
+        )
+    return {"ok": True, "env_key": env_key, "removed": removed}
+
+
+@router.post("/test/{provider}")
+async def test_one_provider(provider: str, admin=Depends(require_admin)):
+    if provider not in PROVIDERS:
+        raise HTTPException(status_code=400,
+                             detail=f"unknown provider; supported: {list(PROVIDERS)}")
+    res = await test_provider(provider)
+    # Audit non-secretly.
+    await record_audit(
+        entity_type="provider",
+        entity_id=provider,
+        action="provider_test.run",
+        actor_id=admin.get("id"),
+        actor_email=admin.get("email"),
+        summary=f"connectivity test {provider}: ok={res.get('ok')} latency={res.get('latency_ms')}ms",
+        before=None,
+        after={"ok": res.get("ok"), "auth_ok": res.get("auth_ok"),
+               "secret_source": res.get("secret_source")},
+    )
+    return res
+
+
+@router.post("/test-all")
+async def test_all(admin=Depends(require_admin)):
+    return {"results": await test_all_providers()}

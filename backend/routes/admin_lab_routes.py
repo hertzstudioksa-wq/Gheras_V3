@@ -33,11 +33,23 @@ async def list_stages():
     ).to_list(50)
     has_template = {r.get("stage_key") for r in rows}
 
+    # Phase H — surface the active preset stack so the UI can show
+    # "config came from preset X" alongside each stage.
+    active_preset = await db.preset_stacks.find_one(
+        {"is_active": True, "is_archived": {"$ne": True}}, {"_id": 0},
+    )
+    # Per-stage applied_by_preset map.
+    mr_rows = await db.model_registry.find(
+        {}, {"_id": 0, "stage_key": 1, "applied_by_preset_id": 1, "applied_by_preset_name": 1},
+    ).to_list(50)
+    applied_by = {r["stage_key"]: r for r in mr_rows}
+
     stages = []
     for s in SUPPORTED_STAGES:
         executor_status = EXECUTOR_STATUS.get(s, "preview-only")
         # `real_call` kept for back-compat with the existing UI checkbox.
         real_call = (executor_status == "real-call")
+        applied = applied_by.get(s) or {}
         stages.append({
             "stage_key": s,
             "name_ar": (STAGE_DISPLAY_NAMES.get(s) or {}).get("ar") or s,
@@ -48,8 +60,22 @@ async def list_stages():
             "estimated_cost": float(cfg.get("per_stage_costs", {}).get(s, 0.0)),
             "currency": cfg.get("currency", "SAR"),
             "notes_ar": STAGE_NOTES_AR.get(s, ""),
+            # Phase H — provenance
+            "applied_by_preset_id":   applied.get("applied_by_preset_id"),
+            "applied_by_preset_name": applied.get("applied_by_preset_name"),
+            "config_source": (
+                "preset" if applied.get("applied_by_preset_id") else
+                ("manual_or_default")
+            ),
         })
-    return {"stages": stages}
+    return {
+        "stages": stages,
+        "active_preset": (
+            {"id": active_preset.get("id"), "name": active_preset.get("name"),
+             "slug": active_preset.get("slug"), "applied_at": active_preset.get("applied_at")}
+            if active_preset else None
+        ),
+    }
 
 
 @router.post("/run")

@@ -627,6 +627,125 @@ templates **bumped to v2** (old v1 deactivated, archived for audit). Both now:
 **106/107 total** (9 G + 10 F + 25 E + 54 W1-4 + 8 D.5/D.3 — 1 pre-existing
 async-pytest config fail).
 
+### Phase H — Operations Readiness + Preset Stacks (Feb 2026) ✅
+
+**Part 1 — Encrypted Secret Overrides (`secret_overrides_service.py`)**
+- New `secret_overrides` MongoDB collection. Encryption uses **Fernet** with key
+  derived from `SECRETS_ENCRYPTION_KEY` env (recommended) or fallback derived
+  from `MONGO_URL` (always present in this pod). `encryption_available()`
+  surfaces availability to the UI.
+- Resolution precedence: **secure_override → process .env → None**.
+- At backend startup, `apply_overrides_to_env()` decrypts every override and
+  injects it into `os.environ` so legacy `os.environ.get(...)` paths transparently
+  pick up the latest value without code changes.
+- API:
+  * `GET /api/admin/secrets/status` — per-key `source` (`override|env|missing`),
+    `masked` (`***ABCD`), `override_present`, `override_updated_at`, `optional`,
+    `test_provider_key`, `encryption_available`.
+  * `PUT /api/admin/secrets/{env_key}` — accepts `{value}`, encrypts, returns
+    only `{rotated, masked}`. **Raw value never echoed.**
+  * `DELETE /api/admin/secrets/{env_key}` — falls back to .env.
+- Audit on every set/delete (action `secret_override.set` / `secret_override.delete`).
+
+**Part 2 — Provider Connectivity (`provider_test_service.py`)**
+- 4 providers supported: `openai`, `emergent` (Gemini/Claude path),
+  `elevenlabs`, `stripe`. Each tester returns
+  `{ok, auth_ok, reachable, model_reachable, latency_ms, secret_source,
+   secret_masked, error}` — never the raw secret.
+- API:
+  * `POST /api/admin/secrets/test/{provider}` — single test (audited).
+  * `POST /api/admin/secrets/test-all` — parallel test of all 4.
+- Live verified: OpenAI 572ms ✓, Emergent path ✓, ElevenLabs `missing` ✗ (correctly),
+  Stripe present-but-key-format-invalid ✗ (correctly).
+
+**Preset Stacks (`preset_stacks_service.py`, `admin_preset_stacks_routes.py`)**
+- New `preset_stacks` collection. Schema: `id, name, slug, description,
+  intended_use, is_seeded, is_active, is_archived, stage_map,
+  created_at/by, updated_at/by, applied_at/by`.
+- `_validate_stage_map` rejects any field that smells like a raw secret
+  (`api_key`, `secret`, `value`, `raw`) → presets can ONLY reference `env_key`
+  names that the secret system already manages.
+- 5 seeded presets: **OpenAI Full Stack**, **Gemini Visual Stack**,
+  **Low-Cost Stack**, **High-Fidelity Stack**, **Safe Production Stack**.
+- API:
+  * `GET /api/admin/presets` — list
+  * `GET /api/admin/presets/active` — currently applied preset
+  * `GET /api/admin/presets/{id}` — single
+  * `POST /api/admin/presets` — create
+  * `PUT /api/admin/presets/{id}` — update
+  * `POST /api/admin/presets/{id}/clone` — clone
+  * `DELETE /api/admin/presets/{id}` — delete (or archive if seeded)
+  * `POST /api/admin/presets/{id}/dry-run` — diff before apply, with
+    `executor_status`, `secret_status` per stage + Arabic warnings + summary
+    of `missing_secrets` and `non_executable_stages`.
+  * `POST /api/admin/presets/{id}/apply` — writes preset's stage_map into
+    `model_registry`, sets `applied_by_preset_id/name`, marks preset
+    `is_active=True` and deactivates others.
+- Audit on every preset action (`preset.create/update/delete/apply`).
+
+**Lab integration**
+- `GET /api/admin/lab/stages` now returns `active_preset` plus per-stage
+  `applied_by_preset_id`, `applied_by_preset_name`, `config_source`
+  (`preset` | `manual_or_default`). Admin instantly sees provenance.
+
+**Frontend**
+- `pages/admin/AdminSecrets.jsx` rebuilt: shows `source` badge per secret +
+  password input for safe override + "حفظ آمن" + "حذف override" + per-key
+  "اختبار اتصال" button + live test result panel.
+- `pages/admin/AdminPresets.jsx` (NEW): 2-col grid of all presets with
+  active banner, preview (dry-run) + apply + clone + archive, full diff
+  panel underneath with executor_status/secret_status badges and Arabic
+  warnings per stage. Wired into `/admin/presets` route + sidebar.
+
+**Tests** — 12 new unit tests (`tests/test_phase_h_secrets_presets.py`):
+encryption availability + round-trip + masking, slug helpers, stage_map
+validation rejects raw secrets, seeded preset shape, executor warnings.
+All 7 live API tests pass:
+  TEST 1 secure override: raw never echoed in PUT response or /status; DELETE
+  reverts to env. ✅
+  TEST 2 provider connectivity: OpenAI 572ms ✓, all 4 return safe payloads. ✅
+  TEST 3 5 seeded presets exist with stage_map. ✅
+  TEST 4 dry-run gemini-visual: 5 changed + 1 unchanged + non_executable
+  warnings + secret_status per stage. ✅
+  TEST 5 apply safe-production: 4 stages updated in model_registry,
+  applied_by_preset_name set, is_active flipped. ✅
+  TEST 6 lab/stages exposes active_preset banner + per-stage `config_source`. ✅
+  TEST 7 regression: 31/31 unit tests + Effective Prompt Preview for all 11
+  stages still works unchanged. ✅
+
+**Files added/modified**
+- `backend/services/secret_overrides_service.py` (NEW, 200+ lines)
+- `backend/services/provider_test_service.py` (NEW, 165 lines)
+- `backend/services/preset_stacks_service.py` (NEW, 380 lines)
+- `backend/routes/admin_secrets_routes.py` (rewritten with secure CRUD)
+- `backend/routes/admin_preset_stacks_routes.py` (NEW)
+- `backend/routes/admin_lab_routes.py` (active_preset + config_source)
+- `backend/services/audit_service.py` (new entity_types + actions)
+- `backend/server.py` (startup hooks for overrides + preset seed + new router)
+- `frontend/src/pages/admin/AdminSecrets.jsx` (rewritten)
+- `frontend/src/pages/admin/AdminPresets.jsx` (NEW)
+- `frontend/src/pages/admin/AdminLayout.jsx` (sidebar entry)
+- `frontend/src/App.js` (route)
+- `backend/tests/test_phase_h_secrets_presets.py` (NEW, 12 tests)
+
+**118/119 total** (12 H + 9 G + 10 F + 25 E + 54 W1-4 + 8 D.5/D.3 — 1 pre-existing async-pytest config fail).
+
+**Operator readiness — confirmed**
+The admin can now, without any code edits or deployment:
+  ✅ rotate provider credentials safely (encrypted, source-aware)
+  ✅ verify provider auth with one click (4 providers wired)
+  ✅ inspect the true final prompt before execution (Phase F)
+  ✅ know which stages are real-call / preview-only / not-yet-wired / local-binary / reuse-from-other-stage (Phase G)
+  ✅ switch between 5 named provider/model stacks safely (Phase H Presets)
+  ✅ see exactly what will change (dry-run) before applying any preset
+  ✅ audit every config action (audit_log)
+  ✅ trust pricing/cost for actual references injected (Phase E)
+
+**Intentionally still preview-only / not-yet-wired** (executor not implemented):
+  • narration_generation (TTS) • video_generation • music_generation
+  • book_page_image_generation (reuses scene image)
+  • video_assembly + pdf_assembly (local binaries)
+
 
 ## Backlog (Phase 6 — NOT built yet)
 - Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.

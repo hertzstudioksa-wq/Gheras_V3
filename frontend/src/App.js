@@ -33,6 +33,7 @@ import AdminPlans from "./pages/admin/AdminPlans";
 import AdminPricing from "./pages/admin/AdminPricing";
 import AdminStageLab from "./pages/admin/AdminStageLab";
 import AdminSecrets from "./pages/admin/AdminSecrets";
+import AdminPresets from "./pages/admin/AdminPresets";
 import AdminBundles from "./pages/admin/AdminBundles";
 import AdminAuditLog from "./pages/admin/AdminAuditLog";
 import AdminPaymentSettings from "./pages/admin/AdminPaymentSettings";
@@ -134,6 +135,7 @@ function App() {
               <Route path="retention" element={<AdminRetention />} />
               <Route path="lab" element={<AdminStageLab />} />
               <Route path="secrets" element={<AdminSecrets />} />
+              <Route path="presets" element={<AdminPresets />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
 
