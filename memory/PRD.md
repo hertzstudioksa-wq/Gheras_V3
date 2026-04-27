@@ -1018,18 +1018,126 @@ The admin can now confidently begin manual testing because:
   - `frontend/src/pages/admin/AdminStageControl.jsx` (video KPI + banner + Clapperboard)
 
 
-## Active Backlog (post-Phase L)
+### Phase M — Music Generation + Storyboard Clip Visibility + Audio Mix (Feb 27, 2026) ✅
+
+**What landed**
+1. **Real ElevenLabs Music adapter** — `services/music_generation_service.py`,
+   provider-adapter pattern. Default: `eleven_music_v1`. `POST /v1/music`
+   with prompt + music_length_ms (10s..5min). HTTP-aware skip reasons:
+   401→`auth_failed`, 403→`plan_required` (Creator+), 5xx/network→
+   `provider_unavailable`. Suno + mock stubs registered.
+2. **Mode-aware behaviour** —
+   `mode='none'` → never call API, recorded as `skip_reason='mode_none'`.
+   `mode='music'` → cinematic instrumental prompt, `mode_implementation='native_music'`.
+   `mode='human_rhythm'` → vocal-percussion biased prompt,
+   `mode_implementation='prompt_biased_no_native_support'` (honest — no native API
+   for human rhythm). Missing key → recorded as `skip_reason='missing_key'`,
+   never fails the order.
+3. **Per-story orchestration** — `_run_music_generation_stage` in
+   `generation_orchestrator` runs after `_run_video_generation_stage`.
+   Reads `audio_background_mode` from plan/order data. Estimates duration
+   from sum of scene durations + 5s buffer. Persists every attempt to
+   `db.music_tracks` (skipped or completed) so storyboard can always show
+   what was requested vs. what happened.
+4. **Real ffmpeg audio mixing** — `video_assembly_service` now mixes
+   narration timeline (`adelay` per-scene) + music track (`-stream_loop -1`,
+   ducked to 0.32 when narrating, 0.85 alone). Modes: `silent`,
+   `narration_only`, `music_only`, `narration+music`,
+   `silent_after_mix_failure`. Final video meta exposes `audio_mix_meta`,
+   `assembly_mode`, `music_track_id`, `music_skipped`, `real_narration_used`.
+5. **Stage Lab music executor** — `_run_music_generation_lab` (cost-ack
+   gated, max 60s preview, mode-aware). All three modes reachable from lab.
+6. **Stage Control extensions** — `kpi-music` KPI + `music-banner` with
+   Arabic guidance about Creator+ requirement, human_rhythm caveat, all
+   3 supported modes. provider_choices for music_generation =
+   ['elevenlabs', 'suno', 'mock']. `music_real_call_available` +
+   `music_defaults` exposed by state endpoint.
+7. **Provider connectivity test** — `provider_test_service.test_elevenlabs_music()`
+   probes /v1/music and distinguishes auth_ok vs plan_required cleanly.
+8. **Secrets registry** — ELEVENLABS_API_KEY entry now labeled
+   "ElevenLabs (TTS + Music)" with `extra_test_keys=['elevenlabs_music']`.
+9. **Storyboard route extensions** — `_stage_video_generation` reads
+   `db.video_clips` and surfaces per-scene `scene_clips` array (state,
+   provider, model, clip_strategy, video_url, duration, request_id,
+   real_call/fallback, error, ref usage flags, video_prompt). New
+   `_stage_music_generation` reads `db.music_tracks` (latest desc) and
+   surfaces requested vs actual mode + skip_reason + audio_url +
+   mode_implementation + prompt_used. STAGE_ORDER expanded to 11 stages.
+10. **Storyboard UI** — `OutVideoGeneration` renders scene clip cards with
+    `<video controls>` previews, provider/model/strategy badges, ref-usage
+    flags, and an expandable prompt section. `OutMusicGeneration` renders
+    `<audio controls>` for the music track with mode pills and skip-reason
+    callouts. `OutVideo` (final assembly) renders an audio-mix pill strip
+    showing `assembly_mode`, real_clips_used, slideshow_frames_used,
+    placeholder_frames, audio mix mode, narration count, music used,
+    duration.
+11. **Pricing audit** — `per_stage_costs.music_generation = 1.50` SAR per
+    story; reflects `audio_background_mode='none'` honestly (skip → no cost).
+12. **Migration shipped** — Phase L migration in `server.py` startup is
+    idempotent; Phase M did not need an additional migration since the
+    music_generation row was simply re-defaulted via DEFAULT_MODELS resolve.
+13. **Seed prompt template** — `music_generation` template rewritten:
+    mode-aware (music | human_rhythm | none), uses
+    estimated_total_duration_seconds + value_label + story_keywords +
+    emotional_arc + audio_background_mode.
+
+**Acceptance — Phase M objectives delivered**
+  ✅ music_generation real-call when ELEVENLABS_API_KEY present + Creator+ plan.
+  ✅ Provider-adapter shape; Suno stub registered for one-function wire-up.
+  ✅ All 3 audio_background_mode values honored honestly (no fake conversion).
+  ✅ Storyboard now shows per-scene Kling clips with playable previews +
+     full metadata + ref usage flags + expandable prompts.
+  ✅ Final video assembly exposes `assembly_mode` + `audio_mix_meta` +
+     music_skipped + real_narration_used in storyboard pills.
+  ✅ Audio mixing in ffmpeg is real (narration adelay + music duck) — no
+     more silent-placeholder when narration/music exist.
+  ✅ Stage Control + Lab + Storyboard + Secrets + Pipeline all consistent.
+  ✅ ZERO regressions on Phase K/L/earlier — full unit suite 168/168.
+
+**Tests**
+  Unit (Phase M): 16/16 (`tests/test_phase_m_music_storyboard.py`)
+  Live API (Phase M, by testing agent): 13/13 (`tests/test_phase_m_api.py`)
+  Snapshot tests adjusted: `test_phase_g_lab_gaps` (not_yet_wired now empty),
+  `test_phase_k_api` (stages_remaining_to_wire now empty),
+  `test_phase_l_api` (no longer expects music_generation in remaining),
+  `test_wave2_pricing_lab_secrets` (music_generation now in REAL_CALL_STAGES).
+  Total unit suite: **168/168 passing.**
+
+**Files added**
+  - `backend/services/music_generation_service.py`
+  - `backend/tests/test_phase_m_music_storyboard.py`
+
+**Files updated**
+  - `backend/services/generation_orchestrator.py` (+`_run_music_generation_stage`)
+  - `backend/services/video_assembly_service.py` (real audio mixing pass)
+  - `backend/services/stage_lab_service.py` (`_run_music_generation_lab`, EXECUTOR_STATUS, REAL_CALL_STAGES, STAGE_NOTES_AR)
+  - `backend/services/pipeline_readiness_service.py` (music_real_call_available wiring)
+  - `backend/services/pricing_service.py` (music cost 1.50)
+  - `backend/services/config_service.py` (DEFAULT_MODELS.music_generation = elevenlabs/eleven_music_v1)
+  - `backend/services/provider_test_service.py` (`test_elevenlabs_music`)
+  - `backend/routes/admin_secrets_routes.py` (ELEVENLABS_API_KEY label + extra_test_keys)
+  - `backend/routes/admin_stage_control_routes.py` (music_real_call_available + music_defaults)
+  - `backend/routes/admin_storyboard_routes.py` (`_stage_video_generation`, `_stage_music_generation`, STAGE_ORDER expansion)
+  - `backend/seed.py` (music_generation prompt template)
+  - `frontend/src/pages/admin/AdminStageControl.jsx` (kpi-music + music-banner)
+  - `frontend/src/pages/admin/AdminStoryboard.jsx` (OutVideoGeneration, OutMusicGeneration, OutVideo extension, Pill helper)
+
+
+## Active Backlog (post-Phase M)
 **P1 (next up)**
-- `music_generation` real executor (Suno or ElevenLabs Music) — only stage left as `not-yet-wired`.
-- Prompt Diff Viewer + Prompt Health Dashboard UI.
-- AdminStoryboard surfacing `video_clips` per scene with strategy/state.
+- Sora 2 / Luma video adapters — single-function wire-up in
+  `video_generation_service._video_via_sora` / `_video_via_luma`.
+- OpenAI TTS adapter — single-function wire-up in
+  `tts_service._tts_via_openai`.
+- Suno music adapter — single-function wire-up in
+  `music_generation_service._music_via_suno`.
 
 **P2**
-- Audio background mixing in `ffmpeg` using actual audio tracks.
-- Sora 2 / Luma video adapters — single-function wire-up.
-- OpenAI TTS adapter — single-function wire-up.
-- Pipeline config caps editor UI.
-- PDF size shrink (~10MB → ~2MB).
+- Pipeline config caps editor UI (editable reference caps).
+- PDF size shrink (~10MB → ~2MB via JPEG recompression).
+- Prompt Diff Viewer + Prompt Health Dashboard UI.
+- Storyboard quick-actions: "Test this scene" buttons that re-launch
+  individual scene clip generation without re-running the full order.
 
 ## P1 Enhancements (later)
 - Per-user character_profiles (reuse across stories for the same child).
