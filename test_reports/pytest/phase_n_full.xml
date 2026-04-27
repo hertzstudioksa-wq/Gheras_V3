@@ -1,0 +1,1003 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="65" failures="7" skipped="0" tests="294" time="28.517" timestamp="2026-04-27T22:33:04.848254+00:00" hostname="agent-env-a70c6e8c-b2f4-4b3b-b992-5fdaedcd280f"><testcase classname="tests.backend_test" name="test_health" time="0.001"><failure message="requests.exceptions.MissingSchema: Invalid URL '/api/': No scheme supplied. Perhaps you meant https:///api/?">tests/backend_test.py:75: in test_health
+    r = session.get(f"{API}/")
+        ^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:605: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/': No scheme supplied. Perhaps you meant https:///api/?</failure></testcase><testcase classname="tests.backend_test" name="test_public_categories" time="0.001"><failure message="requests.exceptions.MissingSchema: Invalid URL '/api/public/categories': No scheme supplied. Perhaps you meant https:///api/public/categories?">tests/backend_test.py:83: in test_public_categories
+    r = session.get(f"{API}/public/categories")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:605: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/public/categories': No scheme supplied. Perhaps you meant https:///api/public/categories?</failure></testcase><testcase classname="tests.backend_test" name="test_public_story_options" time="0.001"><failure message="requests.exceptions.MissingSchema: Invalid URL '/api/public/story-options': No scheme supplied. Perhaps you meant https:///api/public/story-options?">tests/backend_test.py:93: in test_public_story_options
+    r = session.get(f"{API}/public/story-options")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:605: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/public/story-options': No scheme supplied. Perhaps you meant https:///api/public/story-options?</failure></testcase><testcase classname="tests.backend_test" name="test_public_settings" time="0.001"><failure message="requests.exceptions.MissingSchema: Invalid URL '/api/public/settings': No scheme supplied. Perhaps you meant https:///api/public/settings?">tests/backend_test.py:102: in test_public_settings
+    r = session.get(f"{API}/public/settings")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:605: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/public/settings': No scheme supplied. Perhaps you meant https:///api/public/settings?</failure></testcase><testcase classname="tests.backend_test" name="test_auth" time="0.001"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_upload_happy_path" time="0.001"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_download_with_bearer" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_download_with_query_auth" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_download_other_user_forbidden" time="0.001"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:62: in parent2_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_download_no_auth_401" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_admin_can_access_any_file" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_upload_wrong_ext" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_upload_invalid_scope" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_drafts_lifecycle" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_order_create" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_order_clears_draft" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_orders_list" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_order_detail" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_order_detail_other_user_404" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:62: in parent2_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_order_too_many_chars" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_order_invalid_category" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_admin_orders_list" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_order_detail" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_status_transitions" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_edit_and_regenerate_prompt" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_story_options_crud_and_hidden" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_content_upsert" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_settings_char_limit" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_categories_crud" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_plans_crud" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_admin_users_list" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_non_admin_forbidden" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_no_mongo_id_leakage" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_create_returns_scenarios_generating" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_polling_scenarios_ready" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_generation_metadata" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_select_scenario_user" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_select_other_user_404" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:62: in parent2_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_reselection_swaps" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_select_blocked_when_generating" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_regenerate_user" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_regenerate_blocked_when_generating" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_status_history_shape" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_admin_scenarios" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_admin_regenerate" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_admin_select_on_behalf" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_admin_status_in_review_then_back" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_admin_delete_scenarios" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/backend_test.py:41: in admin_token
+    r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.backend_test" name="test_p3_orders_list_includes_selected_scenario_id" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_order_full_returns_snapshot" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_rbac_admin_scenario_endpoints" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p3_no_mongo_id_in_scenario_endpoints" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_default_90" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_points[30-30 \u062b\u0627\u0646\u064a\u0629-3-low]" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_points[45-45 \u062b\u0627\u0646\u064a\u0629-4-low]" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_points[60-\u062f\u0642\u064a\u0642\u0629-5-medium]" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_points[90-\u062f\u0642\u064a\u0642\u0629 \u0648\u0646\u0635\u0641-6-medium]" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_points[120-\u062f\u0642\u064a\u0642\u062a\u0627\u0646-7-high]" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_points[150-\u062f\u0642\u064a\u0642\u062a\u0627\u0646 \u0648\u0646\u0635\u0641-8-high]" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_points[180-\u062b\u0644\u0627\u062b \u062f\u0642\u0627\u0626\u0642-9-high]" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_duration_snap_nearest" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_initial_batch_and_counters" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_scenarios_have_batch_and_why_fits" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_list_scenarios_returns_only_current_batch" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_regenerate_limit_429" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_old_batch_selection_blocked" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_regenerate_preserves_old_batches_for_admin" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_admin_regenerate_bypasses_limit" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.backend_test" name="test_p4_user_cannot_see_archived_scenarios_in_list" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?&quot;">tests/backend_test.py:50: in parent_token
+    r = session.post(f"{API}/auth/register", json={
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:640: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:578: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:487: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:369: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:440: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/register': No scheme supplied. Perhaps you meant https:///api/auth/register?</error></testcase><testcase classname="tests.test_phase_d3_inputs" name="test_1_child_only" time="0.001" /><testcase classname="tests.test_phase_d3_inputs" name="test_2_visible_extra_character" time="0.000" /><testcase classname="tests.test_phase_d3_inputs" name="test_3_mentioned_only" time="0.000" /><testcase classname="tests.test_phase_d3_inputs" name="test_4_toy_propagation" time="0.000" /><testcase classname="tests.test_phase_d3_inputs" name="test_5_combined" time="0.000" /><testcase classname="tests.test_phase_d3_inputs" name="test_6_scene_image_context" time="0.002" /><testcase classname="tests.test_phase_d5_scene_target" name="test_duration_meta_short_bucket" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_duration_meta_medium_bucket" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_duration_meta_long_bucket" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_duration_meta_snaps_nearest" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_duration_range_none_for_legacy_order" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_duration_range_for_new_order" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_duration_range_none_when_missing" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_clamp_within_bucket_accepts_in_range" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_clamp_within_bucket_clips_too_low" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_clamp_within_bucket_clips_too_high" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_clamp_legacy_behaviour_unchanged" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_final_scene_guard_pads_short_narration" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_final_scene_guard_pads_short_book_text" time="0.000" /><testcase classname="tests.test_phase_d5_scene_target" name="test_final_scene_guard_noop_when_already_good" time="0.000" /><testcase classname="tests.test_phase_e_api.TestStoryboardSceneReferences" name="test_legacy_order_storyboard_200" time="0.718" /><testcase classname="tests.test_phase_e_api.TestStoryboardSceneReferences" name="test_legacy_order_aggregate_fields_present" time="0.074" /><testcase classname="tests.test_phase_e_api.TestStoryboardSceneReferences" name="test_legacy_per_scene_references_defaults" time="0.084" /><testcase classname="tests.test_phase_e_api.TestStoryboardSceneReferences" name="test_ref_order_storyboard_200_and_aggregate" time="0.071" /><testcase classname="tests.test_phase_e_api.TestLabSceneImageDryRun" name="test_dry_run_with_order_returns_reference_dry_run" time="0.072" /><testcase classname="tests.test_phase_e_api.TestLabSceneImageDryRun" name="test_dry_run_without_order_id_no_reference_dry_run" time="0.058" /><testcase classname="tests.test_phase_e_api.TestPricingSceneReferenceInjection" name="test_legacy_actual_no_scene_reference_injection" time="0.068" /><testcase classname="tests.test_phase_e_api.TestPricingSceneReferenceInjection" name="test_pricing_get_returns_snapshot_actual_after_post" time="0.060" /><testcase classname="tests.test_phase_e_api.TestRegression" name="test_lab_stages_returns_seven" time="0.050" /><testcase classname="tests.test_phase_e_api.TestRegression" name="test_storyboard_has_nine_stages" time="0.079"><failure message="AssertionError: ['scenario_generation', 'production_planning', 'child_character_i2i', 'extra_character_i2i', 'scene_image_generation', 'narration_generation', ...]&#10;assert 11 == 9&#10; +  where 11 = len([{'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/scenarios/regenerate', 'supports_copy_prompt': True}, 'attempts': 1, 'config_enabled': True, 'ended_at': '2026-04-21T11:48:45.176126+00:00', ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/production/regenerate', 'supports_copy_prompt': False}, 'attempts': 1, 'config_enabled': True, 'ended_at': '2026-04-21T12:43:41.693652+00:00', ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/child-character/regenerate', 'supports_copy_prompt': False}, 'attempts': 0, 'config_enabled': True, 'ended_at': None, ...}, {'actions': {'download_url': None, 'regenerate_endpoint': None, 'supports_copy_prompt': False}, 'attempts': 0, 'config_enabled': True, 'ended_at': None, ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/media/regenerate', 'supports_copy_prompt': False}, 'attempts': 16, 'config_enabled': True, 'ended_at': '2026-04-21T13:03:40.127193+00:00', ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/media/regenerate', 'supports_copy_prompt': False}, 'attempts': 14, 'config_enabled': True, 'ended_at': '2026-04-21T13:03:40.137704+00:00', ...}, ...])">tests/test_phase_e_api.py:191: in test_storyboard_has_nine_stages
+    assert len(stages) == 9, [s.get("stage_key") for s in stages]
+E   AssertionError: ['scenario_generation', 'production_planning', 'child_character_i2i', 'extra_character_i2i', 'scene_image_generation', 'narration_generation', ...]
+E   assert 11 == 9
+E    +  where 11 = len([{'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/scenarios/regenerate', 'supports_copy_prompt': True}, 'attempts': 1, 'config_enabled': True, 'ended_at': '2026-04-21T11:48:45.176126+00:00', ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/production/regenerate', 'supports_copy_prompt': False}, 'attempts': 1, 'config_enabled': True, 'ended_at': '2026-04-21T12:43:41.693652+00:00', ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/child-character/regenerate', 'supports_copy_prompt': False}, 'attempts': 0, 'config_enabled': True, 'ended_at': None, ...}, {'actions': {'download_url': None, 'regenerate_endpoint': None, 'supports_copy_prompt': False}, 'attempts': 0, 'config_enabled': True, 'ended_at': None, ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/media/regenerate', 'supports_copy_prompt': False}, 'attempts': 16, 'config_enabled': True, 'ended_at': '2026-04-21T13:03:40.127193+00:00', ...}, {'actions': {'download_url': None, 'regenerate_endpoint': 'POST /api/admin/orders/4c357bfc-3092-4eb6-8c2a-105a6662766b/media/regenerate', 'supports_copy_prompt': False}, 'attempts': 14, 'config_enabled': True, 'ended_at': '2026-04-21T13:03:40.137704+00:00', ...}, ...])</failure></testcase><testcase classname="tests.test_phase_e_api.TestRegression" name="test_other_preview_only_stages_unchanged[video_generation]" time="0.172"><failure message="AssertionError: {&quot;detail&quot;:&quot;هذه المرحلة تستهلك رصيد API. أرسل acknowledged_cost=true للتأكيد، أو preview_only=true للمعاينة فقط.&quot;}&#10;assert 400 == 200&#10; +  where 400 = &lt;Response [400]&gt;.status_code">tests/test_phase_e_api.py:200: in test_other_preview_only_stages_unchanged
+    assert r.status_code == 200, r.text[:200]
+E   AssertionError: {"detail":"هذه المرحلة تستهلك رصيد API. أرسل acknowledged_cost=true للتأكيد، أو preview_only=true للمعاينة فقط."}
+E   assert 400 == 200
+E    +  where 400 = &lt;Response [400]&gt;.status_code</failure></testcase><testcase classname="tests.test_phase_e_api.TestRegression" name="test_other_preview_only_stages_unchanged[music_generation]" time="0.051"><failure message="AssertionError: {&quot;detail&quot;:&quot;هذه المرحلة تستهلك رصيد API. أرسل acknowledged_cost=true للتأكيد، أو preview_only=true للمعاينة فقط.&quot;}&#10;assert 400 == 200&#10; +  where 400 = &lt;Response [400]&gt;.status_code">tests/test_phase_e_api.py:200: in test_other_preview_only_stages_unchanged
+    assert r.status_code == 200, r.text[:200]
+E   AssertionError: {"detail":"هذه المرحلة تستهلك رصيد API. أرسل acknowledged_cost=true للتأكيد، أو preview_only=true للمعاينة فقط."}
+E   assert 400 == 200
+E    +  where 400 = &lt;Response [400]&gt;.status_code</failure></testcase><testcase classname="tests.test_phase_e_scene_references" name="test_no_assets_yields_empty_package" time="0.003" /><testcase classname="tests.test_phase_e_scene_references" name="test_child_injected_when_role_child_present" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_child_skipped_when_not_relevant" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_extra_character_matched_by_type" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_extra_capped_at_two_with_trimmed_reason" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_extra_skipped_when_missing_asset" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_toy_injected_when_key_objects_match" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_toy_skipped_when_not_relevant" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_caps_total_ceiling_4" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_prompt_augmentation_includes_attached_kinds" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_image_prompt_builder_includes_augmentation" time="0.000" /><testcase classname="tests.test_phase_e_scene_references" name="test_image_prompt_builder_no_augmentation_back_compat" time="0.000" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_detect_unresolved_finds_dollar_var" time="0.000" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_detect_unresolved_empty" time="0.000" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_detect_unresolved_no_vars" time="0.000" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_required_stages_supported" time="0.000" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_real_call_stages_subset" time="0.001" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_preview_returns_required_debug_fields" time="0.005" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_preview_marks_fallback_when_no_admin_template" time="0.001" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_preview_surfaces_template_present_but_unused" time="0.001" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_preview_unsupported_stage_raises" time="0.000" /><testcase classname="tests.test_phase_f_prompt_preview" name="test_preview_estimated_cost_returned" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_phase_g_new_stages_added" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_phase_g_total_supported_stages_is_eleven" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_executor_status_covers_all_stages" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_executor_status_values_are_known" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_extra_character_i2i_is_real_call" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_video_and_pdf_assembly_are_local_binary" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_book_page_image_generation_is_reuse" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_not_yet_wired_stages" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_real_call_when_keyed_stages" time="0.000" /><testcase classname="tests.test_phase_g_lab_gaps" name="test_arabic_notes_present_for_all_stages" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_fernet_available_when_mongo_url_present" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_mask_short_value" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_encryption_round_trip" time="0.002" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_slug_arabic_falls_back_to_uuid" time="0.001" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_slug_simple_english" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_slug_fallback_when_garbage" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_validate_stage_map_rejects_raw_secret_fields" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_validate_stage_map_rejects_unknown_stage" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_validate_stage_map_accepts_clean_payload" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_seeded_preset_set_count_and_slugs" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_seeded_presets_never_carry_raw_secrets" time="0.000" /><testcase classname="tests.test_phase_h_secrets_presets" name="test_executor_warning_strings_present_for_known_statuses" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_default_pipeline_covers_all_supported_stages" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_default_pipeline_order_matches_stage_set" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_no_legacy_final_assembly" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_video_assembly_and_pdf_assembly_present" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_local_binary_stages_have_local_binary_flag" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_audio_aware_stages_flagged" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_reference_aware_flag_on_scene_image" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_output_type_gating_on_pdf_chain" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_output_type_gating_on_video_chain" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_flags_helper_identifies_local_binary_and_audio" time="0.000" /><testcase classname="tests.test_phase_i_pipeline_readiness" name="test_flags_helper_for_book_page_reuse" time="0.000" /><testcase classname="tests.test_phase_k_api" name="test_stage_control_state_returns_11_stages" time="0.487" /><testcase classname="tests.test_phase_k_api" name="test_patch_narration_persists" time="0.314" /><testcase classname="tests.test_phase_k_api" name="test_patch_invalid_provider_returns_400" time="0.125" /><testcase classname="tests.test_phase_k_api" name="test_reset_narration_returns_defaults" time="0.276" /><testcase classname="tests.test_phase_k_api" name="test_lab_run_narration_requires_cost_ack" time="0.114" /><testcase classname="tests.test_phase_k_api" name="test_lab_run_narration_with_ack_succeeds_with_mock_fallback" time="8.581" /><testcase classname="tests.test_phase_k_api" name="test_pipeline_readiness_exposes_new_flags" time="0.161" /><testcase classname="tests.test_phase_k_api" name="test_lab_stages_narration_executor_status_promoted" time="0.162" /><testcase classname="tests.test_phase_k_api" name="test_secrets_status_has_elevenlabs_entry" time="0.119" /><testcase classname="tests.test_phase_k_api" name="test_pricing_config_narration_and_video_music" time="0.131" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_estimate_duration_seconds_basic" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_default_voice_settings_are_arabic_friendly" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_mock_tts_returns_metadata_only" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_elevenlabs_without_key_falls_back_gracefully" time="0.001" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_generate_tts_dispatches_to_mock_when_unwired" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_narration_real_call_available_no_raise" time="0.001" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_narration_executor_status_promoted" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_narration_in_real_call_stages" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_pricing_includes_narration_generation_key" time="0.001" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_pricing_default_video_music_costs_set" time="0.001" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_prompt_editable_statuses_includes_real_call_when_keyed" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_provider_choices_cover_all_supported_stages" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_narration_provider_choices_include_elevenlabs" time="0.000" /><testcase classname="tests.test_phase_k_tts_stage_control" name="test_local_binary_stages_have_only_local_provider" time="0.000" /><testcase classname="tests.test_phase_l_api" name="test_stage_control_state_video_defaults" time="0.484" /><testcase classname="tests.test_phase_l_api" name="test_stage_control_state_video_row" time="0.072" /><testcase classname="tests.test_phase_l_api" name="test_secrets_status_includes_fal_key" time="0.057" /><testcase classname="tests.test_phase_l_api" name="test_secrets_test_fal_no_key" time="0.056" /><testcase classname="tests.test_phase_l_api" name="test_patch_video_then_reset" time="0.234" /><testcase classname="tests.test_phase_l_api" name="test_lab_run_video_requires_cost_ack" time="0.056" /><testcase classname="tests.test_phase_l_api" name="test_lab_run_video_with_ack_falls_back_to_mock" time="0.062" /><testcase classname="tests.test_phase_l_api" name="test_pipeline_readiness_video_flags" time="0.063" /><testcase classname="tests.test_phase_l_api" name="test_pricing_video_per_model" time="0.052" /><testcase classname="tests.test_phase_l_api" name="test_admin_routes_load" time="0.284" /><testcase classname="tests.test_phase_l_video_kling" name="test_default_kling_model_is_v3_pro_i2v" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_i2v_to_t2v_swap" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_build_payload_picks_image_when_present" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_build_payload_t2v_drops_image" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_video_real_call_available_no_raise" time="0.002" /><testcase classname="tests.test_phase_l_video_kling" name="test_submit_clip_without_key_returns_honest_meta" time="0.001" /><testcase classname="tests.test_phase_l_video_kling" name="test_mock_video_provider_meta" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_sora_and_luma_stubs_are_safe" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_default_models_video_generation_is_kling" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_provider_env_map_kling_uses_fal_key" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_video_executor_status_promoted" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_video_in_real_call_stages" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_pricing_includes_video_generation" time="0.001" /><testcase classname="tests.test_phase_l_video_kling" name="test_stage_control_video_provider_choices" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_provider_test_registry_includes_fal" time="0.000" /><testcase classname="tests.test_phase_l_video_kling" name="test_fal_test_returns_meta_when_key_missing" time="0.001" /><testcase classname="tests.test_phase_m_api" name="test_stage_control_state_music_defaults" time="0.448" /><testcase classname="tests.test_phase_m_api" name="test_stage_control_state_music_row" time="0.062" /><testcase classname="tests.test_phase_m_api" name="test_lab_music_requires_cost_ack" time="0.054" /><testcase classname="tests.test_phase_m_api" name="test_lab_music_mode_music_skips_when_keyless" time="0.055" /><testcase classname="tests.test_phase_m_api" name="test_lab_music_mode_human_rhythm" time="0.057" /><testcase classname="tests.test_phase_m_api" name="test_lab_music_mode_none_records_skip" time="0.052" /><testcase classname="tests.test_phase_m_api" name="test_secrets_test_elevenlabs_music_no_key" time="0.054" /><testcase classname="tests.test_phase_m_api" name="test_secrets_status_elevenlabs_label" time="0.058" /><testcase classname="tests.test_phase_m_api" name="test_patch_music_then_reset" time="0.234" /><testcase classname="tests.test_phase_m_api" name="test_pricing_music_generation_present" time="0.053" /><testcase classname="tests.test_phase_m_api" name="test_storyboard_has_11_stages_with_music_and_video" time="0.226" /><testcase classname="tests.test_phase_m_api" name="test_storyboard_music_and_video_stage_shape" time="0.208" /><testcase classname="tests.test_phase_m_api" name="test_secrets_status_has_fal_key" time="0.068" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_default_music_model_is_elevenlabs_v1" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_clip_duration_is_bounded" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_build_prompt_music_mode_avoids_vocals" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_build_prompt_human_rhythm_is_prompt_biased" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_generate_music_none_mode_returns_skip" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_generate_music_without_key_records_missing_key" time="0.002" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_music_real_call_available_no_raise" time="0.001" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_mock_music_provider_meta" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_suno_stub_safe" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_default_models_music_generation_is_elevenlabs" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_music_executor_status_promoted" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_music_in_real_call_stages" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_pricing_includes_music_generation" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_stage_control_music_provider_choices" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_provider_test_registry_includes_elevenlabs_music" time="0.000" /><testcase classname="tests.test_phase_m_music_storyboard" name="test_elevenlabs_music_test_returns_meta_when_key_missing" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_default_models_matches_user_matrix" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_provider_env_map_covers_new_keys" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_provider_tests_include_all_4_capabilities" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_narration_provider_registry_includes_fal_tts" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_music_provider_registry_includes_fal_music" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_default_voice_is_phase_n_arabic_friendly" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_default_kling_model_is_v3_pro" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_default_music_model_is_fal_elevenlabs" time="0.000" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_fal_capability_test_fns_fall_back_safely" time="0.002" /><testcase classname="tests.test_phase_n_provider_matrix" name="test_video_adapter_uses_fal_key_video_first" time="0.001" /><testcase classname="tests.test_phase_n_smart_narration" name="test_default_voice_settings_shape" time="0.000" /><testcase classname="tests.test_phase_n_smart_narration" name="test_heuristic_clamps_and_tone_mapping_calm" time="0.000" /><testcase classname="tests.test_phase_n_smart_narration" name="test_heuristic_arabic_tone_excited" time="0.000" /><testcase classname="tests.test_phase_n_smart_narration" name="test_heuristic_audio_bg_none_slows_speed" time="0.000" /><testcase classname="tests.test_phase_n_smart_narration" name="test_heuristic_long_text_bumps_stability" time="0.000" /><testcase classname="tests.test_phase_n_smart_narration" name="test_public_entry_disabled_returns_heuristic" time="0.000" /><testcase classname="tests.test_phase_n_smart_narration" name="test_public_entry_missing_llm_key_falls_back_to_heuristic" time="7.582" /><testcase classname="tests.test_phase_n_smart_narration" name="test_clamp_out_of_range_values" time="0.000" /><testcase classname="tests.test_phase_n_smart_narration" name="test_strip_to_json_extracts_json_from_noise" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_output_type_default_for_legacy_order" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_output_type_default_for_empty_or_none" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_output_type_new_order_video" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_output_type_new_order_pdf" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_output_type_invalid_falls_back_to_both" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_output_type_constants" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_pdf_only_skips_narration" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_video_only_skips_book_assets" time="0.000" /><testcase classname="tests.test_wave1_output_type" name="test_both_keeps_full_pipeline" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_apply_markup_uses_minimum_when_internal_low" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_apply_markup_above_minimum" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_round_to_step" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_default_config_keys" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_pdf_only_is_cheaper_than_both" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_stage_lab_supported_stages" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_real_call_stages_subset" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_hash_format" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_sanitize_input_truncates_long_strings" time="0.000" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_known_env_keys_curated" time="0.003" /><testcase classname="tests.test_wave2_pricing_lab_secrets" name="test_secrets_mask_helper" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_seeded_bundles_count_and_shape" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_bundle_output_types_constant" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_audit_entity_types" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_audit_actions_include_lifecycle" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_audit_trim_snapshot_drops_id" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_audit_trim_snapshot_truncates_long_strings" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_default_payment_settings_safe_shape" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_is_payment_active_reflects_env" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_payment_source_pending_when_unpaid" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_payment_source_bundle_when_reserved" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_payment_source_bundle_when_consumed" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_payment_source_paid_when_payment_paid" time="0.000" /><testcase classname="tests.test_wave3_bundles_audit_payment" name="test_payment_source_bundle_wins_over_payment" time="0.000" /><testcase classname="tests.test_wave4_assets_retention" name="test_default_retention_thresholds_are_safe" time="0.000" /><testcase classname="tests.test_wave4_assets_retention" name="test_default_min_age_for_archive_30" time="0.000" /><testcase classname="tests.test_wave4_assets_retention" name="test_default_min_archived_before_purge_30" time="0.000" /><testcase classname="tests.test_wave4_assets_retention" name="test_collection_map" time="0.000" /><testcase classname="tests.test_wave4_assets_retention" name="test_coll_for_known_types" time="0.000" /><testcase classname="tests.test_wave4_assets_retention" name="test_coll_for_unknown_raises" time="0.000" /><testcase classname="tests.test_wave4_assets_retention" name="test_lifecycle_states_documented" time="0.000" /></testsuite></testsuites>

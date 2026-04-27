@@ -664,7 +664,36 @@ async def _execute_narration_audio(job: dict, order: dict, plan: dict) -> tuple[
     text = scene.get("narration_text") or ""
     voice = (order.get("enriched") or {}).get("voice_name")
     language = (order.get("enriched") or {}).get("language_name") or "ar"
-    audio_bytes, mime, meta = await generate_audio(text=text, voice=voice, language=language)
+
+    # Phase N — Smart Narration voice settings.
+    from services.smart_narration_service import compute_voice_settings
+    audio_bg = (
+        (order.get("data") or {}).get("audio_background", {}).get("mode")
+        or (plan.get("audio_background") or {}).get("mode")
+        or "music"
+    )
+    smart = await compute_voice_settings(
+        narration_text=text,
+        emotional_tone=scene.get("emotional_tone"),
+        audio_background_mode=audio_bg,
+        scene_index=scene.get("scene_index"),
+        duration_label=(order.get("duration") or {}).get("label"),
+    )
+    # Strip metadata fields before passing to adapter.
+    tts_settings = {k: smart[k] for k in ("speed", "stability", "similarity_boost", "style")
+                    if k in smart}
+
+    audio_bytes, mime, meta = await generate_audio(
+        text=text, voice=voice, language=language,
+        voice_settings=tts_settings,
+    )
+    # Surface the smart-narration decision in meta for the storyboard.
+    meta["smart_narration"] = {
+        "source":  smart.get("source"),
+        "reason":  smart.get("reason"),
+        "model":   smart.get("model"),
+        "settings": tts_settings,
+    }
     # In mock mode audio_bytes is None. Persist metadata-only record with URL=None.
     url = None
     if audio_bytes:
@@ -700,6 +729,8 @@ async def _execute_narration_audio(job: dict, order: dict, plan: dict) -> tuple[
         "audio_url": url,
         "duration_seconds": duration,
         "provider": meta.get("provider"),
+        "smart_narration": meta.get("smart_narration"),
+        "voice_settings_used": tts_settings,
         "created_at": _now(),
     })
     return url or f"(mock) {duration}s", meta

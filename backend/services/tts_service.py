@@ -369,6 +369,7 @@ async def _tts_via_mock(
 # ---------------------------------------------------------------------------
 PROVIDERS = {
     "elevenlabs": _tts_via_elevenlabs,
+    "fal_tts":    _tts_via_fal_elevenlabs,
     "openai":     _tts_via_openai,
     "mock":       _tts_via_mock,
 }

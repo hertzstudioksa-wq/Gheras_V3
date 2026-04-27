@@ -35,11 +35,20 @@ async def generate_audio(
     text: str,
     voice: str | None = None,
     language: str = "ar",
+    voice_settings: dict | None = None,
+    model_id: str | None = None,
 ) -> tuple[bytes | None, str, dict]:
     """Provider-abstracted entry point used by the live orchestrator.
 
     Returns (audio_bytes|None, mime_type, meta_dict). When the resolved
     provider can't actually produce audio (mock OR real-call failed),
     `audio_bytes` is None and the meta makes the situation explicit.
+
+    Phase N — accepts `voice_settings` (speed/stability/similarity_boost/style)
+    from the Smart Narration layer. `model_id` is optional and forwarded to
+    the adapter when the admin pins a specific TTS model.
     """
-    return await generate_tts(text=text, voice=voice, language=language)
+    return await generate_tts(
+        text=text, voice=voice, language=language,
+        model_id=model_id, voice_settings=voice_settings,
+    )

@@ -1,0 +1,67 @@
+{
+  "summary": "Phase N (11-stage provider matrix + 4 per-capability fal.ai keys + Smart Narration LLM layer) tested end-to-end. Ran the two new structural suites (test_phase_n_provider_matrix.py 10/10 + test_phase_n_smart_narration.py 9/9) and a new live API suite I authored (test_phase_n_api.py 8 passed, 1 skipped non-admin user creation). Combined Phase N: 27 passed, 1 skipped, 0 failed in ~9s. Full 11-stage matrix returned by GET /api/admin/stage-control/state exactly matches the user-specified Phase N matrix: scenario_generation→openai/gpt-5.4-mini/OPENAI_API_KEY, production_planning→openai/gpt-5.4/OPENAI_API_KEY, child_character_i2i→openai/gpt-image-1.5-2025-12-16/OPENAI_API_KEY, extra_character_i2i→openai/gpt-image-1.5-2025-12-16/OPENAI_API_KEY, scene_image_generation→fal_image/fal-ai/gemini-25-flash-image/FAL_KEY_SCENE, book_page_image_generation→fal_image/fal-ai/gemini-25-flash-image/FAL_KEY_SCENE, narration_generation→fal_tts/fal-ai/elevenlabs/tts/multilingual-v2/FAL_KEY_NARRATION, music_generation→fal_music/fal-ai/elevenlabs/music/FAL_KEY_MUSIC, video_generation→kling/fal-ai/kling-video/v3/pro/image-to-video/FAL_KEY_VIDEO, video_assembly→ffmpeg/local-ffmpeg/None, pdf_assembly→reportlab/local-reportlab/None. GET /api/admin/secrets/status exposes all 4 new per-capability keys (FAL_KEY_SCENE, FAL_KEY_NARRATION, FAL_KEY_MUSIC, FAL_KEY_VIDEO) plus the legacy FAL_KEY fallback entry, each with correct `providers` array, Arabic `purpose`, honest `source`/`configured` flags, and `test_provider_key` — verified NO raw secret leakage in any payload. POST /api/admin/secrets/test/{fal_scene|fal_narration|fal_music|fal_video} returns a structured dict with ok=false + secret_source='missing' when keys are missing (200/400, no 500). tts_service.PROVIDERS registry now includes 'fal_tts' (the one prior failing test is now green). Smart Narration service: compute_voice_settings returns {speed, stability, similarity_boost, style, source, reason, model}; heuristic path honors tone (calm→slower+higher stability, excited→faster+more style), text length bumps stability, audio_bg='none' slows speed; all outputs clamped to the requested ranges; _clamp handles out-of-range and non-numeric values; _strip_to_json extracts JSON from noisy LLM output. Orchestrator wiring confirmed via code inspection: services/generation_orchestrator.py:669 imports compute_voice_settings, :691 persists smart_narration into narration_assets meta, :732 exposes smart_narration in the returned dict. Same for services/stage_lab_service.py:264-328. Storyboard endpoint /api/admin/orders/{id}/storyboard returns 11 stages; narration_generation.output_summary carries `smart_narration_used_count` (0 on legacy orders — backward compatible); per-scene `smart_narration` + `voice_settings_used` are surfaced at routes/admin_storyboard_routes.py:768. GET /api/admin/pipeline-readiness returns 11 stages with integrity.ok=true (note: key is `integrity.ok`, not `integrity_ok` — docs bug). Admin auth works; /admin/secrets/status unauth→403. Full backend suite (excluding 3 explicit exclusions and 1 pre-existing deselect): 281 passed / 13 failed / 1 deselected. All 13 failures are PRE-EXISTING stale tests unrelated to Phase N (backend_test.py has 10 stale assertions around scenario/order payload shape from pre-Phase-K; test_phase_e_api.py::TestRegression has 3 stale expectations of 9 stages — matrix is 11 as of Phase K/L/M — and two preview_only tests hitting the tightened cost-ack gate). No Phase N regressions. Live-provider tests (fal_scene/narration/music/video actual API calls) correctly report secret_source='missing' and are categorized below as skipped_live_test: missing_key (per user instruction not to fund keys).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/pipeline-readiness", "issue": "integrity flag is nested as `integrity.ok` but review request copy referred to top-level `integrity_ok`. Consider mirroring as both, or documenting the nested shape in OpenAPI. Not blocking."}
+    ],
+    "pre_existing_not_phase_n": [
+      {"tests": "tests/backend_test.py (10 failures)", "issue": "Stale assertions against scenario/order payload shape from pre-Phase-K. Examples: KeyError 'ai_prompt_snapshot', 'order_id', 'status_history'. Recommend cleanup or converting to skip."},
+      {"tests": "tests/test_phase_e_api.py::TestRegression (3 failures)", "issue": "test_storyboard_has_nine_stages asserts 9 stages but matrix is 11 as of Phase K/L/M. Two preview_only tests return 400 because the cost-ack gate is correctly enforced (Phase K tightening). Recommend updating the count to 11 and passing preview_only=true."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "note": "Review request was testing_type=backend only — frontend skipped per instructions."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_n_provider_matrix.py",
+    "/app/backend/tests/test_phase_n_smart_narration.py",
+    "/app/backend/tests/test_phase_n_api.py",
+    "/app/test_reports/pytest/phase_n_all.xml",
+    "/app/test_reports/pytest/phase_n_full2.xml"
+  ],
+  "action_items": [
+    "(Low) Clean up /app/backend/tests/backend_test.py stale scenario/order assertions (10 pre-existing failures). These are NOT Phase N regressions but they pollute the suite summary.",
+    "(Low) Update tests/test_phase_e_api.py::TestRegression::test_storyboard_has_nine_stages to expect 11 stages and add preview_only=true / acknowledged_cost=true to the two regression posts that hit the cost-ack gate.",
+    "(Low) Expose integrity_ok as a top-level mirror on /api/admin/pipeline-readiness to match the documented contract (today only integrity.ok is returned).",
+    "(Optional) The test_stage_control_rejects_non_admin test skipped because /api/auth/register returned a non-standard shape; verify register endpoint returns access_token for newly created users to harden RBAC tests."
+  ],
+  "critical_code_review_comments": [
+    "Provider matrix is single-sourced from services/config_service.DEFAULT_MODELS and surfaced everywhere (stage-control state, pipeline-readiness, storyboard, provider_test_service). Clean design — no duplication.",
+    "services/smart_narration_service.py — _CLAMP ranges correctly enforced; _clamp('stability','bad')→mid value (0.5) is a sensible fail-soft default. Good use of use_llm=False switch for CI.",
+    "services/generation_orchestrator.py:669-732 — smart_narration is computed BEFORE generate_audio and both the dict (smart_narration) and the actual voice_settings_used are persisted into narration_assets. This gives admins full audit trail.",
+    "routes/admin_secrets_routes.py — 5 FAL_KEY entries (4 per-capability + 1 legacy) each have Arabic `purpose` + `test_provider_key`. Honest source='missing'/configured=False when not set. No raw secret values in response (verified via curl).",
+    "services/provider_test_service.py — 4 new fal_scene/narration/music/video test functions fall back to legacy FAL_KEY when per-capability key is unset; returns dict (not raise) on missing key — matches graceful contract.",
+    "Storyboard backward compatibility is good: smart_narration_used_count defaults to 0 and items[] is empty on legacy orders (verified live against order b8dea19c-6636-4e9b-ac36-9c5524ee5ac7).",
+    "Suggestion: Smart Narration uses EMERGENT_LLM_KEY which is present in .env; add a small admin-UI indicator (or a lab endpoint) that shows which path (llm vs heuristic) produced the voice_settings for the last narration run — today only admins who open the storyboard JSON can see it."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase_n_api.py (NEW — 9 live API e2e tests)"
+  ],
+  "success_rate": {
+    "backend": "100% on Phase N (27 passed / 1 skipped / 0 failed); 281 passed / 13 pre-existing failed on full suite — 0 Phase N regressions",
+    "frontend": "not tested (backend only per review request)"
+  },
+  "test_credentials": "admin@gheras.com / Admin@1234 (seeded). No external provider keys funded — all 4 FAL_KEY_* entries report source='missing'.",
+  "seed_data_creation": "None. Live API tests only read state (GET stage-control, secrets/status, pipeline-readiness, storyboard) and call POST /secrets/test/* which is read-only. No DB writes.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: `cd /app/backend && set -a && . ./.env && set +a && export REACT_APP_BACKEND_URL=https://girasai-create.preview.emergentagent.com && python -m pytest tests/test_phase_n_api.py tests/test_phase_n_provider_matrix.py tests/test_phase_n_smart_narration.py -v` (~9s, 28 tests, 27 pass + 1 skip). Auth is via `access_token` (not `token`) in /api/auth/login response — use r.json().get('access_token'). Pipeline-readiness integrity is under `integrity.ok`, not top-level `integrity_ok`. To validate live-provider paths, configure FAL_KEY_SCENE/NARRATION/MUSIC/VIDEO in /admin/secrets or backend/.env; today they are all source='missing' and that is INTENTIONAL per user instruction. Smart Narration LLM path exercises EMERGENT_LLM_KEY (present in .env) so the test test_public_entry_missing_llm_key_falls_back_to_heuristic accepts source in {'llm','heuristic','llm_failed'}. 11-stage matrix summary (stage_key | provider | model_name | env_key | secret_source): scenario_generation|openai|gpt-5.4-mini|OPENAI_API_KEY|env ; production_planning|openai|gpt-5.4|OPENAI_API_KEY|env ; child_character_i2i|openai|gpt-image-1.5-2025-12-16|OPENAI_API_KEY|env ; extra_character_i2i|openai|gpt-image-1.5-2025-12-16|OPENAI_API_KEY|env ; scene_image_generation|fal_image|fal-ai/gemini-25-flash-image|FAL_KEY_SCENE|missing ; book_page_image_generation|fal_image|fal-ai/gemini-25-flash-image|FAL_KEY_SCENE|missing ; narration_generation|fal_tts|fal-ai/elevenlabs/tts/multilingual-v2|FAL_KEY_NARRATION|missing ; music_generation|fal_music|fal-ai/elevenlabs/music|FAL_KEY_MUSIC|missing ; video_generation|kling|fal-ai/kling-video/v3/pro/image-to-video|FAL_KEY_VIDEO|missing ; video_assembly|ffmpeg|local-ffmpeg|—|n/a ; pdf_assembly|reportlab|local-reportlab|—|n/a.",
+  "live_provider_tests_status": {
+    "fal_scene":     "skipped_live_test: missing_key (FAL_KEY_SCENE not configured)",
+    "fal_narration": "skipped_live_test: missing_key (FAL_KEY_NARRATION not configured)",
+    "fal_music":     "skipped_live_test: missing_key (FAL_KEY_MUSIC not configured)",
+    "fal_video":     "skipped_live_test: missing_key (FAL_KEY_VIDEO not configured)",
+    "smart_narration_llm": "exercised (EMERGENT_LLM_KEY present); source returned in {llm, heuristic, llm_failed} — all graceful"
+  },
+  "structural_tests_status": {
+    "provider_matrix_unit_tests": "10/10 PASS (test_phase_n_provider_matrix.py)",
+    "smart_narration_unit_tests": "9/9 PASS (test_phase_n_smart_narration.py)",
+    "phase_n_live_api_tests":     "8/9 PASS + 1 SKIP (test_phase_n_api.py — non-admin RBAC skipped because user registration route returns a non-standard token field shape)",
+    "full_regression":            "281/294 PASS — 13 pre-existing failures in backend_test.py + test_phase_e_api.py::TestRegression unrelated to Phase N"
+  },
+  "rca of the issue": "No defects in Phase N. All three primary contracts hold: (1) the 11-stage matrix returned by /api/admin/stage-control/state exactly matches the user-specified provider/model/env_key triples; (2) the 4 new per-capability fal.ai keys are registered in KNOWN_ENV_KEYS, exposed in /api/admin/secrets/status (with honest configured=false + source='missing' today) and in /api/admin/secrets/test/{provider}, with NO raw secret leakage; (3) Smart Narration layer is wired into both the orchestrator and the stage lab, runs BEFORE generate_audio, clamps all 4 settings (speed 0.85–1.15, stability 0.20–0.80, similarity_boost 0.50–0.95, style 0.00–0.40), falls back gracefully from LLM→heuristic→disabled, and surfaces smart_narration + voice_settings_used through the storyboard endpoint. The prior 'test_narration_provider_registry_includes_fal_tts' failure is now green (fal_tts added to tts_service.PROVIDERS). The 13 pre-existing suite failures are stale tests from before Phase K/L/M and are NOT Phase N regressions — clearly documented above under pre_existing_not_phase_n."
+}

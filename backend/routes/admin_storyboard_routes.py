@@ -752,6 +752,10 @@ async def _stage_narration(order: dict, pipeline_cfg: dict) -> dict:
         "count": len(assets),
         "total_duration_seconds": sum((a.get("duration_seconds") or 0) for a in assets),
         "all_mocked": any_mock and all((a.get("provider") == "mock") for a in assets),
+        "smart_narration_used_count": sum(
+            1 for a in assets
+            if ((a.get("smart_narration") or {}).get("source") in ("llm", "heuristic", "llm_failed"))
+        ),
         "items": [
             {
                 "scene_index":      a.get("scene_index"),
@@ -761,6 +765,8 @@ async def _stage_narration(order: dict, pipeline_cfg: dict) -> dict:
                 "provider":         a.get("provider"),
                 "audio_url":        a.get("audio_url"),
                 "text_preview":     (a.get("text") or "")[:120],
+                "smart_narration":  a.get("smart_narration"),
+                "voice_settings":   a.get("voice_settings_used"),
             }
             for a in assets
         ],

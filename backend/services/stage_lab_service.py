@@ -254,6 +254,25 @@ async def _run_narration_generation(input_payload: dict) -> dict:
         input_payload.get("voice_settings"), dict
     ) else None
 
+    # Phase N — Smart Narration layer. The admin can:
+    #   * skip it entirely via `use_smart_narration=False`
+    #   * override settings manually by passing `voice_settings`
+    # Otherwise we compute dynamic settings from the scene tone + audio mode.
+    smart = None
+    use_smart = input_payload.get("use_smart_narration", True)
+    if use_smart and not voice_settings:
+        from services.smart_narration_service import compute_voice_settings
+        smart = await compute_voice_settings(
+            narration_text=text,
+            emotional_tone=input_payload.get("emotional_tone"),
+            audio_background_mode=input_payload.get("audio_background_mode") or "music",
+            scene_index=input_payload.get("scene_index"),
+            duration_label=input_payload.get("duration_label"),
+            use_llm=bool(input_payload.get("use_llm", True)),
+        )
+        voice_settings = {k: smart[k] for k in
+                           ("speed", "stability", "similarity_boost", "style")}
+
     audio_bytes, mime, meta = await generate_tts(
         text=text, voice=voice, language=language,
         model_id=model_id, voice_settings=voice_settings,
@@ -306,6 +325,8 @@ async def _run_narration_generation(input_payload: dict) -> dict:
             "latency_ms":       meta.get("latency_ms"),
             "error":            meta.get("error"),
             "text_used":        text[:200],
+            "smart_narration":  smart,
+            "voice_settings":   voice_settings,
         },
         "result_summary": " · ".join(summary_bits),
     }
