@@ -143,26 +143,44 @@ async def on_startup():
     except Exception as e:  # noqa: BLE001
         logger.warning(f"pipeline_config migration skipped: {e}")
 
-    # Phase L migration — refresh model_registry rows that still hold an old
-    # default the platform has since superseded. Idempotent: only updates
-    # rows that match the *previous* default, never overwriting admin choices.
+    # Phase N migration — refresh all 11 stages' model_registry rows that still
+    # hold a pre-Phase-N default to the new canonical mapping. Idempotent: only
+    # updates rows matching a known legacy signature so admin choices are safe.
     try:
         from services.config_service import DEFAULT_MODELS
-        legacy_rows = [
-            ("video_generation", {"provider": "ffmpeg", "model_name": "local-slideshow"}),
-        ]
-        for stage_key, legacy in legacy_rows:
+        legacy_signatures = {
+            "scenario_generation":         [("anthropic", "claude-sonnet-4-5-20250929")],
+            "production_planning":         [("anthropic", "claude-sonnet-4-5-20250929")],
+            "child_character_i2i":         [("gemini", "gemini-3.1-flash-image-preview"),
+                                             ("openai", "gpt-image-1")],
+            "extra_character_i2i":         [("gemini", "gemini-3.1-flash-image-preview"),
+                                             ("openai", "gpt-image-1")],
+            "scene_image_generation":      [("openai", "gpt-image-1"),
+                                             ("gemini", "gemini-3.1-flash-image-preview")],
+            "book_page_image_generation":  [("openai", "gpt-image-1"),
+                                             ("gemini", "gemini-3.1-flash-image-preview")],
+            "narration_generation":        [("mock", "mock-tts-v1")],
+            "music_generation":            [("mock", "mock-music-v1"),
+                                             ("elevenlabs", "eleven_music_v1")],
+            "video_generation":            [("kling", "fal-ai/kling-video/v2.1/standard/image-to-video"),
+                                             ("kling", "fal-ai/kling-video/v3/pro/image-to-video"),
+                                             ("ffmpeg", "local-slideshow")],
+        }
+        for stage_key, sigs in legacy_signatures.items():
             row = await db.model_registry.find_one({"stage_key": stage_key}, {"_id": 0})
-            if row and row.get("provider") == legacy["provider"] and row.get("model_name") == legacy["model_name"]:
+            if not row:
+                continue
+            current = (row.get("provider"), row.get("model_name"))
+            if current in sigs:
                 new = DEFAULT_MODELS.get(stage_key) or {}
                 await db.model_registry.update_one(
                     {"stage_key": stage_key},
-                    {"$set": {**new, "notes": "Phase L auto-migrated to fal.ai Kling default"}},
+                    {"$set": {**new, "notes": "Phase N auto-migrated (per-capability fal.ai keys)"}},
                 )
-                logger.info(f"model_registry: migrated {stage_key} from "
-                            f"{legacy['provider']}/{legacy['model_name']} → {new.get('provider')}/{new.get('model_name')}")
+                logger.info(f"model_registry: Phase N migrated {stage_key} "
+                            f"{current} → {new.get('provider')}/{new.get('model_name')} [{new.get('env_key')}]")
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"model_registry Phase L migration skipped: {e}")
+        logger.warning(f"Phase N migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

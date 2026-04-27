@@ -51,8 +51,8 @@ def test_stage_control_state_music_defaults(admin_client):
     assert data["music_real_call_available"] is False
 
     md = data.get("music_defaults") or {}
-    assert md.get("model") == "eleven_music_v1"
-    assert md.get("env_key") == "ELEVENLABS_API_KEY"
+    assert md.get("model") == "fal-ai/elevenlabs/music"
+    assert md.get("env_key") == "FAL_KEY_MUSIC"
     modes = md.get("supported_modes") or []
     assert set(modes) >= {"music", "human_rhythm", "none"}
     assert "plan_required" in md or "plan" in str(md).lower()
@@ -70,9 +70,9 @@ def test_stage_control_state_music_row(admin_client):
     music_row = next((x for x in rows if x.get("stage_key") == "music_generation"), None)
     assert music_row is not None, f"music_generation row missing. Rows: {[x.get('stage_key') for x in rows]}"
 
-    assert music_row["provider"] == "elevenlabs"
-    assert music_row["model_name"] == "eleven_music_v1"
-    assert music_row["env_key"] == "ELEVENLABS_API_KEY"
+    assert music_row["provider"] == "fal_music"
+    assert music_row["model_name"] == "fal-ai/elevenlabs/music"
+    assert music_row["env_key"] == "FAL_KEY_MUSIC"
     assert music_row["secret_source"] == "missing"
     assert music_row["executor_status"] == "real-call-when-keyed"
     assert music_row["executor_callable"] is False
@@ -156,10 +156,10 @@ def test_secrets_status_elevenlabs_label(admin_client):
     # find ELEVENLABS_API_KEY entry
     found = None
     if isinstance(items, list):
-        found = next((x for x in items if (x.get("env_key") == "ELEVENLABS_API_KEY"
-                                           or x.get("key") == "ELEVENLABS_API_KEY")), None)
+        found = next((x for x in items if (x.get("env_key") == "FAL_KEY_MUSIC"
+                                           or x.get("key") == "FAL_KEY_MUSIC")), None)
     elif isinstance(items, dict):
-        found = items.get("ELEVENLABS_API_KEY")
+        found = items.get("FAL_KEY_MUSIC")
     assert found, f"ELEVENLABS_API_KEY missing in secrets status. Got: {str(items)[:300]}"
     label = (found.get("label") or "").lower()
     assert "music" in label or "tts" in label, f"Expected updated label, got: {label}"
@@ -186,8 +186,8 @@ def test_patch_music_then_reset(admin_client):
         st2 = admin_client.get(f"{BASE_URL}/api/admin/stage-control/state", timeout=30).json()
         rows2 = st2.get("stages") or st2.get("rows") or []
         row2 = next(x for x in rows2 if x.get("stage_key") == "music_generation")
-        assert row2["provider"] == "elevenlabs"
-        assert row2["model_name"] == "eleven_music_v1"
+        assert row2["provider"] == "fal_music"
+        assert row2["model_name"] == "fal-ai/elevenlabs/music"
 
 
 # ---- pricing --------------------------------------------------------------

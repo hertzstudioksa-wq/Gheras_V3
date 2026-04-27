@@ -58,11 +58,11 @@ def _now() -> str:
 
 # Provider menu shown per stage type. Keep flat — the UI applies the
 # right subset based on the stage's executor_status.
-_TEXT_PROVIDERS  = ["anthropic", "openai", "internal"]
-_IMAGE_PROVIDERS = ["openai", "gemini"]
-_TTS_PROVIDERS   = ["elevenlabs", "openai", "mock"]
+_TEXT_PROVIDERS  = ["openai", "anthropic", "internal"]
+_IMAGE_PROVIDERS = ["openai", "fal_image", "gemini"]
+_TTS_PROVIDERS   = ["fal_tts", "elevenlabs", "openai", "mock"]
 _VIDEO_PROVIDERS = ["kling", "sora", "luma", "ffmpeg"]
-_MUSIC_PROVIDERS = ["elevenlabs", "suno", "mock"]
+_MUSIC_PROVIDERS = ["fal_music", "elevenlabs", "suno", "mock"]
 
 PROVIDER_CHOICES_BY_STAGE: dict[str, list[str]] = {
     "scenario_generation":         _TEXT_PROVIDERS,
@@ -125,7 +125,8 @@ async def get_state():
         "video_real_call_available":         await video_real_call_available(),
         "video_defaults": {
             "model":   DEFAULT_KLING_MODEL,
-            "env_key": "FAL_KEY",
+            "env_key": "FAL_KEY_VIDEO",
+            "legacy_env_key_fallback": "FAL_KEY",
             "strategy": "hybrid_i2v_then_t2v",
             "default_duration_seconds": 5,
             "default_aspect_ratio": "16:9",
@@ -133,10 +134,11 @@ async def get_state():
         "music_real_call_available":         await music_real_call_available(),
         "music_defaults": {
             "model":             DEFAULT_ELEVENLABS_MUSIC_MODEL,
-            "env_key":           "ELEVENLABS_API_KEY",
+            "env_key":           "FAL_KEY_MUSIC",
+            "legacy_env_key_fallback": "FAL_KEY",
             "supported_modes":   ["music", "human_rhythm", "none"],
             "default_duration":  60,
-            "plan_required":     "Creator+ on ElevenLabs (Music API access)",
+            "plan_required":     "None — fal.ai bills per request; no ElevenLabs plan gate.",
             "human_rhythm_note": "human_rhythm is prompt-biased only — no native API support.",
         },
         "stages_remaining_to_wire":          remaining_to_wire,

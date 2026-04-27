@@ -21,7 +21,7 @@ def _aiorun(coro):
 
 # ---------- music adapter ---------------------------------------------------
 def test_default_music_model_is_elevenlabs_v1():
-    assert mgs.DEFAULT_ELEVENLABS_MUSIC_MODEL == "eleven_music_v1"
+    assert mgs.DEFAULT_ELEVENLABS_MUSIC_MODEL == "fal-ai/elevenlabs/music"
 
 
 def test_clip_duration_is_bounded():
@@ -87,8 +87,9 @@ def test_suno_stub_safe():
 # ---------- registry / pricing / status ------------------------------------
 def test_default_models_music_generation_is_elevenlabs():
     row = DEFAULT_MODELS["music_generation"]
-    assert row["provider"] == "elevenlabs"
-    assert row["env_key"] == "ELEVENLABS_API_KEY"
+    # Phase N — provider shifted to fal_music (fal.ai hosted ElevenLabs Music).
+    assert row["provider"] == "fal_music"
+    assert row["env_key"] == "FAL_KEY_MUSIC"
 
 
 def test_music_executor_status_promoted():

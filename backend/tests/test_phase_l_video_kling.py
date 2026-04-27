@@ -20,8 +20,9 @@ def _aiorun(coro):
 
 
 # ---------- adapter contract -----------------------------------------------
-def test_default_kling_model_is_v21_standard_i2v():
-    assert vgs.DEFAULT_KLING_MODEL == "fal-ai/kling-video/v2.1/standard/image-to-video"
+def test_default_kling_model_is_v3_pro_i2v():
+    # Phase N — bumped default from v2.1/standard to v3/pro.
+    assert vgs.DEFAULT_KLING_MODEL == "fal-ai/kling-video/v3/pro/image-to-video"
 
 
 def test_i2v_to_t2v_swap():
@@ -82,11 +83,13 @@ def test_default_models_video_generation_is_kling():
     row = DEFAULT_MODELS["video_generation"]
     assert row["provider"] == "kling"
     assert row["model_name"].startswith("fal-ai/kling-video/")
-    assert row["env_key"] == "FAL_KEY"
+    # Phase N — per-capability key.
+    assert row["env_key"] == "FAL_KEY_VIDEO"
 
 
 def test_provider_env_map_kling_uses_fal_key():
-    assert PROVIDER_ENV_MAP["kling"]["env_key"] == "FAL_KEY"
+    # Phase N — kling now points to the per-capability video key.
+    assert PROVIDER_ENV_MAP["kling"]["env_key"] == "FAL_KEY_VIDEO"
 
 
 def test_video_executor_status_promoted():

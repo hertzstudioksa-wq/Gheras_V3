@@ -71,15 +71,53 @@ KNOWN_ENV_KEYS: list[dict] = [
     },
     {
         "key": "FAL_KEY",
-        "label": "fal.ai (Kling Video)",
-        "providers": ["kling", "luma"],
-        "purpose": "توليد فيديو حقيقي عبر fal.ai Kling (I2V/T2V). مفتاح واحد يدعم Kling و Luma على fal.ai.",
+        "label": "fal.ai (legacy shared — optional fallback)",
+        "providers": ["kling", "luma", "fal_image", "fal_tts", "fal_music"],
+        "purpose": "مفتاح fal.ai الافتراضي — يُستخدم كـ fallback فقط عند غياب المفاتيح المتخصّصة لكل قدرة (FAL_KEY_SCENE / FAL_KEY_NARRATION / FAL_KEY_MUSIC / FAL_KEY_VIDEO).",
         "rotation_instructions": (
-            "1) سجّل دخول إلى https://fal.ai/dashboard/keys\n"
-            "2) أنشئ مفتاحاً جديداً (API scope كافٍ).\n"
-            "3) استخدم زرّ 'تحديث آمن' هنا — لا يحتاج إعادة تشغيل."
+            "استخدم مفاتيح متخصّصة لكل قدرة بدلاً من هذا. هذا المفتاح اختياري ويعمل كغطاء."
         ),
         "test_provider_key": "fal",
+        "optional": True,
+    },
+    {
+        "key": "FAL_KEY_SCENE",
+        "label": "fal.ai — Images (Gemini Nano Banana)",
+        "providers": ["fal_image"],
+        "purpose": "يُستخدم لتوليد صور المشاهد + صفحات الكتاب (fal-ai/gemini-25-flash-image). عزل الفوترة لقدرة الصور فقط.",
+        "rotation_instructions": (
+            "1) https://fal.ai/dashboard/keys\n"
+            "2) أنشئ مفتاحاً جديداً مخصَّصاً لقدرة Images فقط.\n"
+            "3) ضعه هنا — لا يحتاج إعادة تشغيل."
+        ),
+        "test_provider_key": "fal_scene",
+        "optional": True,
+    },
+    {
+        "key": "FAL_KEY_NARRATION",
+        "label": "fal.ai — ElevenLabs TTS (narration)",
+        "providers": ["fal_tts"],
+        "purpose": "يُستخدم لتوليد السرد الصوتي العربي (fal-ai/elevenlabs/tts/multilingual-v2). بديل أنظف من مفتاح ElevenLabs المباشر (لا يحتاج خطّة Creator+).",
+        "rotation_instructions": "أنشئ مفتاحاً مخصَّصاً لقدرة TTS من لوحة fal.ai.",
+        "test_provider_key": "fal_narration",
+        "optional": True,
+    },
+    {
+        "key": "FAL_KEY_MUSIC",
+        "label": "fal.ai — ElevenLabs Music",
+        "providers": ["fal_music"],
+        "purpose": "يُستخدم لموسيقى خلفيّة الفيديو (fal-ai/elevenlabs/music). يتجنّب قيد خطّة ElevenLabs المباشر.",
+        "rotation_instructions": "أنشئ مفتاحاً مخصَّصاً لقدرة Music من لوحة fal.ai.",
+        "test_provider_key": "fal_music",
+        "optional": True,
+    },
+    {
+        "key": "FAL_KEY_VIDEO",
+        "label": "fal.ai — Kling Video",
+        "providers": ["kling", "luma"],
+        "purpose": "يُستخدم لتوليد لقطات الفيديو per-scene (fal-ai/kling-video/v3/pro/image-to-video).",
+        "rotation_instructions": "أنشئ مفتاحاً مخصَّصاً لقدرة Video من لوحة fal.ai.",
+        "test_provider_key": "fal_video",
         "optional": True,
     },
     {

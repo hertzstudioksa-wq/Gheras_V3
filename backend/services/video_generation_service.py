@@ -38,7 +38,7 @@ from services.config_service import resolve_model
 
 logger = logging.getLogger("video_generation_service")
 
-DEFAULT_KLING_MODEL = "fal-ai/kling-video/v2.1/standard/image-to-video"
+DEFAULT_KLING_MODEL = "fal-ai/kling-video/v3/pro/image-to-video"
 DEFAULT_DURATION_SEC = 5
 DEFAULT_ASPECT = "16:9"
 FAL_QUEUE_BASE = "https://queue.fal.run"
@@ -218,13 +218,19 @@ async def _resolve_video_provider() -> tuple[str, str]:
     return provider, (model_name or DEFAULT_KLING_MODEL)
 
 
+async def _get_fal_key_for_video() -> tuple[str | None, str]:
+    """Phase N — prefer FAL_KEY_VIDEO, fall back to legacy FAL_KEY."""
+    secret, source = await get_secret_with_source("FAL_KEY_VIDEO")
+    if secret:
+        return secret, source
+    return await get_secret_with_source("FAL_KEY")
+
+
 async def video_real_call_available() -> bool:
-    """True if `video_generation` can produce a real clip RIGHT NOW.
-    Used by pipeline_readiness + Stage Control UI.
-    """
+    """True if `video_generation` can produce a real clip RIGHT NOW."""
     provider, _ = await _resolve_video_provider()
     if provider == "kling":
-        secret, _src = await get_secret_with_source("FAL_KEY")
+        secret, _src = await _get_fal_key_for_video()
         return bool(secret)
     return False
 
@@ -242,17 +248,18 @@ async def submit_clip(scene: dict) -> tuple[str | None, dict]:
         meta["clip_strategy"] = "none"
         return None, meta
 
-    secret, source = await get_secret_with_source("FAL_KEY")
+    secret, source = await _get_fal_key_for_video()
     if not secret:
         return None, {
             "provider":        "kling",
             "model":           model_slug,
             "secret_source":   "missing",
+            "env_key":         "FAL_KEY_VIDEO",
             "real_call":       False,
             "fallback_to_mock": True,
             "clip_strategy":   "none",
-            "error":           "FAL_KEY not configured",
-            "note":            "Add FAL_KEY in /admin/secrets to enable real clip generation.",
+            "error":           "FAL_KEY_VIDEO (or legacy FAL_KEY) not configured",
+            "note":            "Add FAL_KEY_VIDEO in /admin/secrets to enable real clip generation.",
         }
 
     has_image = bool(scene.get("image_url"))
@@ -285,9 +292,9 @@ async def poll_clip(request_id: str, model_slug: str | None = None) -> tuple[str
     """One poll tick. Returns (state, info)."""
     if not request_id:
         return "FAILED", {"error": "no_request_id"}
-    secret, _ = await get_secret_with_source("FAL_KEY")
+    secret, _ = await _get_fal_key_for_video()
     if not secret:
-        return "FAILED", {"error": "FAL_KEY not configured"}
+        return "FAILED", {"error": "FAL_KEY_VIDEO not configured"}
     if not model_slug:
         _, model_slug = await _resolve_video_provider()
     return await _kling_poll(secret, model_slug, request_id)

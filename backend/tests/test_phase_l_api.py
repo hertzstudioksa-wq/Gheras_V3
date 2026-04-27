@@ -35,7 +35,7 @@ def test_stage_control_state_video_defaults(auth_client):
     body = r.json()
     assert body.get("video_real_call_available") is False
     vd = body.get("video_defaults") or {}
-    assert vd.get("env_key") == "FAL_KEY"
+    assert vd.get("env_key") == "FAL_KEY_VIDEO"
     assert vd.get("strategy") == "hybrid_i2v_then_t2v"
     assert vd.get("model", "").startswith("fal-ai/kling-video/")
     remaining = body.get("stages_remaining_to_wire") or []
@@ -52,7 +52,7 @@ def test_stage_control_state_video_row(auth_client):
     assert video_row is not None
     assert video_row.get("provider") == "kling"
     assert video_row.get("model_name", "").startswith("fal-ai/kling-video/")
-    assert video_row.get("env_key") == "FAL_KEY"
+    assert video_row.get("env_key") == "FAL_KEY_VIDEO"
     assert video_row.get("secret_source") == "missing"
     assert video_row.get("executor_status") == "real-call-when-keyed"
     assert video_row.get("executor_callable") is False
@@ -120,7 +120,7 @@ def test_patch_video_then_reset(auth_client):
         rows = s2.get("stages") or s2.get("rows") or []
         row = next((x for x in rows if x.get("stage_key") == "video_generation"), {})
         assert row.get("provider") == "kling"
-        assert row.get("model_name") == "fal-ai/kling-video/v2.1/standard/image-to-video"
+        assert row.get("model_name") == "fal-ai/kling-video/v3/pro/image-to-video"
 
 
 # ---------- LAB run ---------------------------------------------------------
@@ -174,7 +174,7 @@ def test_pricing_video_per_model(auth_client):
     psc = body.get("per_stage_costs") or {}
     assert psc.get("video_generation", 0) > 0
     overrides = body.get("video_generation_per_model") or {}
-    assert "fal-ai/kling-video/v2.1/standard/image-to-video" in overrides
+    assert "fal-ai/kling-video/v3/pro/image-to-video" in overrides
     assert "fal-ai/kling-video/v3/pro/image-to-video" in overrides
 
 

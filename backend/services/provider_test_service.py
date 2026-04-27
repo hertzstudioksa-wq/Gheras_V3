@@ -185,43 +185,83 @@ async def test_elevenlabs_music() -> dict:
                        secret, source, f"{type(e).__name__}: {e}")
 
 
-# ---- fal.ai (Kling) -------------------------------------------------------
-async def test_fal() -> dict:
-    secret, source = await get_secret_with_source("FAL_KEY")
+# ---- fal.ai (legacy shared key) ------------------------------------------
+async def _test_fal_key(env_key: str, label: str) -> dict:
+    secret, source = await get_secret_with_source(env_key)
     if not secret:
-        return _result("fal", False, False, False, 0, None, "missing",
-                       "FAL_KEY not configured")
+        return _result(label, False, False, False, 0, None, "missing",
+                       f"{env_key} not configured")
     started = time.monotonic()
     try:
-        # Lightweight reachability — fal.ai exposes a status endpoint.
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
             r = await c.get("https://fal.run/status",
                              headers={"Authorization": f"Key {secret}"})
         latency = int((time.monotonic() - started) * 1000)
-        # 200/204/401/403 all confirm reachability; only auth_failure fails auth_ok.
         if r.status_code in (200, 204):
-            return _result("fal", True, True, True, latency, secret, source,
+            return _result(label, True, True, True, latency, secret, source,
                            model_reachable=True)
         if r.status_code in (401, 403):
-            return _result("fal", False, False, True, latency, secret, source,
+            return _result(label, False, False, True, latency, secret, source,
                            f"auth failed: HTTP {r.status_code}")
-        # Some endpoints return 404 for /status — try the queue base instead.
         if r.status_code == 404:
             async with httpx.AsyncClient(timeout=TIMEOUT) as c:
                 r2 = await c.get("https://queue.fal.run/",
                                   headers={"Authorization": f"Key {secret}"})
             latency = int((time.monotonic() - started) * 1000)
-            if r2.status_code in (200, 204, 401, 403, 404):
-                return _result("fal", r2.status_code not in (401, 403),
-                                r2.status_code not in (401, 403),
-                                True, latency, secret, source,
-                                model_reachable=r2.status_code in (200, 204, 404))
-        return _result("fal", False, True, True, latency, secret, source,
+            ok = r2.status_code not in (401, 403)
+            return _result(label, ok, ok, True, latency, secret, source,
+                           model_reachable=r2.status_code in (200, 204, 404))
+        return _result(label, False, True, True, latency, secret, source,
                        f"HTTP {r.status_code}")
     except Exception as e:  # noqa: BLE001
         latency = int((time.monotonic() - started) * 1000)
-        return _result("fal", False, False, False, latency, secret, source,
+        return _result(label, False, False, False, latency, secret, source,
                        f"{type(e).__name__}: {e}")
+
+
+async def test_fal() -> dict:
+    return await _test_fal_key("FAL_KEY", "fal")
+
+
+async def test_fal_scene() -> dict:
+    out = await _test_fal_key("FAL_KEY_SCENE", "fal_scene")
+    if not out["ok"]:
+        # Fallback to legacy FAL_KEY if specific key missing.
+        legacy = await _test_fal_key("FAL_KEY", "fal_scene")
+        if legacy["ok"]:
+            legacy["note"] = "FAL_KEY_SCENE missing; legacy FAL_KEY used as fallback."
+            return legacy
+    return out
+
+
+async def test_fal_narration() -> dict:
+    out = await _test_fal_key("FAL_KEY_NARRATION", "fal_narration")
+    if not out["ok"]:
+        legacy = await _test_fal_key("FAL_KEY", "fal_narration")
+        if legacy["ok"]:
+            legacy["note"] = "FAL_KEY_NARRATION missing; legacy FAL_KEY used as fallback."
+            return legacy
+    return out
+
+
+async def test_fal_music() -> dict:
+    out = await _test_fal_key("FAL_KEY_MUSIC", "fal_music")
+    if not out["ok"]:
+        legacy = await _test_fal_key("FAL_KEY", "fal_music")
+        if legacy["ok"]:
+            legacy["note"] = "FAL_KEY_MUSIC missing; legacy FAL_KEY used as fallback."
+            return legacy
+    return out
+
+
+async def test_fal_video() -> dict:
+    out = await _test_fal_key("FAL_KEY_VIDEO", "fal_video")
+    if not out["ok"]:
+        legacy = await _test_fal_key("FAL_KEY", "fal_video")
+        if legacy["ok"]:
+            legacy["note"] = "FAL_KEY_VIDEO missing; legacy FAL_KEY used as fallback."
+            return legacy
+    return out
 
 
 # ---- Stripe ---------------------------------------------------------------
@@ -256,6 +296,10 @@ PROVIDERS = {
     "elevenlabs":        test_elevenlabs,
     "elevenlabs_music":  test_elevenlabs_music,
     "fal":               test_fal,
+    "fal_scene":         test_fal_scene,
+    "fal_narration":     test_fal_narration,
+    "fal_music":         test_fal_music,
+    "fal_video":         test_fal_video,
     "stripe":            test_stripe,
 }
 

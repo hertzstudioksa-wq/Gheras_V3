@@ -40,8 +40,8 @@ logger = logging.getLogger("tts_service")
 # ---------------------------------------------------------------------------
 # Tunables — admin-overridable via model_registry / preset stacks.
 # ---------------------------------------------------------------------------
-DEFAULT_ELEVENLABS_MODEL = "eleven_multilingual_v2"   # best for Arabic
-DEFAULT_ELEVENLABS_VOICE = "EXAVITQu4vr4xnSDxMaL"     # Sarah — neutral, safe default
+DEFAULT_ELEVENLABS_MODEL = "eleven_multilingual_v2"
+DEFAULT_ELEVENLABS_VOICE = "fkqevZRU7Xj52dY1CTkq"     # Phase N — Arabic-friendly default voice
 
 # Arabic narration speed heuristic (slightly slower than conversational).
 WORDS_PER_SECOND_AR = 2.2
@@ -167,6 +167,155 @@ async def _tts_via_elevenlabs(
         }
 
 
+async def _get_fal_key_for_narration() -> tuple[str | None, str]:
+    """Phase N — prefer FAL_KEY_NARRATION, fall back to legacy FAL_KEY."""
+    secret, source = await get_secret_with_source("FAL_KEY_NARRATION")
+    if secret:
+        return secret, source
+    return await get_secret_with_source("FAL_KEY")
+
+
+async def _tts_via_fal_elevenlabs(
+    text: str,
+    voice: Optional[str],
+    language: str,
+    model_id: Optional[str],
+    voice_settings: Optional[dict],
+) -> tuple[bytes | None, str, dict]:
+    """Phase N — fal.ai-hosted ElevenLabs TTS (narration).
+
+    Bypasses direct ElevenLabs plan-gating entirely. Uses FAL_KEY_NARRATION.
+    Endpoint: fal.ai queue `fal-ai/elevenlabs/tts/multilingual-v2`.
+    """
+    secret, source = await _get_fal_key_for_narration()
+    if not secret:
+        return None, "audio/mpeg", {
+            "provider":         "fal_tts",
+            "model":             model_id or "fal-ai/elevenlabs/tts/multilingual-v2",
+            "voice":             voice or DEFAULT_ELEVENLABS_VOICE,
+            "language":          language,
+            "duration_seconds":  estimate_duration_seconds(text),
+            "secret_source":     "missing",
+            "env_key":           "FAL_KEY_NARRATION",
+            "fallback_to_mock":  True,
+            "real_call":         False,
+            "error":             "FAL_KEY_NARRATION (or legacy FAL_KEY) not configured",
+            "note":              "Add FAL_KEY_NARRATION in /admin/secrets to enable real narration.",
+        }
+    slug = model_id or "fal-ai/elevenlabs/tts/multilingual-v2"
+    voice_id = voice or DEFAULT_ELEVENLABS_VOICE
+    settings = {**_default_voice_settings(), **(voice_settings or {})}
+    url = f"https://queue.fal.run/{slug}"
+    payload = {
+        "text":  (text or "")[:2500],
+        "voice": voice_id,
+        "stability":         settings.get("stability"),
+        "similarity_boost":  settings.get("similarity_boost"),
+        "style":             settings.get("style"),
+        "use_speaker_boost": settings.get("use_speaker_boost"),
+    }
+    headers = {"Authorization": f"Key {secret}", "Content-Type": "application/json"}
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
+            r = await c.post(url, headers=headers, json=payload)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if r.status_code in (200, 201, 202):
+            data = r.json()
+            # Submit response carries request_id. We need to poll.
+            req_id = data.get("request_id") or data.get("id")
+            if not req_id and data.get("audio", {}).get("url"):
+                # Some fal endpoints return synchronously.
+                audio_url = data["audio"]["url"]
+                async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
+                    ar = await c.get(audio_url)
+                if ar.status_code == 200:
+                    return ar.content, "audio/mpeg", {
+                        "provider":         "fal_tts",
+                        "model":            slug,
+                        "voice":            voice_id,
+                        "language":         language,
+                        "voice_settings":   settings,
+                        "duration_seconds": estimate_duration_seconds(text),
+                        "bytes":            len(ar.content),
+                        "latency_ms":       latency_ms,
+                        "secret_source":    source,
+                        "env_key":          "FAL_KEY_NARRATION",
+                        "fallback_to_mock": False,
+                        "real_call":        True,
+                        "error":            None,
+                    }
+            # Poll loop (up to 90s).
+            for _ in range(30):
+                await __import__("asyncio").sleep(3)
+                async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
+                    pr = await c.get(
+                        f"https://queue.fal.run/{slug}/requests/{req_id}",
+                        headers={"Authorization": f"Key {secret}"},
+                    )
+                if pr.status_code != 200:
+                    continue
+                pd = pr.json()
+                audio_url = (pd.get("audio") or {}).get("url")
+                if audio_url:
+                    async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
+                        ar = await c.get(audio_url)
+                    if ar.status_code == 200:
+                        return ar.content, "audio/mpeg", {
+                            "provider":         "fal_tts",
+                            "model":            slug,
+                            "voice":            voice_id,
+                            "language":         language,
+                            "voice_settings":   settings,
+                            "duration_seconds": estimate_duration_seconds(text),
+                            "bytes":            len(ar.content),
+                            "latency_ms":       latency_ms,
+                            "secret_source":    source,
+                            "env_key":          "FAL_KEY_NARRATION",
+                            "fallback_to_mock": False,
+                            "real_call":        True,
+                            "error":            None,
+                        }
+            return None, "audio/mpeg", {
+                "provider":         "fal_tts",
+                "model":            slug,
+                "secret_source":    source,
+                "env_key":          "FAL_KEY_NARRATION",
+                "fallback_to_mock": True,
+                "real_call":        False,
+                "error":            "poll_timeout",
+            }
+        if r.status_code in (401, 403):
+            return None, "audio/mpeg", {
+                "provider":         "fal_tts",
+                "model":            slug,
+                "secret_source":    source,
+                "env_key":          "FAL_KEY_NARRATION",
+                "fallback_to_mock": True,
+                "real_call":        False,
+                "error":            f"HTTP {r.status_code}: auth_failed",
+            }
+        return None, "audio/mpeg", {
+            "provider":         "fal_tts",
+            "model":            slug,
+            "secret_source":    source,
+            "env_key":          "FAL_KEY_NARRATION",
+            "fallback_to_mock": True,
+            "real_call":        False,
+            "error":            f"HTTP {r.status_code}: {r.text[:200]}",
+        }
+    except Exception as e:  # noqa: BLE001
+        return None, "audio/mpeg", {
+            "provider":         "fal_tts",
+            "model":            slug,
+            "secret_source":    source,
+            "env_key":          "FAL_KEY_NARRATION",
+            "fallback_to_mock": True,
+            "real_call":        False,
+            "error":            f"{type(e).__name__}: {e}",
+        }
+
+
 # ---------------------------------------------------------------------------
 # OpenAI TTS adapter — STUB. Wire actual call in a follow-up phase.
 # Documented contract so the admin sees the same meta fields and the future
@@ -275,16 +424,14 @@ async def generate_tts(
 
 
 async def narration_real_call_available() -> bool:
-    """Used by pipeline_readiness/stage_control to decide if
-    `narration_generation` should be marked `executor_callable=True`.
-
-    Currently true if provider resolves to a known real-call adapter AND
-    its credentials are present.
-    """
+    """True if the configured narration provider has credentials."""
     provider, _ = await _resolve_narration_provider()
     if provider == "elevenlabs":
         secret, _src = await get_secret_with_source("ELEVENLABS_API_KEY")
         return bool(secret)
+    if provider == "fal_tts":
+        secret, _src = await _get_fal_key_for_narration()
+        return bool(secret)
     if provider == "openai":
-        return False  # not wired yet — document honestly
+        return False
     return False
