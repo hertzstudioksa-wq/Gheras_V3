@@ -835,11 +835,103 @@ The admin can now confidently begin manual testing because:
   ✅ Zero regression — 54 unit tests + 11/11 preview stages green
 
 
+### Phase K — TTS Executor + Unified Stage Control (Feb 27, 2026) ✅
+
+**What landed**
+1. **Real ElevenLabs TTS adapter** — `services/tts_service.py` (provider-adapter
+   pattern). Default model `eleven_multilingual_v2`, default voice `EXAVITQu4vr4xnSDxMaL`.
+   Resolves `ELEVENLABS_API_KEY` via `secret_overrides_service` (encrypted DB
+   override wins over `.env`). On any failure or missing key, gracefully
+   degrades to mock and surfaces the truth in `meta.fallback_to_mock`.
+2. **Audio service rewired** — `services/audio_generation_service.py` is now a
+   thin re-export wrapper over `tts_service.generate_tts`; legacy callers in
+   `generation_orchestrator` are unchanged.
+3. **Lab executor for narration** — `_run_narration_generation` in
+   `stage_lab_service.py` makes a real TTS call when key is present, saves the
+   resulting MP3 to internal storage, returns a playable `/api/uploads/file/{id}`
+   URL. Hard cap of 600 chars on lab text to control spend.
+4. **Honest status** — `EXECUTOR_STATUS["narration_generation"] = "real-call-when-keyed"`.
+   Pipeline readiness exposes `executor_callable` (bool) and `prompt_editable`
+   (bool) per stage. `narration_real_call_available()` collapses provider +
+   key resolution into a single source of truth.
+5. **Unified `/admin/stage-control`** — new page covering all 11 canonical
+   stages on a single screen. Per stage shows: executor_status badge,
+   executor_callable indicator, provider/model/env/fallback editors,
+   secret source (with link to `/admin/secrets` when missing), config_source
+   (preset/manual/default), prompt-driven badge with version, cost line,
+   notes, plus Save / Reset / Test-in-Lab actions. KPI strip surfaces
+   callable/total, missing keys, not-yet-wired count, prompt count, and
+   narration-real-call status. Active preset banner + integrity warning are
+   inherited from pipeline_readiness.
+6. **New backend routes** — `POST /api/admin/stage-control/state` (read),
+   `PATCH /api/admin/stage-control/{stage_key}` (upsert provider/model/env/active),
+   `POST /api/admin/stage-control/{stage_key}/reset` (back to DEFAULT_MODELS).
+   All actions audited under `entity_type=stage_control`.
+7. **Pricing audit** — `narration_generation` cost now 0.20 SAR (was 0.05);
+   added `video_generation` (1.20) and `music_generation` (0.40) defaults so
+   future executor wiring already has cost lines. `narration_audio` kept in
+   sync (used by the live orchestrator).
+
+**Acceptance — Phase K objectives delivered**
+  ✅ `narration_generation` executor is REAL-CALL when ELEVENLABS_API_KEY is
+     present (override or env). No code change needed to flip — admin adds
+     the key under `/admin/secrets` and the stage flips to `executor_callable=True`.
+  ✅ Provider-adapter shape — `_tts_via_openai` registered as a stub for the
+     follow-up phase; one-function replacement is enough to wire it.
+  ✅ `/admin/stage-control` covers ALL 11 stages, not only real-call ones.
+  ✅ Each stage card shows executor_status, provider, model, secret source,
+     config source, prompt editable/not, and executable-now indicator.
+  ✅ `audio_background_mode` behaviour preserved (no regressions in
+     orchestrator; readiness still flags audio_aware stages).
+  ✅ Unified state endpoint reports `stages_remaining_to_wire` —
+     today: `["music_generation", "video_generation"]`. Final video can be
+     produced with real narration as soon as ELEVENLABS_API_KEY is set
+     (cover + scene images + narration mp3 + ffmpeg assembly).
+
+**Tests**
+  Unit (Phase K): 13/13 passing
+  (`tests/test_phase_k_tts_stage_control.py`)
+  API (Phase K, written by testing agent): 10/10 passing
+  (`tests/test_phase_k_api.py`)
+  Adjusted snapshot tests: test_phase_g_lab_gaps, test_phase_e_api,
+  test_wave2_pricing_lab_secrets, test_wave3_bundles_audit_payment all
+  updated to reflect Phase K reality. Total unit suite: 116/116 passing
+  (excluding 3 pre-existing pytest-asyncio config failures unrelated to K).
+
+**Files added**
+  - `backend/services/tts_service.py`
+  - `backend/routes/admin_stage_control_routes.py`
+  - `backend/tests/test_phase_k_tts_stage_control.py`
+  - `frontend/src/pages/admin/AdminStageControl.jsx`
+
+**Files updated**
+  - `backend/services/audio_generation_service.py` (now wraps tts_service)
+  - `backend/services/stage_lab_service.py` (executor + status update + REAL_CALL_STAGES)
+  - `backend/services/pipeline_readiness_service.py` (executor_callable + prompt_editable)
+  - `backend/services/pricing_service.py` (narration cost bump + new defaults)
+  - `backend/services/audit_service.py` (stage_control entity + actions)
+  - `backend/server.py` (router include)
+  - `frontend/src/App.js` (route)
+  - `frontend/src/pages/admin/AdminLayout.jsx` (sidebar nav entry)
+
+
 ## Backlog (Phase 6 — NOT built yet)
-- Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.
-- Video animation (Sora 2 or equivalent) using `animation_prompt`.
-- Narration audio (OpenAI TTS/ElevenLabs) using `narration_text`.
-- PDF storybook using `book_pages.text` + generated illustrations.
+- Image generation (GPT Image 1 or Nano Banana) using the `image_prompt.prompt_text` + reference image.  ✅ Done
+- Video animation (Sora 2 or equivalent) using `animation_prompt`.  (still pending real-call wiring)
+- Narration audio (OpenAI TTS/ElevenLabs) using `narration_text`.  ✅ Done — ElevenLabs wired Phase K
+- PDF storybook using `book_pages.text` + generated illustrations.  ✅ Done
+
+## Active Backlog (post-Phase K)
+**P1 (next up)**
+- `music_generation` real executor (Suno or ElevenLabs Music) — adapter slot exists in `tts_service` family.
+- `video_generation` real executor (Kling / Sora 2 / Luma) — provider choices already in `PROVIDER_CHOICES_BY_STAGE`.
+- Prompt Diff Viewer + Prompt Health Dashboard UI (deferred from Phase H).
+
+**P2**
+- Audio background mixing in `ffmpeg` using actual audio tracks (`audio_background_mode`).
+- Pipeline config caps editor UI (editable reference caps).
+- PDF size shrink (~10MB → ~2MB via JPEG recompression).
+- OpenAI TTS adapter — single-function wire-up in `tts_service._tts_via_openai`.
 
 ## P1 Enhancements (later)
 - Per-user character_profiles (reuse across stories for the same child).
