@@ -921,17 +921,115 @@ The admin can now confidently begin manual testing because:
 - Narration audio (OpenAI TTS/ElevenLabs) using `narration_text`.  ✅ Done — ElevenLabs wired Phase K
 - PDF storybook using `book_pages.text` + generated illustrations.  ✅ Done
 
-## Active Backlog (post-Phase K)
+## Active Backlog (post-Phase L)
 **P1 (next up)**
-- `music_generation` real executor (Suno or ElevenLabs Music) — adapter slot exists in `tts_service` family.
-- `video_generation` real executor (Kling / Sora 2 / Luma) — provider choices already in `PROVIDER_CHOICES_BY_STAGE`.
+- `music_generation` real executor (Suno or ElevenLabs Music) — only stage left as `not-yet-wired`. Adapter slot exists in `tts_service` family.
 - Prompt Diff Viewer + Prompt Health Dashboard UI (deferred from Phase H).
+- AdminStoryboard surfacing `video_clips` per scene (provider/model/strategy/clip_url/state) — orchestrator already persists; UI binding pending.
 
 **P2**
 - Audio background mixing in `ffmpeg` using actual audio tracks (`audio_background_mode`).
 - Pipeline config caps editor UI (editable reference caps).
 - PDF size shrink (~10MB → ~2MB via JPEG recompression).
 - OpenAI TTS adapter — single-function wire-up in `tts_service._tts_via_openai`.
+- Sora 2 / Luma video adapters — single-function wire-up in `video_generation_service._video_via_sora` / `_video_via_luma`.
+
+
+### Phase L — fal.ai Kling Video Executor + Hybrid Assembly (Feb 27, 2026) ✅
+
+**What landed**
+1. **Real fal.ai Kling adapter** — `services/video_generation_service.py` with
+   provider-adapter pattern. Default: `fal-ai/kling-video/v2.1/standard/image-to-video`
+   (admin-overridable from Stage Control). Submit→poll→download via
+   `https://queue.fal.run/{slug}` using `Authorization: Key FAL_KEY`. Sora &
+   Luma slots reserved as one-function-wire-up stubs.
+2. **Hybrid I2V/T2V strategy** — `submit_clip` picks the I2V endpoint when a
+   scene image URL is provided, otherwise auto-converts to the matching
+   `/text-to-video` slug. The strategy is reflected per-scene in
+   `db.video_clips.clip_strategy`.
+3. **Submit-all-then-poll-parallel orchestration** — new
+   `_run_video_generation_stage` in `generation_orchestrator` runs after
+   asset jobs when `output_type` includes video AND `pipeline_config` has
+   `video_generation.enabled=True` AND `video_real_call_available()`. Submits
+   every scene first, then polls with `asyncio.gather` (poll_interval=10s,
+   max_wait=900s). Persists clips in `db.video_clips` and a per-order
+   `video_generation_summary`.
+4. **Hybrid video assembly** — `video_assembly_service` now prefers real
+   per-scene Kling clips when present (re-encodes to 1280x720 24fps for
+   safe concat), falls back to slideshow per missing clip. New `assembly_mode`
+   ∈ `{real_clips, hybrid, slideshow}` exposed in meta. ffmpeg remains the
+   authoritative final-cut path; native audio mixing still slated for next phase.
+5. **Stage Lab executor for video** — `_run_video_generation` in
+   `stage_lab_service`: single-scene synchronous submit→poll→download with
+   max_wait=240s and 5s duration cap. Saves clip to internal storage,
+   returns playable `/api/uploads/file/{id}` URL. Cost-ack gated.
+6. **Stage Control UI** — new green video banner with Arabic guidance,
+   `kpi-video` ("فيديو Kling حقيقي: نعم/لا"), `video_generation` row defaults
+   to `kling`/Kling-default with provider menu `[kling, sora, luma, ffmpeg]`.
+7. **Provider Connectivity Test** — `provider_test_service.test_fal()` added;
+   secrets page exposes a working `Test connection` button via
+   `POST /api/admin/secrets/test/fal`.
+8. **Secrets registry** — `FAL_KEY` added to `KNOWN_ENV_KEYS`
+   (label="fal.ai (Kling Video)", providers=["kling","luma"], optional=True).
+9. **Pricing audit** — `per_stage_costs.video_generation = 2.50` SAR, plus
+   new `video_generation_per_model` map (v2.1 standard 1.20 → v3 pro 3.60
+   per scene clip).
+10. **Default model registry update** — `DEFAULT_MODELS.video_generation`
+    flipped from `ffmpeg/local-slideshow` to `kling/Kling-default`. **One-time
+    auto-migration** in `server.py` startup updates legacy rows.
+11. **Seed prompt template** — `video_generation` template rewritten to
+    drive Kling I2V/T2V with cinematic camera + emotional_tone + character
+    consistency hints.
+
+**Acceptance — Phase L objectives delivered**
+  ✅ video_generation real-call when FAL_KEY present (no code edit needed).
+  ✅ Provider-adapter shape; Sora/Luma stubs ready for one-function wire-up.
+  ✅ /admin/stage-control + /admin/secrets + /admin/lab + /admin/pipeline all reflect Kling truthfully.
+  ✅ Honest fallback to ffmpeg slideshow when key missing or any clip fails.
+  ✅ Per-model pricing override admin-tunable.
+  ✅ Cost-ack gate enforced for lab runs.
+  ✅ Final video honestly states `assembly_mode` (real_clips / hybrid / slideshow).
+  ✅ ffmpeg remains authoritative for final assembly — native audio from
+     Kling NOT used in the final path (documented honestly).
+
+**Tests**
+  Unit (Phase L): 16/16 (`tests/test_phase_l_video_kling.py`)
+  API (live, Phase L): 10/10 (testing agent generated `tests/test_phase_l_api.py`)
+  Adjusted snapshot tests: `test_phase_g_lab_gaps`, `test_phase_k_api`,
+  `test_wave2_pricing_lab_secrets` updated to reflect Phase L reality.
+  Total unit suite: 142/142 passing.
+
+**Files added**
+  - `backend/services/video_generation_service.py`
+  - `backend/tests/test_phase_l_video_kling.py`
+
+**Files updated**
+  - `backend/services/generation_orchestrator.py` (+`_run_video_generation_stage`, os import)
+  - `backend/services/video_assembly_service.py` (real-clip path + assembly_mode)
+  - `backend/services/stage_lab_service.py` (`_run_video_generation`, EXECUTOR_STATUS, REAL_CALL_STAGES)
+  - `backend/services/pipeline_readiness_service.py` (video_real_call_available wiring)
+  - `backend/services/pricing_service.py` (per_stage_costs + video_generation_per_model)
+  - `backend/services/config_service.py` (DEFAULT_MODELS.video_generation, PROVIDER_ENV_MAP.kling)
+  - `backend/services/provider_test_service.py` (`test_fal`)
+  - `backend/routes/admin_secrets_routes.py` (FAL_KEY entry)
+  - `backend/routes/admin_stage_control_routes.py` (video_real_call_available, video_defaults, _VIDEO_PROVIDERS)
+  - `backend/server.py` (Phase L migration on startup)
+  - `backend/seed.py` (video_generation prompt template)
+  - `frontend/src/pages/admin/AdminStageControl.jsx` (video KPI + banner + Clapperboard)
+
+
+## Active Backlog (post-Phase L)
+**P1 (next up)**
+- `music_generation` real executor (Suno or ElevenLabs Music) — only stage left as `not-yet-wired`.
+- Prompt Diff Viewer + Prompt Health Dashboard UI.
+- AdminStoryboard surfacing `video_clips` per scene with strategy/state.
+
+**P2**
+- Audio background mixing in `ffmpeg` using actual audio tracks.
+- Sora 2 / Luma video adapters — single-function wire-up.
+- OpenAI TTS adapter — single-function wire-up.
+- Pipeline config caps editor UI.
+- PDF size shrink (~10MB → ~2MB).
 
 ## P1 Enhancements (later)
 - Per-user character_profiles (reuse across stories for the same child).
