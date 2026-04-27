@@ -200,11 +200,15 @@ export default function AdminStageControl() {
           <div className="flex-1">
             <div className="font-bold text-[#9A6515] mb-1">السرد TTS — وضع المحاكاة</div>
             <div className="text-xs text-[#7A4F10] leading-relaxed">
-              لتفعيل التوليد الصوتي الحقيقي عبر ElevenLabs:
-              ضع مفتاح <code className="bg-white px-1 rounded">ELEVENLABS_API_KEY</code> من{" "}
+              لتفعيل التوليد الصوتي الحقيقي عبر <b>fal.ai ElevenLabs</b> (بديل أنظف من مفتاح ElevenLabs المباشر — لا يحتاج خطّة Creator+):
+              ضع مفتاح <code className="bg-white px-1 rounded">FAL_KEY_NARRATION</code> من{" "}
               <Link to="/admin/secrets" className="underline font-bold">صفحة المفاتيح والمزوّدين</Link>.
-              النموذج الافتراضي: <code className="bg-white px-1 rounded">{state.narration_defaults?.model}</code>.
-              عند توفّر المفتاح ستتحوّل المرحلة تلقائياً إلى استدعاء حقيقي بدون أيّ تعديل برمجي.
+              النموذج الافتراضي: <code className="bg-white px-1 rounded">{state.narration_defaults?.model || "fal-ai/elevenlabs/tts/multilingual-v2"}</code>.
+              <span className="block mt-1">
+                <b>Smart Narration</b>: طبقة LLM (gpt-5-mini عبر Emergent) تحلّل كل مشهد وتولّد قيم
+                <code className="bg-white px-1 rounded mx-1">speed / stability / similarity_boost / style</code>
+                تلقائياً قبل استدعاء TTS.
+              </span>
             </div>
           </div>
         </div>
@@ -222,7 +226,7 @@ export default function AdminStageControl() {
             <div className="text-xs text-[#3F5B2E]/90 leading-relaxed">
               حالياً يُجمَّع الفيديو النهائي عبر <b>ffmpeg slideshow</b> من صور المشاهد + سرد صوتي.
               لتفعيل توليد لقطات فيديو حقيقيّة لكل مشهد عبر <b>fal.ai Kling</b>:
-              ضع مفتاح <code className="bg-white px-1 rounded">FAL_KEY</code> من{" "}
+              ضع مفتاح <code className="bg-white px-1 rounded">FAL_KEY_VIDEO</code> من{" "}
               <Link to="/admin/secrets" className="underline font-bold">صفحة المفاتيح والمزوّدين</Link>،
               ثم اختر Kling في صفّ <code className="bg-white px-1 rounded">video_generation</code> أدناه.
               النموذج الافتراضي: <code className="bg-white px-1 rounded">{state.video_defaults?.model}</code>.
@@ -242,13 +246,12 @@ export default function AdminStageControl() {
           <div className="flex-1">
             <div className="font-bold text-[#8B5A2B] mb-1">موسيقى الخلفية — وضع الكتم</div>
             <div className="text-xs text-[#8B5A2B]/90 leading-relaxed">
-              الموسيقى الخلفية في الفيديو النهائي معطَّلة الآن. لتفعيل التوليد الحقيقي عبر <b>ElevenLabs Music</b>:
-              ضع <code className="bg-white px-1 rounded">ELEVENLABS_API_KEY</code> من{" "}
+              الموسيقى الخلفية في الفيديو النهائي معطَّلة الآن. لتفعيل التوليد الحقيقي عبر <b>fal.ai ElevenLabs Music</b>:
+              ضع <code className="bg-white px-1 rounded">FAL_KEY_MUSIC</code> من{" "}
               <Link to="/admin/secrets" className="underline font-bold">صفحة المفاتيح</Link>،
-              ثم اختبر الاتصال بزر <b>elevenlabs_music</b>.
+              ثم اختبر الاتصال بزر <b>fal_music</b>.
               <br />
-              <b>ملاحظة هامّة:</b> ElevenLabs Music تتطلّب خطّة <b>Creator+</b> أو أعلى.
-              إن أعطى الاختبار 403 ستظهر شارة "plan-required".
+              النموذج الافتراضي: <code className="bg-white px-1 rounded">fal-ai/elevenlabs/music</code>.
               <br />
               الأوضاع المدعومة: <code className="bg-white px-1 rounded">music</code> (موسيقى آلية)،{" "}
               <code className="bg-white px-1 rounded">human_rhythm</code> (إيقاع بشري — prompt-biased فقط لا قدرة API أصلية)،{" "}

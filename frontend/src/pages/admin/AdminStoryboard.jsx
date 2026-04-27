@@ -947,22 +947,55 @@ function OutSceneImages({ o }) {
 function OutNarration({ o }) {
   return (
     <div className="space-y-2">
-      <div className="text-[11px] text-[#5A677D]">
-        عدد: <b>{o.count}</b> · إجمالي المدة: <b>{o.total_duration_seconds?.toFixed?.(1) || o.total_duration_seconds}s</b>
-        {o.all_mocked && <span className="mx-2 bg-[#F8F1E7] text-[#8B5A2B] rounded px-1 text-[10px]">ALL MOCKED</span>}
+      <div className="text-[11px] text-[#5A677D] flex items-center gap-2 flex-wrap">
+        <span>عدد: <b>{o.count}</b> · إجمالي المدة: <b>{o.total_duration_seconds?.toFixed?.(1) || o.total_duration_seconds}s</b></span>
+        {o.all_mocked && <span className="bg-[#F8F1E7] text-[#8B5A2B] rounded px-1 text-[10px]">ALL MOCKED</span>}
+        {(o.smart_narration_used_count || 0) > 0 && (
+          <span
+            className="bg-[#DEEBCF] text-[#3F5B2E] rounded px-2 text-[10px] font-bold"
+            data-testid="storyboard-smart-narration-badge"
+          >
+            Smart Narration: {o.smart_narration_used_count}/{o.count}
+          </span>
+        )}
       </div>
       <div className="space-y-1">
-        {(o.items || []).map((n) => (
-          <div key={n.scene_index} className="bg-white rounded-xl p-2 border border-[#E2D8C9] text-xs" data-testid={`storyboard-narration-${n.scene_index}`}>
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className="bg-[#D4A373] text-white rounded-full w-5 h-5 grid place-content-center text-[10px] font-bold">{n.scene_index}</span>
-              <span className="text-[10px] text-[#8A9AB0] font-mono">{n.provider} · {n.voice_type} · {n.language} · ~{n.duration_seconds}s</span>
-              {n.audio_url && <audio controls src={fileSrc(n.audio_url)} className="h-7" />}
-              {!n.audio_url && <span className="text-[10px] text-[#B8612F]">(mocked — no audio file)</span>}
+        {(o.items || []).map((n) => {
+          const sn = n.smart_narration || null;
+          const vs = n.voice_settings || null;
+          const snTone = sn?.source === "llm" ? "bg-[#DEEBCF] text-[#3F5B2E]"
+                        : sn?.source === "heuristic" ? "bg-[#F8F1E7] text-[#8B5A2B]"
+                        : sn?.source === "llm_failed" ? "bg-[#FCE6D4] text-[#B8612F]"
+                        : "bg-[#EEE9E0] text-[#5A677D]";
+          return (
+            <div key={n.scene_index} className="bg-white rounded-xl p-2 border border-[#E2D8C9] text-xs" data-testid={`storyboard-narration-${n.scene_index}`}>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="bg-[#D4A373] text-white rounded-full w-5 h-5 grid place-content-center text-[10px] font-bold">{n.scene_index}</span>
+                <span className="text-[10px] text-[#8A9AB0] font-mono">{n.provider} · {n.voice_type} · {n.language} · ~{n.duration_seconds}s</span>
+                {n.audio_url && <audio controls src={fileSrc(n.audio_url)} className="h-7" />}
+                {!n.audio_url && <span className="text-[10px] text-[#B8612F]">(mocked — no audio file)</span>}
+                {sn && (
+                  <span
+                    className={`rounded px-1 text-[10px] font-bold ${snTone}`}
+                    title={`reason=${sn.reason || "?"}${sn.model ? " · model=" + sn.model : ""}`}
+                    data-testid={`storyboard-narration-smart-${n.scene_index}`}
+                  >
+                    Smart: {sn.source}
+                  </span>
+                )}
+              </div>
+              {vs && (
+                <div
+                  className="text-[10px] text-[#3F5B2E] font-mono bg-[#E8F0E1]/40 rounded px-1 mb-1"
+                  data-testid={`storyboard-narration-voicesettings-${n.scene_index}`}
+                >
+                  speed:{vs.speed} · stab:{vs.stability} · sim:{vs.similarity_boost} · style:{vs.style}
+                </div>
+              )}
+              <p className="text-[#2D3748] text-[11px]">{n.text_preview}</p>
             </div>
-            <p className="text-[#2D3748] text-[11px]">{n.text_preview}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -1,0 +1,51 @@
+{
+  "summary": "Phase N frontend smoke completed across all 5 admin pages (/admin/secrets, /admin/stage-control, /admin/pipeline, /admin/lab, /admin/storyboard/{id}) using admin@gheras.com. Every Phase N contract surfaced correctly in the UI: (a) /admin/secrets exposes 9 secret cards including all 5 fal.ai entries (FAL_KEY legacy + FAL_KEY_SCENE/NARRATION/MUSIC/VIDEO) with data-testid='test-provider-FAL_KEY_*' on each test button, source='missing' badge visible, and zero raw secret leakage in the DOM (regex-scanned for sk-/fa-/key_ tokens — none found); (b) /admin/stage-control renders 11/11 stages, Smart Narration banner mentions FAL_KEY_NARRATION + speed/stability/similarity_boost/style + Emergent gpt-5-mini, video banner mentions FAL_KEY_VIDEO + fal-ai/kling-video/v3/pro/image-to-video, music banner mentions FAL_KEY_MUSIC + fal-ai/elevenlabs/music, and the 3 KPIs (السرد TTS حقيقي / فيديو Kling حقيقي / موسيقى ElevenLabs) all show 'لا' as expected (keys missing). All 4 provider <select> dropdowns match the user spec EXACTLY: scene_image_generation=[openai,fal_image,gemini]; narration_generation=[fal_tts,elevenlabs,openai,mock]; music_generation=[fal_music,elevenlabs,suno,mock]; video_generation=[kling,sora,luma,ffmpeg]; (c) /admin/pipeline renders 11/11 stages with provider/model/env_key fully visible — confirmed via screenshot: openai/gpt-5.4-mini→OPENAI_API_KEY, openai/gpt-5.4→OPENAI_API_KEY, openai/gpt-image-1.5-2025-12-16→OPENAI_API_KEY (×2), fal_image/fal-ai/gemini-25-flash-image→FAL_KEY_SCENE (×2), fal_tts/fal-ai/elevenlabs/tts/multilingual-v2→FAL_KEY_NARRATION, fal_music/fal-ai/elevenlabs/music→FAL_KEY_MUSIC, kling/fal-ai/kling-video/v3/pro/image-to-video→FAL_KEY_VIDEO, ffmpeg+reportlab local-binary; (d) /admin/lab loads with narration_generation selectable and 'real-call-when-keyed' executor_status visible; (e) /admin/storyboard/{id} for legacy order b8dea19c-6636-4e9b-ac36-9c5524ee5ac7 renders gracefully with zero narration testids (status=scenarios_ready — pre-narration; backward compat confirmed: no smart-narration-badge appears, page does not crash). No page errors captured during the 5-page traversal. CORS+auth: admin login via /api/auth/login returns access_token + role=admin; protected routes load without redirect.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "console_warnings": [
+      {"page": "/admin/lab + /admin/stage-control", "issue": "React hydration warning 'In HTML, <span> cannot be a child of <option>' caused by Emergent visual-editor instrumentation injecting <span data-ve-dynamic style=display:contents> inside the dynamic <option> tags. Cosmetic only — does not affect option values or selection. Source: AdminStageLab.jsx:135 dynamic option render.", "priority": "LOW"}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_11.json (Phase N backend baseline)",
+    "/app/backend/tests/test_phase_n_provider_matrix.py",
+    "/app/backend/tests/test_phase_n_smart_narration.py",
+    "/app/backend/tests/test_phase_n_api.py"
+  ],
+  "action_items": [
+    "(Optional) Investigate why no order in /admin/orders has reached narration_generation stage so that we can validate the live storyboard-smart-narration-badge + storyboard-narration-smart-{i} + storyboard-narration-voicesettings-{i} testids end-to-end. All 126 listed orders are in 'scenarios_ready' state. To exercise this fully, run /admin/lab → narration_generation → 'تشغيل المرحلة' (preview-only) on a test order, or seed an order through to narration completion.",
+    "(Cosmetic) Wrap dynamic option text with a plain text node instead of <span style=display:contents> in AdminStageLab to silence the React hydration console warning."
+  ],
+  "critical_code_review_comments": [
+    "AdminSecrets.jsx is fully data-driven from /api/admin/secrets/status — adding FAL_KEY_VIDEO etc requires zero frontend changes. Each card surfaces purpose + providers + source badge + Test button without leaking the raw key. Strong design.",
+    "AdminStageControl.jsx provider <select> options are sourced from state.provider_choices_by_stage (backend-driven), so the UI cannot drift from the orchestrator's accepted providers. The 4 dropdowns matched the Phase N spec EXACTLY.",
+    "AdminPipeline.jsx renders the full provider/model/env_key triple per stage, with a 'missing' badge next to env_key when the key isn't configured — this is the single best at-a-glance Phase N readiness view.",
+    "AdminStageControl narration/video/music banners read each FAL_KEY_* by name in plain Arabic copy + reference /admin/secrets; clear operator UX.",
+    "Storyboard backward compat is verified: legacy order without narration data renders without throwing and without showing the storyboard-smart-narration-badge — exactly the Phase N contract.",
+    "(Code-quality nit) React hydration warning from <option><span/></option> is caused by visual-editor instrumentation, not by author code, but the option innerText pattern in AdminStageLab.jsx:135 is friendly to that injection. Consider {`${value}`} string literal to avoid the wrapper."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not retested (iteration_11 = 100% Phase N)", "frontend": "100% (all 5 admin pages + provider matrix + dropdown options + KPIs + Smart Narration banner + backward-compat storyboard verified)"},
+  "test_credentials": "admin@gheras.com / Admin@1234 (seeded). Token key in localStorage = 'gheras_token' (NOT 'token'). All 4 FAL_KEY_* entries report source='missing' as expected — user has not funded fal.ai.",
+  "seed_data_creation": "None. Read-only traversal + admin secret 'Test connection' clicks (no DB writes).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "To re-run frontend Phase N: (1) login via POST /api/auth/login with admin@gheras.com/Admin@1234, (2) inject the access_token into localStorage under key 'gheras_token' (do NOT use 'token'), (3) GET /admin/secrets and assert data-testid='test-provider-FAL_KEY_{SCENE,NARRATION,MUSIC,VIDEO}' all present, (4) GET /admin/stage-control and assert <select data-testid='sc-{stage}-provider'> for narration/music/video/scene match Phase N spec, (5) GET /admin/pipeline for the 11-row matrix view, (6) GET /admin/storyboard/{order_id} for backward compat. The 'gpt-5.4-mini' / 'fal-ai/gemini-25-flash-image' / 'fal-ai/elevenlabs/tts/multilingual-v2' strings appear inside <option value> attributes inside <select>, NOT in raw textContent — verify them via attribute reads, not text scrape. To exercise the smart_narration UI badge, run /admin/lab → select narration_generation → 'تشغيل المرحلة' on a delivered order; the JSON output_preview will surface smart_narration + voice_settings.",
+  "phase_n_ui_matrix_observed": {
+    "scenario_generation":         "openai / gpt-5.4-mini / OPENAI_API_KEY (env)",
+    "production_planning":         "openai / gpt-5.4 / OPENAI_API_KEY (env)",
+    "child_character_i2i":         "openai / gpt-image-1.5-2025-12-16 / OPENAI_API_KEY (env)",
+    "extra_character_i2i":         "openai / gpt-image-1.5-2025-12-16 / OPENAI_API_KEY (env)",
+    "scene_image_generation":      "fal_image / fal-ai/gemini-25-flash-image / FAL_KEY_SCENE (missing)",
+    "book_page_image_generation":  "fal_image / fal-ai/gemini-25-flash-image / FAL_KEY_SCENE (missing)",
+    "narration_generation":        "fal_tts / fal-ai/elevenlabs/tts/multilingual-v2 / FAL_KEY_NARRATION (missing)",
+    "music_generation":            "fal_music / fal-ai/elevenlabs/music / FAL_KEY_MUSIC (missing)",
+    "video_generation":            "kling / fal-ai/kling-video/v3/pro/image-to-video / FAL_KEY_VIDEO (missing)",
+    "video_assembly":              "ffmpeg / local-ffmpeg / —",
+    "pdf_assembly":                "reportlab / local-reportlab / —"
+  },
+  "rca of the issue": "No defects found. Phase N is fully reflected in the admin dashboard: 4 per-capability fal.ai keys surfaced in /admin/secrets, 11-stage matrix correct in /admin/stage-control + /admin/pipeline + /admin/lab, Smart Narration banner copy mentions FAL_KEY_NARRATION + the 4 voice_settings fields + the gpt-5-mini classifier, all 4 provider dropdowns enumerate exactly the providers the orchestrator accepts, and the storyboard narration card degrades gracefully (no smart-narration-badge) on pre-Phase-N legacy orders. The only console noise is a cosmetic React hydration warning from emergent's visual-editor injecting <span style=display:contents> inside <option> tags — pre-existing, harmless."
+}
