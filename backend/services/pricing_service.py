@@ -51,7 +51,7 @@ DEFAULT_PRICING_CONFIG: dict = {
         "narration_audio":         0.20,   # per scene — ElevenLabs eleven_multilingual_v2 ~ $0.045/scene → ~0.20 SAR
         "narration_generation":    0.20,   # canonical stage_key alias (used by lab + readiness)
         "music_generation":        0.40,   # per story (Suno/ElevenLabs Music — when wired)
-        "video_generation":        1.20,   # per story (Kling/Sora/Luma — when wired)
+        "video_generation":        2.50,   # per scene clip (~5s on fal.ai Kling v2.1 standard)
         "book_page_asset":         0.02,   # per book page (reuses scene image)
         "vision_describe":         0.10,   # per uploaded toy/character analysis
         "video_assembly":          0.40,   # ffmpeg render
@@ -60,6 +60,21 @@ DEFAULT_PRICING_CONFIG: dict = {
     },
     # Each retry attempt re-burns this fraction of the stage's unit cost.
     "retry_attempt_cost_fraction": 0.30,
+    # Phase L — per-model override map for `video_generation`. Allows admin
+    # to tune cost per Kling tier (v2.1 standard ~ $0.30/5s; v2.6 pro ~$0.60;
+    # v3 pro ~$0.90). Keys are full fal.ai slugs OR loose tier names. Looked
+    # up by exact match; if missing we fall back to the flat
+    # per_stage_costs.video_generation value above.
+    "video_generation_per_model": {
+        "fal-ai/kling-video/v2.1/standard/image-to-video": 1.20,
+        "fal-ai/kling-video/v2.1/standard/text-to-video":  1.20,
+        "fal-ai/kling-video/v2.1/master/image-to-video":   2.80,
+        "fal-ai/kling-video/v2.1/master/text-to-video":    2.80,
+        "fal-ai/kling-video/v2.6/pro/image-to-video":      2.40,
+        "fal-ai/kling-video/v2.6/pro/text-to-video":       2.40,
+        "fal-ai/kling-video/v3/pro/image-to-video":        3.60,
+        "fal-ai/kling-video/v3/standard/image-to-video":   1.80,
+    },
     # Output-type modifier on the FINAL internal cost (applied after stage sum).
     # PDF-only is cheaper because it skips narration+video assembly.
     "per_output_modifier": {

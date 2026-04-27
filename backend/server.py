@@ -142,6 +142,27 @@ async def on_startup():
                 logger.info(f"pipeline_config migrated to include all {len(DEFAULT_PIPELINE['order'])} stages")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"pipeline_config migration skipped: {e}")
+
+    # Phase L migration — refresh model_registry rows that still hold an old
+    # default the platform has since superseded. Idempotent: only updates
+    # rows that match the *previous* default, never overwriting admin choices.
+    try:
+        from services.config_service import DEFAULT_MODELS
+        legacy_rows = [
+            ("video_generation", {"provider": "ffmpeg", "model_name": "local-slideshow"}),
+        ]
+        for stage_key, legacy in legacy_rows:
+            row = await db.model_registry.find_one({"stage_key": stage_key}, {"_id": 0})
+            if row and row.get("provider") == legacy["provider"] and row.get("model_name") == legacy["model_name"]:
+                new = DEFAULT_MODELS.get(stage_key) or {}
+                await db.model_registry.update_one(
+                    {"stage_key": stage_key},
+                    {"$set": {**new, "notes": "Phase L auto-migrated to fal.ai Kling default"}},
+                )
+                logger.info(f"model_registry: migrated {stage_key} from "
+                            f"{legacy['provider']}/{legacy['model_name']} → {new.get('provider')}/{new.get('model_name')}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"model_registry Phase L migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

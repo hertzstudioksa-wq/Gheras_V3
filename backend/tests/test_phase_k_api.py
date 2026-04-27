@@ -73,7 +73,9 @@ def test_stage_control_state_returns_11_stages(auth_headers):
     # narration_real_call_available is False (no key configured in this pod)
     assert body.get("narration_real_call_available") is False
     remaining = body.get("stages_remaining_to_wire") or []
-    assert set(remaining) == {"music_generation", "video_generation"}, remaining
+    # Phase L promoted video_generation out of `not-yet-wired`. Music is now
+    # the only stage left.
+    assert set(remaining) == {"music_generation"}, remaining
 
 
 # ---------- PATCH /admin/stage-control/{stage_key} ------------------------

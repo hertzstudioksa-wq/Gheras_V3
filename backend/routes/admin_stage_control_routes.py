@@ -36,6 +36,9 @@ from services.tts_service import (
     narration_real_call_available, DEFAULT_ELEVENLABS_MODEL,
     DEFAULT_ELEVENLABS_VOICE,
 )
+from services.video_generation_service import (
+    video_real_call_available, DEFAULT_KLING_MODEL,
+)
 from services.audit_service import record_audit
 
 
@@ -55,7 +58,7 @@ def _now() -> str:
 _TEXT_PROVIDERS  = ["anthropic", "openai", "internal"]
 _IMAGE_PROVIDERS = ["openai", "gemini"]
 _TTS_PROVIDERS   = ["elevenlabs", "openai", "mock"]
-_VIDEO_PROVIDERS = ["kling", "sora", "ffmpeg"]
+_VIDEO_PROVIDERS = ["kling", "sora", "luma", "ffmpeg"]
 _MUSIC_PROVIDERS = ["elevenlabs", "suno", "mock"]
 _LOCAL_PROVIDERS = ["ffmpeg", "reportlab"]
 
@@ -116,6 +119,14 @@ async def get_state():
             "model":  DEFAULT_ELEVENLABS_MODEL,
             "voice":  DEFAULT_ELEVENLABS_VOICE,
             "env_key": "ELEVENLABS_API_KEY",
+        },
+        "video_real_call_available":         await video_real_call_available(),
+        "video_defaults": {
+            "model":   DEFAULT_KLING_MODEL,
+            "env_key": "FAL_KEY",
+            "strategy": "hybrid_i2v_then_t2v",
+            "default_duration_seconds": 5,
+            "default_aspect_ratio": "16:9",
         },
         "stages_remaining_to_wire":          remaining_to_wire,
         "available_env_keys":                list({m.get("env_key") for m in PROVIDER_ENV_MAP.values() if m.get("env_key")}),

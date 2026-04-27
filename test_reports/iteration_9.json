@@ -1,0 +1,49 @@
+{
+  "summary": "Phase L (fal.ai Kling video adapter + unified Stage Control extensions) reviewed end-to-end against the live preview. Backend: 16/16 unit tests in /app/backend/tests/test_phase_l_video_kling.py PASS and a new live API suite /app/backend/tests/test_phase_l_api.py (10/10) PASS against the public REACT_APP_BACKEND_URL. Verified: GET /api/admin/stage-control/state → video_real_call_available=False (no FAL_KEY in pod, intended), video_defaults={model:'fal-ai/kling-video/v2.1/standard/image-to-video', env_key:'FAL_KEY', strategy:'hybrid_i2v_then_t2v'}, stages_remaining_to_wire excludes video_generation (only ['music_generation'] remains), video_generation row provider='kling', model_name=Kling default, env_key='FAL_KEY', secret_source='missing', executor_status='real-call-when-keyed', executor_callable=False, is_real_call_stage=True, provider_choices contains kling/sora/luma/ffmpeg. GET /api/admin/secrets/status exposes FAL_KEY entry with test_provider_key='fal', label includes 'fal.ai', providers contains 'kling', source='missing'; ELEVENLABS_API_KEY still present from Phase K. POST /api/admin/secrets/test/fal returns ok=False, auth_ok=False, secret_source='missing', error mentions FAL_KEY, no 500. PATCH /api/admin/stage-control/video_generation with provider='kling'+model_name='fal-ai/kling-video/v3/pro/image-to-video' persists; subsequent state reflects new model; POST .../reset restores provider='kling'+model_name='fal-ai/kling-video/v2.1/standard/image-to-video'. POST /api/admin/lab/run for video_generation: WITHOUT acknowledged_cost → 400 (cost-ack gate); WITH ack and inputs.video_prompt → status='success', output_preview.real_call=False, fallback_to_mock=True, no error. /api/admin/pipeline-readiness video_generation row exposes executor_callable, prompt_editable, is_real_call_stage and executor_status='real-call-when-keyed'. /api/admin/pricing/config has per_stage_costs.video_generation>0 and video_generation_per_model map containing both 'fal-ai/kling-video/v2.1/standard/image-to-video' and 'fal-ai/kling-video/v3/pro/image-to-video'. Backend startup migration verified indirectly: stage row shows kling/Kling-default (not legacy ffmpeg/local-slideshow). Frontend /admin/stage-control: page renders cleanly (no runtime page errors), 11 distinct stage cards present (sc-stage-{stage_key}), 6-column KPI strip visible: kpi-callable=6/11, kpi-missing-keys=1, kpi-not-wired=1, kpi-prompts=11, kpi-narration='لا', kpi-video='لا'. Both narration-banner AND new green video-banner are visible — video banner Arabic copy correctly references FAL_KEY, fal.ai Kling, default 'fal-ai/kling-video/v2.1/standard/image-to-video', hybrid I2V/T2V strategy, link to keys page, and ffmpeg slideshow fallback. video_generation row dropdown=kling, model field=Kling default; provider options exactly ['kling','sora','luma','ffmpeg']. Save button disabled initially → enabled on edit → save persists with toast 'تم حفظ توليد الفيديو'. Reset button (window.confirm gated) restores kling/v2.1/standard with toast 'تم إعادة التعيين'. 'Test in Lab' link href=/admin/lab?stage=video_generation. Regression: /admin/pipeline, /admin/models, /admin/secrets, /admin/lab, /admin/presets, /admin/stage-control all load with no Application-error body. Pre-existing AdminStageLab '<span> cannot be a child of <option>' hydration warning still present (not Phase L regression — flagged in Phase K already).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminStageLab stage selector",
+        "issue": "Pre-existing React hydration warning on /admin/lab: '<span> cannot be a child of <option>'. Not a Phase L regression — same warning was reported in Phase K iteration_8 and is still unfixed. Not blocking.",
+        "selector": "AdminStageLab.jsx select>option",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_l_video_kling.py",
+    "/app/backend/tests/test_phase_l_api.py",
+    "/app/test_reports/pytest/phase_l_api.xml"
+  ],
+  "action_items": [
+    "(Optional, carry-over from Phase K) Silence the pre-existing AdminStageLab.jsx '<span> inside <option>' hydration warning to clean up console.",
+    "(Optional) Consider exposing a per-row Kling model dropdown (instead of free-text input) populated from video_generation_per_model keys, so admins can pick standard/pro/master without typing the slug. Today it's a text field — not a defect, just UX."
+  ],
+  "critical_code_review_comments": [
+    "Reset uses window.confirm() — blocks programmatic testing and screen-reader users. Consider replacing with an in-page confirmation dialog (e.g., Radix AlertDialog) consistent with the rest of the admin UI. Today's Playwright tests must explicitly accept the dialog to validate reset.",
+    "PATCH /api/admin/stage-control/{stage_key} body field is `model_name` (not `model` as the review-request copy and Phase K spec suggested). Carry-over from Phase K iteration_8 — still not aliased. Worth documenting in a brief OpenAPI summary or accepting both names.",
+    "video-banner Arabic copy is correct and explicit (FAL_KEY, fal.ai Kling, default Kling slug, hybrid I2V/T2V) — good. Suggestion: add a small inline 'حالة المفتاح' badge inside the banner reading 'مفقود' / 'متوفّر' so admins immediately see whether saving FAL_KEY will flip video_real_call_available without scrolling to the row.",
+    "stage_lab_service._run_video_generation uses max_wait_s=240 — fine for single-scene preview. Confirm the Lab run timeout in HTTP layer matches (tests run with timeout=180 today and still got 200; once a real FAL_KEY is added the lab call could exceed 180s for slower v3/pro models). Worth raising the front-end fetch timeout to 300s for video_generation.",
+    "Provider choices for video_generation include 'ffmpeg' alongside cloud providers (kling/sora/luma). 'ffmpeg' here means the legacy slideshow path. Consider renaming the option label in the dropdown to something like 'ffmpeg (slideshow احتياط)' so admins don't accidentally select it expecting cloud generation. Currently it's just 'ffmpeg'.",
+    "_video_via_sora and _video_via_luma return fallback_to_mock=True with error 'not_yet_wired' — verified. Make sure provider_choices documentation surfaces this in the UI tooltip; today selecting sora/luma silently mocks with no banner."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase_l_api.py (NEW — 10 e2e API tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 unit + 10/10 new API tests; 63/63 across phases H+I+K+L)",
+    "frontend": "100% (11 cards, 6 KPIs, both banners, video row save+reset round-trip, all 6 admin routes load cleanly)"
+  },
+  "test_credentials": "admin@gheras.com / Admin@1234. NO FAL_KEY configured (intended).",
+  "seed_data_creation": "None. API tests self-clean by calling .../video_generation/reset in a finally block. The UI test left video_generation in default state after reset.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: `cd /app/backend && set -a && . ./.env && set +a && python -m pytest tests/test_phase_l_api.py tests/test_phase_l_video_kling.py -v` (~2s, 26 tests). The API tests use REACT_APP_BACKEND_URL and admin login admin@gheras.com / Admin@1234. They self-clean. Frontend testids on /admin/stage-control follow `sc-{stage_key}-{sub}` (NOT `sc-stage-{stage_key}-{sub}` as the review-request spec said) — same naming as Phase K. The video banner is at `[data-testid=\"video-banner\"]`. Reset buttons trigger window.confirm — Playwright must register `page.on('dialog', lambda d: d.accept())` BEFORE clicking reset. To verify real Kling I2V/T2V calls, save FAL_KEY in /admin/secrets and re-run the lab — output_preview.real_call should flip to True and video_real_call_available=True in the state response.",
+  "rca of the issue": "No functional defects in Phase L. The wiring/state/banners/round-trip all match the acceptance criteria. The only console-side carry-over is the Phase-K hydration warning on /admin/lab. The user can confidently add FAL_KEY in /admin/secrets and the moment they do, video_generation will flip to real-call without any code change — exactly as promised. Worth-looking-at items are UX polish (window.confirm replacement, provider-label clarity, badge in video banner) and a minor potential timeout concern for slower Kling models."
+}

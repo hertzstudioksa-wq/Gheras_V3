@@ -62,16 +62,16 @@ def test_book_page_image_generation_is_reuse():
 
 
 def test_not_yet_wired_stages():
-    # Phase K: narration_generation moved out of `not-yet-wired` to
-    # `real-call-when-keyed` (ElevenLabs TTS adapter wired).
-    expected = {"video_generation", "music_generation"}
+    # Phase K: narration moved out. Phase L: video_generation moved out
+    # (fal.ai Kling executor wired). Music remains the only not-yet-wired stage.
+    expected = {"music_generation"}
     actual = {s for s, st in EXECUTOR_STATUS.items() if st == "not-yet-wired"}
     assert actual == expected, f"not-yet-wired mismatch: {actual} vs {expected}"
 
 
 def test_real_call_when_keyed_stages():
-    # Phase K — new status bucket. Today only narration_generation lives here.
-    expected = {"narration_generation"}
+    # Phase L expanded this bucket to include video_generation alongside narration.
+    expected = {"narration_generation", "video_generation"}
     actual = {s for s, st in EXECUTOR_STATUS.items() if st == "real-call-when-keyed"}
     assert actual == expected, f"real-call-when-keyed mismatch: {actual} vs {expected}"
 

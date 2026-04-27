@@ -13,6 +13,7 @@ Design principles:
 """
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -25,10 +26,152 @@ from services.config_service import resolve_prompt
 from services.child_character_service import safe_run as run_child_character_stage, _fetch_source_bytes
 from services.extra_characters_service import safe_run as run_extra_characters_stage
 from services.scene_reference_service import resolve_scene_references
+from services.video_generation_service import (
+    submit_all_then_poll, video_real_call_available,
+)
+from services.config_service import get_pipeline_config
 
 logger = logging.getLogger("generation_orchestrator")
 
 MAX_ATTEMPTS = 3
+
+
+async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> dict:
+    """Phase L — fal.ai Kling per-scene video generation.
+
+    Honest gates:
+      * output_type must include video
+      * pipeline_config.video_generation.enabled must be True
+      * video_real_call_available() must be True (provider+key resolved)
+    On any miss, returns {"ran": False, "reason": ...} — the assembly stage
+    will fall back to the existing slideshow path automatically.
+    """
+    output_type = get_order_output_type(order)
+    if output_type not in ("video", "both"):
+        return {"ran": False, "reason": "output_type does not include video"}
+
+    cfg = await get_pipeline_config()
+    stage_cfg = (cfg.get("stages") or {}).get("video_generation") or {}
+    if not stage_cfg.get("enabled", False):
+        return {"ran": False, "reason": "video_generation disabled in pipeline_config"}
+
+    if not await video_real_call_available():
+        return {"ran": False, "reason": "FAL_KEY missing or provider not callable"}
+
+    scenes = await db.scene_plans.find(
+        {"order_id": order["id"], "production_plan_id": plan["id"], "is_archived": False},
+        {"_id": 0},
+    ).sort("scene_index", 1).to_list(50)
+    if not scenes:
+        return {"ran": False, "reason": "no scenes"}
+
+    # Build scene packages — hybrid I2V/T2V driven by whether a scene image exists.
+    sis = await db.scene_images.find(
+        {"order_id": order["id"], "production_plan_id": plan["id"], "kind": "scene"},
+        {"_id": 0, "scene_index": 1, "image_url": 1},
+    ).to_list(50)
+    img_by_idx = {int(s.get("scene_index") or 0): s.get("image_url") for s in sis}
+
+    base = (os.environ.get("EXTERNAL_PUBLIC_URL")
+            or os.environ.get("REACT_APP_BACKEND_URL")
+            or "").rstrip("/")
+
+    payloads: list[dict] = []
+    for s in scenes:
+        idx = int(s.get("scene_index") or 0)
+        local_img = img_by_idx.get(idx)
+        # fal.ai needs a publicly fetchable URL; stitch base + relative path.
+        public_img = None
+        if local_img and base:
+            public_img = local_img if local_img.startswith("http") else f"{base}{local_img}"
+        ip = (s.get("image_prompt") or {}).get("prompt_text") or ""
+        vp = (s.get("video_prompt") or {}).get("prompt_text") or ""
+        prompt = (vp or ip or s.get("visual_description") or s.get("scene_goal") or "warm storybook scene")
+        # Include emotional_tone + camera hint to help motion direction.
+        cam = (s.get("video_prompt") or {}).get("camera_motion_hint") or ""
+        if cam:
+            prompt = f"{prompt}. Camera: {cam}"
+        payloads.append({
+            "prompt":        prompt[:480],
+            "image_url":     public_img,
+            "duration":      5,
+            "aspect_ratio":  "16:9",
+            "_scene_index":  idx,
+            "_scene_id":     s.get("id"),
+        })
+
+    logger.info(f"[video_generation] submitting {len(payloads)} clips order={order['id']}")
+    results = await submit_all_then_poll(payloads, max_wait_s=900, poll_interval_s=10)
+
+    # Persist clips and per-scene results.
+    saved = 0
+    for r, sc in zip(results, payloads):
+        clip_url: str | None = None
+        if r.get("bytes"):
+            file_id = str(uuid.uuid4())
+            storage_path = f"{APP_NAME}/orders/{order['id']}/generated/clips/{file_id}.mp4"
+            loop = asyncio.get_running_loop()
+            try:
+                stored = await loop.run_in_executor(
+                    None, lambda: put_object(storage_path, r["bytes"], r["mime"]),
+                )
+                await db.files.insert_one({
+                    "id": file_id,
+                    "user_id": order.get("user_id"),
+                    "scope": "generated-video-clip",
+                    "storage_path": stored.get("path", storage_path),
+                    "original_filename": f"scene-{sc['_scene_index']:02d}.mp4",
+                    "content_type": r["mime"],
+                    "size": stored.get("size", len(r["bytes"])),
+                    "is_deleted": False,
+                    "created_at": _now(),
+                })
+                clip_url = f"/api/uploads/file/{file_id}"
+                saved += 1
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[video_generation] storage failed: {e}")
+
+        await db.video_clips.update_one(
+            {"order_id": order["id"], "scene_index": sc["_scene_index"]},
+            {"$set": {
+                "id":                str(uuid.uuid4()),
+                "order_id":          order["id"],
+                "production_plan_id": plan["id"],
+                "scene_plan_id":     sc["_scene_id"],
+                "scene_index":       sc["_scene_index"],
+                "run_id":            run_id,
+                "provider":          (r.get("meta") or {}).get("provider"),
+                "model":             (r.get("meta") or {}).get("model"),
+                "clip_strategy":     (r.get("meta") or {}).get("clip_strategy"),
+                "request_id":        r.get("request_id"),
+                "state":             r.get("state"),
+                "video_url":         clip_url,
+                "remote_video_url":  r.get("video_url"),
+                "duration_seconds":  sc.get("duration") or 5,
+                "aspect_ratio":      sc.get("aspect_ratio") or "16:9",
+                "fallback_to_mock":  bool((r.get("meta") or {}).get("fallback_to_mock")),
+                "real_call":         bool((r.get("meta") or {}).get("real_call")),
+                "error":             (r.get("meta") or {}).get("error"),
+                "updated_at":        _now(),
+            }, "$setOnInsert": {"created_at": _now()}},
+            upsert=True,
+        )
+
+    await db.orders.update_one(
+        {"id": order["id"]},
+        {"$set": {
+            "video_generation_summary": {
+                "total":    len(payloads),
+                "saved":    saved,
+                "failed":   len(payloads) - saved,
+                "run_id":   run_id,
+                "ran_at":   _now(),
+            },
+        }},
+    )
+    return {"ran": True, "saved": saved, "total": len(payloads)}
+
+
 BACKOFF_SECONDS = [1, 3, 7]  # between attempts (index = attempt_count - 1)
 
 
@@ -584,6 +727,15 @@ async def run_asset_generation(order_id: str, run_id: str):
                       "asset_generation_summary.processing": 0,
                       "updated_at": _now()}},
         )
+
+    # --- Phase L: video_generation (OPTIONAL, real fal.ai Kling) -----------
+    # Runs ONLY when video output is requested AND the stage is enabled in
+    # pipeline_config AND fal.ai key resolves. Always safe — failures
+    # degrade silently to the slideshow assembly path.
+    try:
+        await _run_video_generation_stage(order, plan, run_id)
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[video_generation] unexpected crash (ignored): {e}")
 
     # Decide terminal status
     # Mandatory job set depends on the requested deliverable:

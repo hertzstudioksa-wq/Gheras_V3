@@ -4,7 +4,7 @@ import { api } from "../../lib/api";
 import {
   Layers, Save, Loader2, RefreshCcw, Info, Star, AlertTriangle,
   CheckCircle2, ShieldCheck, ShieldAlert, RotateCcw, Beaker, Lock,
-  FileText, Volume2, Cpu, Workflow,
+  FileText, Volume2, Cpu, Workflow, Clapperboard,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -132,7 +132,7 @@ export default function AdminStageControl() {
       </div>
 
       {/* KPI summary */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <KpiCard
           label="مراحل قابلة للتشغيل"
           value={`${counts.callable}/${counts.total}`}
@@ -162,6 +162,12 @@ export default function AdminStageControl() {
           value={state.narration_real_call_available ? "نعم" : "لا"}
           tone={state.narration_real_call_available ? "ok" : "warn"}
           tid="kpi-narration"
+        />
+        <KpiCard
+          label="فيديو Kling حقيقي"
+          value={state.video_real_call_available ? "نعم" : "لا"}
+          tone={state.video_real_call_available ? "ok" : "warn"}
+          tid="kpi-video"
         />
       </div>
 
@@ -193,6 +199,28 @@ export default function AdminStageControl() {
               <Link to="/admin/secrets" className="underline font-bold">صفحة المفاتيح والمزوّدين</Link>.
               النموذج الافتراضي: <code className="bg-white px-1 rounded">{state.narration_defaults?.model}</code>.
               عند توفّر المفتاح ستتحوّل المرحلة تلقائياً إلى استدعاء حقيقي بدون أيّ تعديل برمجي.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video banner */}
+      {!state.video_real_call_available && (
+        <div
+          className="bg-[#E8F0E1]/70 border border-[#87A96B]/40 rounded-2xl p-3 text-sm flex items-start gap-2"
+          data-testid="video-banner"
+        >
+          <Clapperboard className="w-4 h-4 mt-0.5 text-[#3F5B2E]" />
+          <div className="flex-1">
+            <div className="font-bold text-[#3F5B2E] mb-1">فيديو Kling — وضع slideshow</div>
+            <div className="text-xs text-[#3F5B2E]/90 leading-relaxed">
+              حالياً يُجمَّع الفيديو النهائي عبر <b>ffmpeg slideshow</b> من صور المشاهد + سرد صوتي.
+              لتفعيل توليد لقطات فيديو حقيقيّة لكل مشهد عبر <b>fal.ai Kling</b>:
+              ضع مفتاح <code className="bg-white px-1 rounded">FAL_KEY</code> من{" "}
+              <Link to="/admin/secrets" className="underline font-bold">صفحة المفاتيح والمزوّدين</Link>،
+              ثم اختر Kling في صفّ <code className="bg-white px-1 rounded">video_generation</code> أدناه.
+              النموذج الافتراضي: <code className="bg-white px-1 rounded">{state.video_defaults?.model}</code>.
+              الاستراتيجية: <b>I2V</b> عند توفّر صورة المشهد، وإلا <b>T2V</b> كاحتياط.
             </div>
           </div>
         </div>

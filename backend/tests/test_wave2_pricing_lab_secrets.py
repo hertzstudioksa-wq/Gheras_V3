@@ -87,7 +87,8 @@ def test_real_call_stages_subset():
     assert REAL_CALL_STAGES.issubset(set(SUPPORTED_STAGES))
     # Preview-only / not-yet-wired stages are explicitly NOT in REAL_CALL_STAGES.
     # Phase K: narration_generation IS in REAL_CALL_STAGES (TTS executor wired).
-    for k in ("video_generation", "music_generation", "scene_image_generation"):
+    # Phase L: video_generation IS in REAL_CALL_STAGES (Kling executor wired).
+    for k in ("music_generation", "scene_image_generation"):
         assert k not in REAL_CALL_STAGES
 
 

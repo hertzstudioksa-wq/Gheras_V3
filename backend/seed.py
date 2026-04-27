@@ -317,13 +317,13 @@ async def seed_prompt_templates():
         },
         {
             "stage_key": "video_generation",
-            "name": "Video per-scene (default, not yet wired)",
+            "name": "Video per-scene (fal.ai Kling)",
             "template_text": (
-                "Generate a $estimated_duration_seconds-second video for scene "
-                "$scene_index of a children's storybook. Subject: $scene_title. "
-                "Visual: $visual_description. Motion: $camera_motion_hint. "
-                "Mood: $emotional_tone. Style: $art_direction, warm tones, child-safe. "
-                "Include the recurring object if relevant: $toy_summary. "
+                "Children's storybook scene $scene_index, $estimated_duration_seconds-second cinematic shot. "
+                "Subject: $scene_title. Visual: $visual_description. "
+                "Motion: $camera_motion_hint. Mood: $emotional_tone. "
+                "Style: $art_direction, warm tones, soft lighting, child-safe, no text overlay. "
+                "Subtle natural motion in characters and ambient elements. "
                 "Per-scene cue: $video_prompt."
             ),
             "variables": [
@@ -331,7 +331,8 @@ async def seed_prompt_templates():
                 "visual_description", "camera_motion_hint", "emotional_tone",
                 "art_direction", "toy_summary", "video_prompt",
             ],
-            "notes": "Editable now; will be consumed when a video-generation executor is added.",
+            "notes": "Phase L — Used by fal.ai Kling adapter (I2V when scene image exists, T2V fallback). "
+                     "Edit freely; admin-overridable model from /admin/stage-control.",
         },
         {
             "stage_key": "music_generation",

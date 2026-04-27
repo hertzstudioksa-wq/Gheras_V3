@@ -53,6 +53,8 @@ REAL_CALL_STAGES = {
     # has credentials. The lab route checks this dynamically; we keep the
     # static set so other call sites (cost-acknowledge gate) include it.
     "narration_generation",
+    # Phase L — video_generation via fal.ai Kling.
+    "video_generation",
 }
 
 # Phase G — `executor_status` classifies WHY a stage is callable or not:
@@ -73,7 +75,7 @@ EXECUTOR_STATUS: dict[str, str] = {
     "scene_image_generation":   "preview-only",   # needs real order context
     "book_page_image_generation": "reuse-from-other-stage",
     "narration_generation":     "real-call-when-keyed",  # Phase K — ElevenLabs TTS executor wired
-    "video_generation":         "not-yet-wired",
+    "video_generation":         "real-call-when-keyed",  # Phase L — fal.ai Kling adapter wired
     "music_generation":         "not-yet-wired",
     "video_assembly":           "local-binary",
     "pdf_assembly":             "local-binary",
@@ -87,7 +89,7 @@ STAGE_NOTES_AR: dict[str, str] = {
     "scene_image_generation":   "استدعاء حقيقي عبر خط الإنتاج فقط — في lab معاينة فقط لأنها تحتاج سياق طلب فعلي.",
     "book_page_image_generation": "حالياً يُعاد استخدام صورة المشهد المقابلة (provider=reused). القالب جاهز لتوليد إيضاحات كتاب مستقلّة عند توصيل executor.",
     "narration_generation":     "تكامل ElevenLabs TTS فعلي عند توفّر ELEVENLABS_API_KEY (يُقرأ من /admin/secrets). بدون مفتاح يعود إلى المحاكاة تلقائياً.",
-    "video_generation":         "غير موصَّل بعد — القالب جاهز لتوصيل Sora 2 / Kling لاحقاً.",
+    "video_generation":         "تكامل fal.ai Kling فعلي عند توفّر FAL_KEY (يُقرأ من /admin/secrets). افتراضي: kling-video/v2.1/standard. قابل للتعديل من Stage Control. الاستراتيجية: I2V عند توفّر صورة المشهد، وإلا T2V.",
     "music_generation":         "غير موصَّل بعد — القالب جاهز لتوصيل Suno / ElevenLabs Music لاحقاً.",
     "video_assembly":           "تجميع محلّي بـ ffmpeg (لا موفّر LLM، لا تكلفة API). الإعدادات تظهر للفحص فقط.",
     "pdf_assembly":             "تجميع محلّي بـ reportlab (لا موفّر LLM، لا تكلفة API). الإعدادات تظهر للفحص فقط.",
@@ -302,6 +304,98 @@ async def _run_narration_generation(input_payload: dict) -> dict:
             "latency_ms":       meta.get("latency_ms"),
             "error":            meta.get("error"),
             "text_used":        text[:200],
+        },
+        "result_summary": " · ".join(summary_bits),
+    }
+
+
+
+async def _run_video_generation(input_payload: dict) -> dict:
+    """Phase L — real fal.ai Kling video clip via submit→poll→download.
+
+    Lab-only constraints:
+      * single scene clip (not the whole batch)
+      * hard cap on duration (5s) to control spend
+      * max_wait_s defaults to 240s
+      * if FAL_KEY is missing, returns honest fallback meta
+
+    Inputs honored:
+      prompt, image_url (optional → switches to T2V), duration, aspect_ratio,
+      negative_prompt, cfg_scale, max_wait_s.
+    """
+    from services.video_generation_service import generate_clip_sync
+    import asyncio as _asyncio
+    import uuid as _uuid
+    from storage import put_object, APP_NAME
+    from db import db
+
+    scene = {
+        "prompt":          (input_payload.get("video_prompt")
+                            or input_payload.get("prompt")
+                            or "Cinematic gentle camera move on a warm-toned children's storybook scene"),
+        "image_url":       input_payload.get("scene_image_url") or input_payload.get("image_url"),
+        "duration":        min(int(input_payload.get("duration") or 5), 10),
+        "aspect_ratio":    input_payload.get("aspect_ratio") or "16:9",
+        "negative_prompt": input_payload.get("negative_prompt"),
+        "cfg_scale":       input_payload.get("cfg_scale"),
+    }
+    max_wait_s = int(input_payload.get("max_wait_s") or 240)
+
+    bytes_, mime, meta = await generate_clip_sync(
+        scene, max_wait_s=max_wait_s, poll_interval_s=8,
+    )
+
+    clip_url = None
+    if bytes_:
+        file_id = str(_uuid.uuid4())
+        storage_path = f"{APP_NAME}/lab/video/{file_id}.mp4"
+        loop = _asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: put_object(storage_path, bytes_, mime),
+            )
+            await db.files.insert_one({
+                "id": file_id,
+                "user_id": "lab-admin",
+                "scope": "lab-video",
+                "storage_path": result.get("path", storage_path),
+                "original_filename": "clip.mp4",
+                "content_type": mime,
+                "size": result.get("size", len(bytes_)),
+                "is_deleted": False,
+                "created_at": _now(),
+            })
+            clip_url = f"/api/uploads/file/{file_id}"
+        except Exception as e:  # noqa: BLE001
+            meta["storage_error"] = f"{type(e).__name__}: {e}"
+
+    summary_bits = [
+        f"provider={meta.get('provider')}",
+        f"strategy={meta.get('clip_strategy')}",
+        f"real_call={meta.get('real_call')}",
+        f"~{scene['duration']}s",
+    ]
+    if meta.get("error"):
+        summary_bits.append(f"err={str(meta['error'])[:80]}")
+
+    return {
+        "output_preview": {
+            "clip_url":         clip_url,
+            "duration":         scene["duration"],
+            "aspect_ratio":     scene["aspect_ratio"],
+            "provider":         meta.get("provider"),
+            "model":            meta.get("model"),
+            "clip_strategy":    meta.get("clip_strategy"),
+            "real_call":        bool(meta.get("real_call")),
+            "completed":        bool(meta.get("completed")),
+            "fallback_to_mock": bool(meta.get("fallback_to_mock")),
+            "secret_source":    meta.get("secret_source"),
+            "request_id":       meta.get("request_id"),
+            "elapsed_s":        meta.get("elapsed_s"),
+            "bytes":            meta.get("bytes"),
+            "error":            meta.get("error"),
+            "prompt_used":      scene["prompt"][:300],
+            "image_used":       bool(scene.get("image_url")),
         },
         "result_summary": " · ".join(summary_bits),
     }
@@ -791,6 +885,8 @@ async def run_stage_test(stage_key: str, input_payload: dict, admin_id: str | No
                 res = await _run_child_character_i2i(input_payload)
             elif stage_key == "narration_generation":
                 res = await _run_narration_generation(input_payload)
+            elif stage_key == "video_generation":
+                res = await _run_video_generation(input_payload)
             else:
                 res = await _run_preview_only(stage_key, input_payload)
                 status = "preview-only"

@@ -68,6 +68,19 @@ KNOWN_ENV_KEYS: list[dict] = [
         "optional": True,
     },
     {
+        "key": "FAL_KEY",
+        "label": "fal.ai (Kling Video)",
+        "providers": ["kling", "luma"],
+        "purpose": "توليد فيديو حقيقي عبر fal.ai Kling (I2V/T2V). مفتاح واحد يدعم Kling و Luma على fal.ai.",
+        "rotation_instructions": (
+            "1) سجّل دخول إلى https://fal.ai/dashboard/keys\n"
+            "2) أنشئ مفتاحاً جديداً (API scope كافٍ).\n"
+            "3) استخدم زرّ 'تحديث آمن' هنا — لا يحتاج إعادة تشغيل."
+        ),
+        "test_provider_key": "fal",
+        "optional": True,
+    },
+    {
         "key": "STRIPE_API_KEY",
         "label": "Stripe",
         "providers": ["stripe"],

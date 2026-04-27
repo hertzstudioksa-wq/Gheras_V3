@@ -66,11 +66,18 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
         "env_key": "EMERGENT_LLM_KEY",
     },
     "video_generation": {
-        "provider": "ffmpeg",
-        "model_name": "local-slideshow",
+        "provider": "kling",
+        "model_name": "fal-ai/kling-video/v2.1/standard/image-to-video",
+        "fallback_provider": "mock",
+        "fallback_model": "mock-video-v1",
+        "env_key": "FAL_KEY",
+    },
+    "music_generation": {
+        "provider": "mock",
+        "model_name": "mock-music-v1",
         "fallback_provider": None,
         "fallback_model": None,
-        "env_key": None,  # local binary, no API key
+        "env_key": None,
     },
     "final_assembly": {
         "provider": "ffmpeg",
@@ -158,7 +165,8 @@ PROVIDER_ENV_MAP = {
     "gemini":     {"env_key": "EMERGENT_LLM_KEY",  "label": "Gemini / Nano Banana (via Emergent)"},
     "openai":     {"env_key": "OPENAI_API_KEY",  "label": "OpenAI (direct)"},
     "elevenlabs": {"env_key": "ELEVENLABS_API_KEY","label": "ElevenLabs TTS"},
-    "kling":      {"env_key": "KLING_API_KEY",     "label": "Kling Video"},
+    "kling":      {"env_key": "FAL_KEY",            "label": "fal.ai Kling Video"},
+    "luma":       {"env_key": "FAL_KEY",            "label": "fal.ai Luma Video"},
     "sora":       {"env_key": "EMERGENT_LLM_KEY",  "label": "Sora 2 (via Emergent)"},
     "ffmpeg":     {"env_key": None,                 "label": "ffmpeg (local binary)"},
     "reportlab":  {"env_key": None,                 "label": "reportlab (local)"},

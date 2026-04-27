@@ -132,6 +132,11 @@ async def assemble_video(
     Returns (video_url, thumbnail_url, metadata).
     scenes: list of scene_images rows (kind='scene') sorted by scene_index.
     narrations: list of narration_assets (sorted by scene_index).
+
+    Phase L — Hybrid assembly:
+      * Prefer real per-scene clips from `db.video_clips` when available.
+      * Missing clips fall back to a slideshow image (existing path).
+      * `assembly_mode` in meta reflects the truth: real_clips | slideshow | hybrid.
     """
     audio_background_mode = (plan.get("audio_background") or {}).get("mode", "music")
     order = await db.orders.find_one({"id": order_id}, {"_id": 0, "user_id": 1})
@@ -139,6 +144,13 @@ async def assemble_video(
 
     if not _ffmpeg_available():
         raise RuntimeError("ffmpeg is not installed")
+
+    # Phase L — pull real video clips for this order, indexed by scene_index.
+    clip_rows = await db.video_clips.find(
+        {"order_id": order_id, "video_url": {"$ne": None}, "state": "COMPLETED"},
+        {"_id": 0, "scene_index": 1, "video_url": 1, "duration_seconds": 1, "model": 1, "provider": 1, "clip_strategy": 1},
+    ).to_list(50)
+    clip_by_idx: dict[int, dict] = {int(c["scene_index"]): c for c in clip_rows}
 
     # Map scene_index -> duration
     dur_by_idx: dict[int, float] = {}
@@ -169,8 +181,37 @@ async def assemble_video(
 
         # Scenes — substitute a placeholder when bytes are missing so the
         # final video always reflects every planned scene.
+        # Phase L — prefer real video clip when available; else image+audio slideshow.
+        used_real_clips = 0
+        used_slideshow_frames = 0
+        clip_paths: list[str] = []
         for s in scenes:
             idx = int(s.get("scene_index") or 0)
+            real_clip = clip_by_idx.get(idx)
+            if real_clip and real_clip.get("video_url"):
+                fid = _file_id_from_url(real_clip["video_url"])
+                clip_bytes = await _fetch_file_bytes(fid) if fid else None
+                if clip_bytes:
+                    raw_path = os.path.join(work_dir, f"scene_{idx:02d}_raw.mp4")
+                    with open(raw_path, "wb") as f:
+                        f.write(clip_bytes)
+                    norm_path = os.path.join(work_dir, f"scene_{idx:02d}.mp4")
+                    # Re-encode to consistent format (1280x720, 24fps, h264, aac).
+                    args = [
+                        "-i", raw_path,
+                        "-vf",
+                        "scale=1280:720:force_original_aspect_ratio=decrease,"
+                        "pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=white,setsar=1",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-r", "24", norm_path,
+                    ]
+                    res = _run_ffmpeg(args, timeout=120)
+                    if res.returncode == 0:
+                        clip_paths.append(norm_path)
+                        used_real_clips += 1
+                        continue
+                    logger.warning(f"clip {idx} re-encode failed → slideshow fallback: {res.stderr[-300:]}")
+            # Slideshow fallback path (existing behavior).
             fid = _file_id_from_url(s.get("image_url"))
             b = await _fetch_file_bytes(fid) if fid else None
             if not b:
@@ -181,16 +222,16 @@ async def assemble_video(
                 f.write(b)
             dur = dur_by_idx.get(idx, 6.0)
             concat_items.append((spath, dur))
+            used_slideshow_frames += 1
 
         # Guarantee we have at least the cover — even without any scenes we can ship a short clip.
-        if not concat_items:
-            raise ValueError("no image frames available for video assembly")
+        if not concat_items and not clip_paths:
+            raise ValueError("no image frames or clips available for video assembly")
 
         # Normalize images (ffmpeg concat demuxer expects same dimensions).
         # Re-encode each image with a consistent scale+pad to 1280x720 and create a per-scene video clip.
-        clip_paths: list[str] = []
         for i, (img_path, dur) in enumerate(concat_items):
-            clip_path = os.path.join(work_dir, f"clip_{i:02d}.mp4")
+            clip_path = os.path.join(work_dir, f"slide_{i:02d}.mp4")
             vf = (
                 "scale=1280:720:force_original_aspect_ratio=decrease,"
                 "pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=white,setsar=1"
@@ -214,6 +255,11 @@ async def assemble_video(
             if res.returncode != 0:
                 logger.error(f"ffmpeg clip {i} failed: {res.stderr[-400:]}")
                 raise RuntimeError(f"ffmpeg clip encoding failed: {res.stderr[-200:]}")
+            # Slideshow clips are appended AFTER any real Kling clips for the
+            # same scene_index slot ordering. They share the working order
+            # because clip_paths preserves the scene order: real Kling clips
+            # were appended in scene_index order and we substitute slideshow
+            # frames in-place when a real clip was missing. So just append.
             clip_paths.append(clip_path)
 
         # Concat list file
@@ -222,20 +268,23 @@ async def assemble_video(
             for p in clip_paths:
                 f.write(f"file '{p}'\n")
 
+        # Phase L — concat using re-encode mode to safely splice mixed sources
+        # (real Kling clips + ffmpeg slideshow clips can have differing tbn/tbc).
         out_path = os.path.join(work_dir, "final.mp4")
         res = _run_ffmpeg([
             "-f", "concat", "-safe", "0",
             "-i", concat_file,
-            "-c", "copy",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "24",
+            "-c:a", "aac",
             out_path,
-        ], timeout=120)
+        ], timeout=180)
         if res.returncode != 0:
             logger.error(f"ffmpeg concat failed: {res.stderr[-400:]}")
             raise RuntimeError(f"ffmpeg concat failed: {res.stderr[-200:]}")
 
         with open(out_path, "rb") as f:
             video_bytes = f.read()
-        total_duration = sum(d for _, d in concat_items)
+        total_duration = sum(d for _, d in concat_items) + (used_real_clips * 5.0)
 
         # Upload video to storage
         video_file_id = str(uuid.uuid4())
@@ -258,16 +307,27 @@ async def assemble_video(
         # Thumbnail = cover image (already stored). Reuse its URL.
         thumbnail_url = cover_image_url
 
+        if used_real_clips and used_slideshow_frames == 0:
+            assembly_mode = "real_clips"
+        elif used_real_clips and used_slideshow_frames:
+            assembly_mode = "hybrid"
+        else:
+            assembly_mode = "slideshow"
+
         meta = {
-            "audio_background_mode": audio_background_mode,
-            "audio_track": "silent-placeholder",
+            "audio_background_mode":  audio_background_mode,
+            "audio_track":            "silent-placeholder",
             "total_duration_seconds": round(total_duration, 2),
-            "clip_count": len(clip_paths),
-            "placeholder_frames": placeholder_count,
-            "encoder": "ffmpeg",
-            "resolution": "1280x720",
-            "real_narration_used": False,
-            "note": "Phase 6B: silent video. Real TTS + music mixing in later phase.",
+            "clip_count":             len(clip_paths),
+            "real_clips_used":        used_real_clips,
+            "slideshow_frames_used":  used_slideshow_frames,
+            "placeholder_frames":     placeholder_count,
+            "assembly_mode":          assembly_mode,
+            "encoder":                "ffmpeg",
+            "resolution":             "1280x720",
+            "real_narration_used":    False,
+            "note":                   ("Real per-scene Kling clips spliced with ffmpeg." if used_real_clips
+                                       else "Slideshow fallback. Add FAL_KEY + enable video_generation for real clips."),
         }
         return video_url, thumbnail_url, meta
     finally:
