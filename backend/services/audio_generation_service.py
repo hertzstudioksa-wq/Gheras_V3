@@ -1,41 +1,34 @@
-"""Audio generation service — MOCK in Phase 6A (no TTS provider in Emergent LLM Key).
+"""Audio generation service — Phase K (TTS adapter).
 
-Contract:
-  generate_audio(text, voice, language) -> (audio_bytes | None, mime_type, provider_meta)
-  On mock mode, returns (None, "audio/mpeg", {...}) — the orchestrator will persist a
-  metadata-only record and we compute duration_seconds from word count.
+Thin compatibility wrapper over `services.tts_service`. Existing callers
+(`generation_orchestrator`) keep importing `generate_audio` /
+`estimate_duration_seconds` unchanged; the real provider work happens in
+`tts_service.generate_tts(...)`.
 
-Designed so swapping in ElevenLabs / OpenAI TTS later is a single function replacement.
+Provider selection rule (decided in tts_service):
+  * read `model_registry` row for `narration_generation`
+  * if provider is `elevenlabs` AND ELEVENLABS_API_KEY resolves → real call
+  * otherwise → mock (no audio bytes; metadata + duration only).
+
+This module never raises — failures degrade to mock so the pipeline stays alive.
 """
-import os
+from __future__ import annotations
+
 import logging
+
+from services.tts_service import (
+    generate_tts,
+    estimate_duration_seconds,            # re-exported for legacy import path
+    narration_real_call_available,        # re-exported for stage control UI
+)
 
 logger = logging.getLogger("audio_generation_service")
 
-AUDIO_PROVIDER = os.environ.get("AUDIO_PROVIDER", "mock")  # 'mock' | 'elevenlabs' | 'openai'
-
-# Arabic narration speed heuristic (slightly slower than conversational)
-WORDS_PER_SECOND_AR = 2.2
-
-
-def estimate_duration_seconds(text: str) -> float:
-    """Estimate duration in seconds from text word count."""
-    words = [w for w in (text or "").split() if w.strip()]
-    if not words:
-        return 0.0
-    return round(len(words) / WORDS_PER_SECOND_AR, 2)
-
-
-async def _generate_via_mock(text: str, voice: str | None, language: str) -> tuple[bytes | None, str, dict]:
-    """Pure metadata — no audio bytes produced."""
-    duration = estimate_duration_seconds(text)
-    return None, "audio/mpeg", {
-        "provider": "mock",
-        "voice": voice or "default-ar-male",
-        "language": language,
-        "duration_seconds": duration,
-        "note": "Audio TTS is mocked in Phase 6A. Real provider integration in Phase 6B.",
-    }
+__all__ = [
+    "generate_audio",
+    "estimate_duration_seconds",
+    "narration_real_call_available",
+]
 
 
 async def generate_audio(
@@ -43,9 +36,10 @@ async def generate_audio(
     voice: str | None = None,
     language: str = "ar",
 ) -> tuple[bytes | None, str, dict]:
-    """Provider-abstracted entry point. Returns (bytes|None, mime, meta)."""
-    if AUDIO_PROVIDER == "mock":
-        return await _generate_via_mock(text, voice, language)
-    # Future: add elif AUDIO_PROVIDER == "elevenlabs": ...
-    logger.warning(f"Unknown AUDIO_PROVIDER={AUDIO_PROVIDER}, falling back to mock")
-    return await _generate_via_mock(text, voice, language)
+    """Provider-abstracted entry point used by the live orchestrator.
+
+    Returns (audio_bytes|None, mime_type, meta_dict). When the resolved
+    provider can't actually produce audio (mock OR real-call failed),
+    `audio_bytes` is None and the meta makes the situation explicit.
+    """
+    return await generate_tts(text=text, voice=voice, language=language)

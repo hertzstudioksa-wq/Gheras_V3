@@ -48,7 +48,10 @@ DEFAULT_PRICING_CONFIG: dict = {
         "scene_image_generation":  0.30,   # per generated scene image
         "book_page_image_generation": 0.05, # reuse-from-scene today; cost when distinct executor lands
         "cover_image":             0.30,   # cover illustration
-        "narration_audio":         0.05,   # per scene (mock today; bump on real TTS)
+        "narration_audio":         0.20,   # per scene — ElevenLabs eleven_multilingual_v2 ~ $0.045/scene → ~0.20 SAR
+        "narration_generation":    0.20,   # canonical stage_key alias (used by lab + readiness)
+        "music_generation":        0.40,   # per story (Suno/ElevenLabs Music — when wired)
+        "video_generation":        1.20,   # per story (Kling/Sora/Luma — when wired)
         "book_page_asset":         0.02,   # per book page (reuses scene image)
         "vision_describe":         0.10,   # per uploaded toy/character analysis
         "video_assembly":          0.40,   # ffmpeg render

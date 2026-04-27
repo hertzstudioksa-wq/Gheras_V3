@@ -37,7 +37,7 @@ def test_executor_status_covers_all_stages():
 
 
 def test_executor_status_values_are_known():
-    allowed = {"real-call", "preview-only", "not-yet-wired",
+    allowed = {"real-call", "real-call-when-keyed", "preview-only", "not-yet-wired",
                "local-binary", "reuse-from-other-stage"}
     bad = [(s, EXECUTOR_STATUS[s]) for s in SUPPORTED_STAGES
            if EXECUTOR_STATUS[s] not in allowed]
@@ -62,9 +62,18 @@ def test_book_page_image_generation_is_reuse():
 
 
 def test_not_yet_wired_stages():
-    expected = {"narration_generation", "video_generation", "music_generation"}
+    # Phase K: narration_generation moved out of `not-yet-wired` to
+    # `real-call-when-keyed` (ElevenLabs TTS adapter wired).
+    expected = {"video_generation", "music_generation"}
     actual = {s for s, st in EXECUTOR_STATUS.items() if st == "not-yet-wired"}
     assert actual == expected, f"not-yet-wired mismatch: {actual} vs {expected}"
+
+
+def test_real_call_when_keyed_stages():
+    # Phase K — new status bucket. Today only narration_generation lives here.
+    expected = {"narration_generation"}
+    actual = {s for s, st in EXECUTOR_STATUS.items() if st == "real-call-when-keyed"}
+    assert actual == expected, f"real-call-when-keyed mismatch: {actual} vs {expected}"
 
 
 def test_arabic_notes_present_for_all_stages():

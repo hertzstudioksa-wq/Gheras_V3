@@ -1,0 +1,67 @@
+{
+  "summary": "Phase K (TTS adapter + unified Stage Control) reviewed end-to-end against the live preview backend and frontend. Backend: 10/10 new API tests in /app/backend/tests/test_phase_k_api.py PASS + 14/14 existing unit tests in test_phase_k_tts_stage_control.py PASS. Verified: GET /api/admin/stage-control/state returns supported_stages_count=11 with correct stage_keys (scenario_generation, production_planning, child_character_i2i, scene_image_generation, narration_generation, extra_character_i2i, book_page_image_generation, music_generation, video_generation, video_assembly, pdf_assembly), every stage carries the new flags executor_callable / prompt_editable / is_real_call_stage / provider_choices / default_provider / default_model / env_label, narration_real_call_available=false, stages_remaining_to_wire=['music_generation','video_generation']. PATCH narration_generation with provider=elevenlabs/model_name=eleven_multilingual_v2/env_key=ELEVENLABS_API_KEY persists and is reflected on re-fetch; bad provider returns 400. Reset endpoint restores defaults (mock / mock-tts-v1 / EMERGENT_LLM_KEY). POST /api/admin/lab/run for narration_generation: without acknowledged_cost → 400 (cost-ack gate enforced); with acknowledged_cost and provider=elevenlabs (no key in pod) → status='success', output_preview.real_call=false, fallback_to_mock=true, numeric duration_seconds, no 500. /api/admin/pipeline-readiness exposes the new flags and narration row shows executor_status='real-call-when-keyed'. /api/admin/lab/stages narration row also 'real-call-when-keyed' (not 'not-yet-wired'). /api/admin/secrets/status still has ELEVENLABS_API_KEY entry with provider=elevenlabs. /api/admin/pricing/config has narration_generation>=0.10 SAR, narration_audio == narration_generation, video_generation and music_generation > 0. Frontend /admin/stage-control: page renders, 11 stage cards present, 5 KPIs visible (kpi-callable=6/11, kpi-missing-keys=0, kpi-not-wired=2, kpi-prompts=11, kpi-narration='لا'), Arabic narration TTS banner visible mentioning ELEVENLABS_API_KEY and default eleven_multilingual_v2, save button gate works (initial=disabled, enabled on provider/model change, disabled after save), reset returns provider->mock and model->mock-tts-v1. Sidebar nav 'مركز التحكم بالمراحل' (data-testid=admin-nav-stage-control) works. Regression: /admin/pipeline, /admin/models, /admin/prompts, /admin/lab, /admin/secrets, /admin/presets all load with HTTP 200 and no body-level errors. No backend startup errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PATCH /api/admin/stage-control/{stage_key}",
+        "issue": "Body parameter is `model_name` (not `model` as documented in the review request). Sending `model` is silently ignored — provider+env_key persist but the model is left unchanged. Worth aliasing to also accept `model` for forward-compat with the spec, or updating the spec/StagePatch comment to clearly state `model_name`."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminStageControl per-stage testids",
+        "issue": "data-testid naming is inconsistent with the review-request spec. Card itself is correct (`sc-stage-narration_generation`) but sub-elements use `sc-{stage_key}-{sub}` (e.g., `sc-narration_generation-save`, `sc-narration_generation-provider`, `sc-narration_generation-model`, `sc-narration_generation-reset`, `sc-narration_generation-test`, `sc-narration_generation-executor-status`, `sc-narration_generation-callable`) instead of the documented `sc-stage-{stage_key}-{sub}`. Functionality works, but any external automation using the spec'd testids would not find the elements. Recommend either updating the spec or adding the `-stage-` segment to the sub-testids for consistency.",
+        "selector": "[data-testid=\"sc-stage-narration_generation-save\"] (expected) vs [data-testid=\"sc-narration_generation-save\"] (actual)",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "AdminStageControl narration card",
+        "issue": "The per-row 'أضف المفتاح الآن' add-key link (data-testid `sc-stage-narration_generation-add-key` or `sc-narration_generation-add-key`) is NOT rendered when the narration row sits at default (env_key=EMERGENT_LLM_KEY, which IS configured) — only the page-level banner exposes the keys link. Spec said the link should appear 'beside narration row when env_key missing'. Tested also after PATCHing to ELEVENLABS_API_KEY: the dedicated add-key testid still does not appear. The functional path is covered by the banner link, but the spec'd per-row link with the testid is missing.",
+        "selector": "[data-testid$=\"-add-key\"] (count=0 in all observed states)",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "AdminStageLab stage selector",
+        "issue": "Pre-existing React hydration warning in /admin/lab: `<span> cannot be a child of <option>` from the dynamic option renderer. Not a Phase K regression — the lab page predates Phase K — but it shows up loudly in console on every visit. Wrap option label as plain text (or use {String(label)}) to silence.",
+        "selector": "AdminStageLab.jsx:135 select>option",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_k_api.py",
+    "/app/backend/tests/test_phase_k_tts_stage_control.py",
+    "/app/test_reports/pytest/phase_k_api.xml"
+  ],
+  "action_items": [
+    "Align per-stage sub-element data-testids on /admin/stage-control with the review-request spec: prefix all sub-testids with `sc-stage-{stage_key}-...` (currently `sc-{stage_key}-...`). This unblocks the spec'd Playwright selectors.",
+    "Add the per-row 'أضف المفتاح الآن' add-key link with data-testid `sc-stage-{stage_key}-add-key` for stages whose env_key is currently unconfigured (e.g., narration_generation when provider=elevenlabs/env_key=ELEVENLABS_API_KEY and ELEVENLABS_API_KEY is absent). Today only the global banner link exists.",
+    "Document or alias the PATCH /api/admin/stage-control/{stage_key} body field — current implementation accepts `model_name`, the review request spec says `model`. Either accept both, or call this out in the API docstring.",
+    "Optional cleanup: silence the existing AdminStageLab `<span>` inside `<option>` hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "tts_service.generate_tts() resolves provider via model_registry only when narration row has been written; default provider=mock means the bare-default lab run path returns fallback_to_mock=False (mock IS the requested path). This makes the documented contract slightly misleading — the review's stated 'fallback_to_mock=true' only holds when admin first PATCHes provider to elevenlabs. Consider either (a) keeping defaults at provider=mock and updating docs, or (b) defaulting provider to elevenlabs so the fallback semantics match docs out-of-the-box.",
+    "PROVIDER_CHOICES_BY_STAGE assumes the canonical 11-stage list, but EXPECTED_STAGES used by E1 in the review request still references the legacy names (story_generation, storyboard_generation, child_character_generation, qa_check, delivery). Either the canonical list moved (it has — readiness_service now emits scenario_generation/production_planning/child_character_i2i/extra_character_i2i/book_page_image_generation/...) and the review-request spec is stale, or stage_lab_service.SUPPORTED_STAGES needs an alias map. Worth reconciling so newcomers don't get confused.",
+    "AdminStageControl per-row save state is correctly gated (initial disabled→enabled on change→disabled after save) but there is no visible toast / aria-live announcement on save success or on reset success. Admins relying on screen readers won't know the action took effect. Add a small toast or update the executor-status badge timestamp.",
+    "audit_service ENTITY_TYPES adds 'stage_control' and ACTIONS add 'stage.patch'/'stage.reset' — verified but the audit log surface (/admin/audit) was not regressed in this run. Recommend a quick sanity check that the new entries actually appear after a PATCH and don't break the existing audit-log filters.",
+    "narration_real_call_available is awaited on every state read (build_readiness pulls it). If the helper ever does a network call (e.g., to validate the ElevenLabs key by hitting their /voices endpoint), this becomes an O(N admins refresh) external call. Today it only checks env presence, but worth documenting that it MUST stay a pure-local check or be cached."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase_k_api.py (NEW — 10 e2e API tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 new API tests + 14/14 existing Phase K unit tests)",
+    "frontend": "85% (page loads, 11 cards, KPIs, banner, save/reset round-trip all work; testid naming and add-key link gaps documented)"
+  },
+  "test_credentials": "admin@gheras.com / Admin@1234. No ElevenLabs key configured (intended).",
+  "seed_data_creation": "None. Tests are self-contained: they PATCH narration_generation then RESET it back to defaults in a finally block.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: `cd /app && python -m pytest backend/tests/test_phase_k_api.py backend/tests/test_phase_k_tts_stage_control.py -v` (~3s, 24 tests). The API tests use REACT_APP_BACKEND_URL and admin login admin@gheras.com/Admin@1234. They self-clean by calling /reset on narration_generation. Frontend testids on /admin/stage-control follow `sc-{stage_key}-{sub}` (NOT `sc-stage-{stage_key}-{sub}` as the review request spec said). Examples: `[data-testid='sc-narration_generation-provider']`, `[data-testid='sc-narration_generation-save']`, etc. The card itself is `[data-testid='sc-stage-narration_generation']`. The per-row add-key link with the documented testid is currently missing — only the page-level banner link `صفحة المفاتيح والمزوّدين` is rendered.",
+  "rca of the issue": "No functional bugs — all backend behavior is correct and matches Phase K acceptance criteria. The two reported frontend gaps (sub-testid prefix mismatch, missing per-row add-key link) are spec/implementation alignment issues, not blocking bugs. The PATCH `model` vs `model_name` mismatch is a doc/API-shape clarity issue rather than a defect. Reproduction: hit /admin/stage-control with narration in default state; observe missing `*-add-key` testid; PATCH provider to elevenlabs and re-observe — link still absent under any spec'd testid."
+}

@@ -49,6 +49,10 @@ REAL_CALL_STAGES = {
     "production_planning",
     "child_character_i2i",
     "extra_character_i2i",
+    # Phase K — narration_generation is real-call when the resolved provider
+    # has credentials. The lab route checks this dynamically; we keep the
+    # static set so other call sites (cost-acknowledge gate) include it.
+    "narration_generation",
 }
 
 # Phase G — `executor_status` classifies WHY a stage is callable or not:
@@ -68,7 +72,7 @@ EXECUTOR_STATUS: dict[str, str] = {
     "extra_character_i2i":      "real-call",
     "scene_image_generation":   "preview-only",   # needs real order context
     "book_page_image_generation": "reuse-from-other-stage",
-    "narration_generation":     "not-yet-wired",  # mock today; prompt editable for when TTS lands
+    "narration_generation":     "real-call-when-keyed",  # Phase K — ElevenLabs TTS executor wired
     "video_generation":         "not-yet-wired",
     "music_generation":         "not-yet-wired",
     "video_assembly":           "local-binary",
@@ -82,7 +86,7 @@ STAGE_NOTES_AR: dict[str, str] = {
     "extra_character_i2i":      "يستدعي نفس موفّر child_character_i2i لكل شخصية إضافية مرئيّة. يعيد استخدام قالب الـ child_character_i2i افتراضياً.",
     "scene_image_generation":   "استدعاء حقيقي عبر خط الإنتاج فقط — في lab معاينة فقط لأنها تحتاج سياق طلب فعلي.",
     "book_page_image_generation": "حالياً يُعاد استخدام صورة المشهد المقابلة (provider=reused). القالب جاهز لتوليد إيضاحات كتاب مستقلّة عند توصيل executor.",
-    "narration_generation":     "محاكاة (mock) حالياً — مدّة فقط بدون صوت. القالب جاهز لاستهلاك TTS فعلي لاحقاً.",
+    "narration_generation":     "تكامل ElevenLabs TTS فعلي عند توفّر ELEVENLABS_API_KEY (يُقرأ من /admin/secrets). بدون مفتاح يعود إلى المحاكاة تلقائياً.",
     "video_generation":         "غير موصَّل بعد — القالب جاهز لتوصيل Sora 2 / Kling لاحقاً.",
     "music_generation":         "غير موصَّل بعد — القالب جاهز لتوصيل Suno / ElevenLabs Music لاحقاً.",
     "video_assembly":           "تجميع محلّي بـ ffmpeg (لا موفّر LLM، لا تكلفة API). الإعدادات تظهر للفحص فقط.",
@@ -216,6 +220,92 @@ async def _run_child_character_i2i(input_payload: dict) -> dict:
         "output_preview": {"image_url": url, "prompt_used": prompt[:600]},
         "result_summary": f"image generated ({len(res['image_bytes'])} bytes)",
     }
+
+
+async def _run_narration_generation(input_payload: dict) -> dict:
+    """Phase K — real TTS call (ElevenLabs by default).
+
+    Honest behavior:
+      * If ELEVENLABS_API_KEY is configured (override or env) AND provider
+        resolves to elevenlabs → makes a real call, saves audio to internal
+        storage, returns a playable URL.
+      * Otherwise → falls back to mock and reports it transparently in the
+        meta. Lab UI will show `real_call=False` so the admin sees the truth.
+    Text is hard-capped at 600 chars to keep lab spend predictable.
+    """
+    from services.tts_service import generate_tts
+    import asyncio as _asyncio
+    import uuid as _uuid
+    from storage import put_object, APP_NAME
+    from db import db
+
+    raw = (input_payload.get("narration_text")
+           or input_payload.get("text")
+           or "هذه قصّة قصيرة عن طفل لطيف يتعلّم المشاركة مع أصدقائه.")
+    text = str(raw)[:600]
+    voice = input_payload.get("voice")
+    language = input_payload.get("language") or "ar"
+    model_id = input_payload.get("model_id")
+    voice_settings = input_payload.get("voice_settings") if isinstance(
+        input_payload.get("voice_settings"), dict
+    ) else None
+
+    audio_bytes, mime, meta = await generate_tts(
+        text=text, voice=voice, language=language,
+        model_id=model_id, voice_settings=voice_settings,
+    )
+
+    audio_url = None
+    if audio_bytes:
+        file_id = str(_uuid.uuid4())
+        ext = "mp3" if "mpeg" in mime else "wav"
+        storage_path = f"{APP_NAME}/lab/narration/{file_id}.{ext}"
+        loop = _asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: put_object(storage_path, audio_bytes, mime),
+            )
+            await db.files.insert_one({
+                "id": file_id,
+                "user_id": "lab-admin",
+                "scope": "lab-narration",
+                "storage_path": result.get("path", storage_path),
+                "original_filename": f"narration.{ext}",
+                "content_type": mime,
+                "size": result.get("size", len(audio_bytes)),
+                "is_deleted": False,
+                "created_at": _now(),
+            })
+            audio_url = f"/api/uploads/file/{file_id}"
+        except Exception as e:  # noqa: BLE001
+            meta["storage_error"] = f"{type(e).__name__}: {e}"
+
+    summary_bits = [
+        f"provider={meta.get('provider')}",
+        f"real_call={meta.get('real_call')}",
+        f"~{meta.get('duration_seconds') or 0}s",
+    ]
+    if meta.get("error"):
+        summary_bits.append(f"err={meta['error'][:80]}")
+
+    return {
+        "output_preview": {
+            "audio_url":        audio_url,
+            "duration_seconds": meta.get("duration_seconds"),
+            "provider":         meta.get("provider"),
+            "model":            meta.get("model"),
+            "voice":            meta.get("voice"),
+            "real_call":        bool(meta.get("real_call")),
+            "fallback_to_mock": bool(meta.get("fallback_to_mock")),
+            "secret_source":    meta.get("secret_source"),
+            "bytes":            meta.get("bytes"),
+            "latency_ms":       meta.get("latency_ms"),
+            "error":            meta.get("error"),
+            "text_used":        text[:200],
+        },
+        "result_summary": " · ".join(summary_bits),
+    }
+
 
 
 # ---------------------------------------------------------------------------
@@ -699,6 +789,8 @@ async def run_stage_test(stage_key: str, input_payload: dict, admin_id: str | No
                 res = await _run_production_planning(input_payload)
             elif stage_key == "child_character_i2i":
                 res = await _run_child_character_i2i(input_payload)
+            elif stage_key == "narration_generation":
+                res = await _run_narration_generation(input_payload)
             else:
                 res = await _run_preview_only(stage_key, input_payload)
                 status = "preview-only"

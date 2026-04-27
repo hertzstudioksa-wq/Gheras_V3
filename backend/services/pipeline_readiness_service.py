@@ -20,10 +20,19 @@ from services.config_service import (
     get_pipeline_config,
 )
 from services.stage_lab_service import (
-    SUPPORTED_STAGES, EXECUTOR_STATUS, STAGE_NOTES_AR,
+    SUPPORTED_STAGES, EXECUTOR_STATUS, STAGE_NOTES_AR, REAL_CALL_STAGES,
 )
 from services.pricing_service import get_pricing_config
 from services.secret_overrides_service import secret_source
+from services.tts_service import narration_real_call_available
+
+
+# Phase K — stages whose prompt is editable from /admin/prompts.
+# `local-binary` and `reuse-from-other-stage` stages have no admin-editable
+# prompt today (they call ffmpeg/reportlab or reuse another stage's output).
+_PROMPT_EDITABLE_STATUSES = {
+    "real-call", "real-call-when-keyed", "preview-only", "not-yet-wired",
+}
 
 
 # Why a stage may run / not run, surfaced in the UI as a "tags" array.
@@ -96,6 +105,25 @@ async def build_readiness() -> dict:
         executor_status = EXECUTOR_STATUS.get(s, "preview-only")
         # Source-aware secret resolution.
         sec_source = await secret_source(env_key) if env_key else "n/a"
+
+        # Phase K — `executor_callable` collapses status + secret presence
+        # into a single boolean so the unified Stage Control can show a
+        # green/grey indicator without re-implementing the rules.
+        if executor_status == "real-call":
+            executor_callable = sec_source in ("env", "override") if env_key else True
+        elif executor_status == "real-call-when-keyed":
+            # Today only narration_generation falls in this bucket.
+            if s == "narration_generation":
+                executor_callable = await narration_real_call_available()
+            else:
+                executor_callable = sec_source in ("env", "override")
+        elif executor_status == "local-binary":
+            executor_callable = True       # no key needed
+        else:
+            executor_callable = False
+
+        prompt_editable = executor_status in _PROMPT_EDITABLE_STATUSES
+
         # Default cost line.
         unit_cost = float((pricing.get("per_stage_costs") or {}).get(s, 0.0))
         config_source = "preset" if mr.get("applied_by_preset_id") else "manual_or_default"
@@ -107,6 +135,9 @@ async def build_readiness() -> dict:
             "name_en":          (STAGE_DISPLAY_NAMES.get(s) or {}).get("en") or s,
             "executor_status":  executor_status,
             "executor_notes_ar": STAGE_NOTES_AR.get(s, ""),
+            "executor_callable": bool(executor_callable),
+            "prompt_editable":   bool(prompt_editable),
+            "is_real_call_stage": s in REAL_CALL_STAGES,
             # Pipeline switches
             "enabled":           bool(ps.get("enabled", False)),
             "max_retries":       int(ps.get("max_retries", 1)),

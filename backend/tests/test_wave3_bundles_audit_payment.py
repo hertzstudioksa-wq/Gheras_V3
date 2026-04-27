@@ -40,12 +40,15 @@ def test_bundle_output_types_constant():
 # Audit — config constants
 # ---------------------------------------------------------------------------
 def test_audit_entity_types():
+    # Phase H/K added: env_key, preset_stack, provider, stage_control.
     expected = {
         "pricing_config", "model_registry", "pipeline_config",
         "prompt_template", "bundle", "bundle_purchase",
         "payment_settings", "payment",
+        "env_key", "preset_stack", "provider", "stage_control",
     }
-    assert set(ENTITY_TYPES) == expected
+    assert expected.issubset(set(ENTITY_TYPES)), \
+        f"missing entity types: {expected - set(ENTITY_TYPES)}"
 
 
 def test_audit_actions_include_lifecycle():

@@ -24,7 +24,7 @@ logger = logging.getLogger("audit_service")
 ENTITY_TYPES = (
     "pricing_config", "model_registry", "pipeline_config", "prompt_template",
     "bundle", "bundle_purchase", "payment_settings", "payment",
-    "env_key", "provider", "preset_stack",
+    "env_key", "provider", "preset_stack", "stage_control",
 )
 ACTIONS = (
     "create", "update", "delete",
@@ -32,6 +32,7 @@ ACTIONS = (
     "config_change", "secret_rotation_attempt",
     "secret_override.set", "secret_override.delete", "provider_test.run",
     "preset.create", "preset.update", "preset.delete", "preset.apply",
+    "stage.patch", "stage.reset",
 )
 
 

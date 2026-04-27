@@ -30,6 +30,7 @@ from routes.admin_secrets_routes import router as admin_secrets_router  # noqa: 
 from routes.admin_preset_stacks_routes import router as admin_preset_stacks_router  # noqa: E402
 from routes.admin_audit_routes import router as admin_audit_router  # noqa: E402
 from routes.admin_assets_routes import router as admin_assets_router  # noqa: E402
+from routes.admin_stage_control_routes import router as admin_stage_control_router  # noqa: E402
 from routes.bundle_routes import admin_router as admin_bundle_router, user_router as bundle_user_router  # noqa: E402
 from routes.payment_routes import (  # noqa: E402
     admin_router as admin_payment_router,
@@ -65,6 +66,7 @@ api_router.include_router(admin_secrets_router)
 api_router.include_router(admin_preset_stacks_router)
 api_router.include_router(admin_audit_router)
 api_router.include_router(admin_assets_router)
+api_router.include_router(admin_stage_control_router)
 api_router.include_router(admin_bundle_router)
 api_router.include_router(bundle_user_router)
 api_router.include_router(admin_payment_router)

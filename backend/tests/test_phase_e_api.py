@@ -179,7 +179,9 @@ class TestRegression:
         r = admin_client.get(f"{BASE_URL}/api/admin/lab/stages")
         assert r.status_code == 200
         keys = [s["stage_key"] for s in r.json().get("stages", [])]
-        assert len(keys) == 7, keys
+        # Phase G expanded SUPPORTED_STAGES from 7 → 11 (added extra_character_i2i,
+        # book_page_image_generation, video_assembly, pdf_assembly).
+        assert len(keys) == 11, keys
         assert "scene_image_generation" in keys
 
     def test_storyboard_has_nine_stages(self, admin_client):
@@ -189,7 +191,7 @@ class TestRegression:
         assert len(stages) == 9, [s.get("stage_key") for s in stages]
 
     @pytest.mark.parametrize("stage_key", [
-        "narration_generation", "video_generation", "music_generation",
+        "video_generation", "music_generation",
     ])
     def test_other_preview_only_stages_unchanged(self, admin_client, stage_key):
         r = admin_client.post(f"{BASE_URL}/api/admin/lab/run", json={

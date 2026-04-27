@@ -72,18 +72,22 @@ def test_pdf_only_is_cheaper_than_both():
 # Stage Lab — supported stages + helpers
 # ---------------------------------------------------------------------------
 def test_stage_lab_supported_stages():
+    # Phase G expanded SUPPORTED_STAGES from 7 → 11 canonical stages.
     expected = {
         "scenario_generation", "production_planning",
-        "child_character_i2i", "scene_image_generation",
-        "narration_generation", "video_generation", "music_generation",
+        "child_character_i2i", "extra_character_i2i",
+        "scene_image_generation", "book_page_image_generation",
+        "narration_generation", "music_generation", "video_generation",
+        "video_assembly", "pdf_assembly",
     }
     assert set(SUPPORTED_STAGES) == expected
 
 
 def test_real_call_stages_subset():
     assert REAL_CALL_STAGES.issubset(set(SUPPORTED_STAGES))
-    # Preview-only stages are explicitly NOT in REAL_CALL_STAGES.
-    for k in ("narration_generation", "video_generation", "music_generation", "scene_image_generation"):
+    # Preview-only / not-yet-wired stages are explicitly NOT in REAL_CALL_STAGES.
+    # Phase K: narration_generation IS in REAL_CALL_STAGES (TTS executor wired).
+    for k in ("video_generation", "music_generation", "scene_image_generation"):
         assert k not in REAL_CALL_STAGES
 
 

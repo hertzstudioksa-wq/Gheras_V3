@@ -19,6 +19,7 @@ const items = [
   { to: "/admin/prompts", label: "برومبتات AI", icon: Wand2, tid: "admin-nav-prompts" },
   { to: "/admin/models", label: "إعدادات النماذج", icon: Cpu, tid: "admin-nav-models" },
   { to: "/admin/pipeline", label: "إعدادات خط الإنتاج", icon: Workflow, tid: "admin-nav-pipeline" },
+  { to: "/admin/stage-control", label: "مركز التحكم بالمراحل", icon: Layers, tid: "admin-nav-stage-control" },
   { to: "/admin/lab", label: "مختبر المراحل", icon: Beaker, tid: "admin-nav-lab" },
   { to: "/admin/pricing", label: "التسعير الداخلي", icon: Coins, tid: "admin-nav-pricing" },
   { to: "/admin/bundles", label: "الباقات", icon: Package, tid: "admin-nav-bundles" },
