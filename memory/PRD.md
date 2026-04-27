@@ -1144,3 +1144,149 @@ The admin can now confidently begin manual testing because:
 - Transaction/insert-first-then-archive on regeneration to avoid rare partial states.
 - Unique index on `(order_id, production_plan_id, scene_index)`.
 - Cost dashboard using `duration.cost_tier` + `total_word_count`.
+
+---
+
+### Phase N — Per-Capability FAL Keys + Phase-N Model Matrix + Smart Narration (Feb 2026) ✅
+
+**Scope — confirmed by user**
+1. Split the single `FAL_KEY` into 4 per-capability keys for independent cost tracking:
+   `FAL_KEY_SCENE`, `FAL_KEY_NARRATION`, `FAL_KEY_MUSIC`, `FAL_KEY_VIDEO`
+   (legacy `FAL_KEY` kept as fallback-only).
+2. Pin the exact provider/model matrix across all 11 stages.
+3. Add a **Smart Narration** LLM layer that analyzes each scene and produces
+   dynamic `speed / stability / similarity_boost / style` BEFORE the TTS call.
+
+**Phase-N Matrix (single source of truth: `services/config_service.DEFAULT_MODELS`)**
+| stage_key                    | provider   | model_name                                   | env_key            |
+|------------------------------|------------|----------------------------------------------|--------------------|
+| scenario_generation          | openai     | gpt-5.4-mini                                 | OPENAI_API_KEY     |
+| production_planning          | openai     | gpt-5.4                                      | OPENAI_API_KEY     |
+| child_character_i2i          | openai     | gpt-image-1.5-2025-12-16                     | OPENAI_API_KEY     |
+| extra_character_i2i          | openai     | gpt-image-1.5-2025-12-16                     | OPENAI_API_KEY     |
+| scene_image_generation       | fal_image  | fal-ai/gemini-25-flash-image                 | FAL_KEY_SCENE      |
+| book_page_image_generation   | fal_image  | fal-ai/gemini-25-flash-image                 | FAL_KEY_SCENE      |
+| narration_generation         | fal_tts    | fal-ai/elevenlabs/tts/multilingual-v2        | FAL_KEY_NARRATION  |
+| music_generation             | fal_music  | fal-ai/elevenlabs/music                      | FAL_KEY_MUSIC      |
+| video_generation             | kling      | fal-ai/kling-video/v3/pro/image-to-video     | FAL_KEY_VIDEO      |
+| video_assembly               | ffmpeg     | local-ffmpeg                                 | —                  |
+| pdf_assembly                 | reportlab  | local-reportlab                              | —                  |
+
+**Per-capability keys — wired end-to-end**
+- `services/secret_overrides_service` resolves each FAL_KEY_* with optional
+  legacy `FAL_KEY` fallback.
+- `services/provider_test_service` adds `test_fal_scene`, `test_fal_narration`,
+  `test_fal_music`, `test_fal_video` — each falls back to legacy `FAL_KEY`
+  when the specific key is missing and never leaks the raw value.
+- `routes/admin_secrets_routes.KNOWN_ENV_KEYS` lists all 5 entries (4 new
+  + legacy) with Arabic `purpose` + `test_provider_key` + `providers` array.
+- `tts_service` adds `_tts_via_fal_elevenlabs` adapter → `PROVIDERS["fal_tts"]`.
+- `music_generation_service` adds `_music_via_fal_elevenlabs` → `PROVIDERS["fal_music"]`.
+- `video_generation_service` uses `FAL_KEY_VIDEO` → legacy `FAL_KEY` fallback.
+
+**Smart Narration — `services/smart_narration_service.py` (NEW, ~230 lines)**
+- Public entry: `compute_voice_settings(narration_text, emotional_tone,
+  audio_background_mode, scene_index, duration_label, use_llm=True)` →
+  `{speed, stability, similarity_boost, style, source, reason, model}`.
+- LLM path — `gpt-5-mini` via `EMERGENT_LLM_KEY` (classifier returns
+  strict JSON). Arabic + English tone tables baked into heuristic fallback.
+- **Clamp ranges** (matches fal.ai ElevenLabs v2 safe window):
+  speed 0.85–1.15 · stability 0.20–0.80 · similarity_boost 0.50–0.95 · style 0.00–0.40.
+- **Never blocks the pipeline**: any LLM/JSON error → heuristic path;
+  `source` field is always honest (`llm` | `heuristic` | `llm_failed` | `disabled`).
+
+**Orchestrator wiring — `_execute_narration_audio`**
+- Computes smart settings before calling `generate_audio`.
+- Persists `smart_narration` meta + `voice_settings_used` on `narration_assets`.
+- Forwards `voice_settings` through `audio_generation_service.generate_audio` →
+  `tts_service.generate_tts` → fal.ai / ElevenLabs payload.
+
+**Stage Lab — `_run_narration_generation`**
+- Adds `use_smart_narration` + `use_llm` + `emotional_tone` + `audio_background_mode`
+  + `scene_index` + `duration_label` knobs.
+- Returns `output_preview.smart_narration` + `output_preview.voice_settings`
+  alongside the usual provider/model/real_call/latency fields.
+
+**Admin UI updates**
+- `AdminStageControl.jsx`: narration banner mentions `FAL_KEY_NARRATION` + the 4
+  voice settings + Smart Narration (gpt-5-mini via Emergent). Video banner
+  now mentions `FAL_KEY_VIDEO`. Music banner now mentions `FAL_KEY_MUSIC` +
+  `fal-ai/elevenlabs/music` (no more "Creator+ required" note).
+- `AdminStoryboard.jsx::OutNarration`: new badge
+  `data-testid="storyboard-smart-narration-badge"` at top;
+  per-scene `data-testid="storyboard-narration-smart-{i}"` pill
+  (color-coded llm/heuristic/llm_failed) + voice_settings mono line.
+- `AdminSecrets.jsx` is data-driven → auto-renders the 5 FAL entries.
+- `AdminPipeline.jsx` + `AdminStageLab.jsx` auto-reflect via backend payloads.
+
+**DB alignment** — model_registry rows realigned to Phase N defaults
+(`scenario_generation` + `production_planning` reset back to `OPENAI_API_KEY`
+after a prior "Safe Production Stack" preset had overridden them to
+`EMERGENT_LLM_KEY`). `extra_character_i2i`, `book_page_image_generation`,
+`video_assembly`, `pdf_assembly` rows inserted. Legacy `final_assembly` +
+`pdf_generation` rows purged.
+
+**Tests**
+- `tests/test_phase_n_provider_matrix.py` (10/10) — structural: DEFAULT_MODELS
+  matches spec, PROVIDER_ENV_MAP covers the 4 FAL keys, provider_test_service
+  has `fal_scene/narration/music/video`, `tts_service.PROVIDERS` has `fal_tts`,
+  `music_generation_service.PROVIDERS` has `fal_music`, default voice is the
+  Phase-N Arabic-friendly voice, default kling model is v3/pro, default music
+  model is fal-elevenlabs, video helper prefers `FAL_KEY_VIDEO`.
+- `tests/test_phase_n_smart_narration.py` (9/9) — heuristic clamp + tone
+  mapping (Arabic + English) + audio_bg gating + long-text stability bump +
+  `_strip_to_json` + public entry graceful fallback.
+- `tests/test_phase_n_api.py` (8 passed, 1 skipped) — live API smoke against
+  `/admin/secrets/status`, `/admin/secrets/test/*`, `/admin/stage-control/state`,
+  `/admin/pipeline-readiness`, `/admin/orders/{id}/storyboard`.
+- **Full backend suite: 281 passing / 13 pre-existing failures (unrelated to
+  Phase N — stale scenario shape in `backend_test.py` + hard-coded 9-stage
+  count in `test_phase_e_api.py::TestRegression` from pre-Phase-K).**
+- **Frontend smoke (iteration_12.json): 100% — all 5 admin pages verified,
+  Phase N matrix visible end-to-end, backward compat on legacy orders, zero
+  raw secret leakage in the DOM.**
+
+**Live-provider status (intentionally unfunded by user)**
+| key                | state    | notes                                   |
+|--------------------|----------|------------------------------------------|
+| OPENAI_API_KEY     | ✅ env   | real-call available                      |
+| EMERGENT_LLM_KEY   | ✅ env   | real-call available (used by Smart Narr) |
+| FAL_KEY_SCENE      | missing  | scene images skip to fallback gemini     |
+| FAL_KEY_NARRATION  | missing  | narration falls back to mock             |
+| FAL_KEY_MUSIC      | missing  | music generation skipped gracefully      |
+| FAL_KEY_VIDEO      | missing  | video generation falls back to slideshow |
+| ELEVENLABS_API_KEY | missing  | legacy direct path — fal_tts is preferred|
+| STRIPE_API_KEY     | test key | sandbox payments only                    |
+
+**Security**
+- No raw API keys committed to code / tests / git. All keys flow through
+  the encrypted `secret_overrides` collection or `.env`.
+- `GET /api/admin/secrets/status` returns only `masked` + `source` +
+  `configured` + metadata; raw values never echoed.
+- `PUT /api/admin/secrets/{env_key}` accepts + encrypts + returns
+  `{rotated, masked}`.
+- Verified via full-DOM regex scan (iteration_12.json) — no sk-/fa-/key_
+  tokens present in the rendered admin pages.
+
+**Files modified (Phase N)**
+Backend
+  - `services/config_service.py` (DEFAULT_MODELS + PROVIDER_ENV_MAP)
+  - `services/tts_service.py` (+`_tts_via_fal_elevenlabs`, PROVIDERS fal_tts)
+  - `services/music_generation_service.py` (PROVIDERS fal_music)
+  - `services/video_generation_service.py` (FAL_KEY_VIDEO → legacy fallback)
+  - `services/provider_test_service.py` (+4 per-capability testers)
+  - `services/audio_generation_service.py` (accepts voice_settings)
+  - `services/generation_orchestrator.py` (Smart Narration hook + persist)
+  - `services/stage_lab_service.py` (Smart Narration lab knobs)
+  - `services/smart_narration_service.py` (NEW)
+  - `routes/admin_secrets_routes.py` (5 FAL entries, audit)
+  - `routes/admin_stage_control_routes.py` (provider menus per stage)
+  - `routes/admin_storyboard_routes.py` (smart_narration in output_summary)
+Frontend
+  - `pages/admin/AdminStageControl.jsx` (Phase-N banner copy)
+  - `pages/admin/AdminStoryboard.jsx` (Smart Narration badge + settings line)
+Tests
+  - `tests/test_phase_n_provider_matrix.py` (NEW, 10)
+  - `tests/test_phase_n_smart_narration.py` (NEW, 9)
+  - `tests/test_phase_n_api.py` (NEW via testing agent, 9)
+
