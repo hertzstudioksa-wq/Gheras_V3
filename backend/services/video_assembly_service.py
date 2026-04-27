@@ -152,6 +152,17 @@ async def assemble_video(
     ).to_list(50)
     clip_by_idx: dict[int, dict] = {int(c["scene_index"]): c for c in clip_rows}
 
+    # Phase M — pull narration assets per-scene + music track (if any).
+    narration_rows = await db.narration_assets.find(
+        {"order_id": order_id, "audio_url": {"$ne": None}},
+        {"_id": 0, "scene_index": 1, "audio_url": 1, "duration_seconds": 1},
+    ).to_list(50)
+    narration_by_idx: dict[int, dict] = {int(n.get("scene_index") or 0): n for n in narration_rows}
+    music_track = await db.music_tracks.find_one(
+        {"order_id": order_id, "skipped": False, "audio_url": {"$ne": None}},
+        {"_id": 0}, sort=[("created_at", -1)],
+    )
+
     # Map scene_index -> duration
     dur_by_idx: dict[int, float] = {}
     for n in narrations:
@@ -270,17 +281,131 @@ async def assemble_video(
 
         # Phase L — concat using re-encode mode to safely splice mixed sources
         # (real Kling clips + ffmpeg slideshow clips can have differing tbn/tbc).
-        out_path = os.path.join(work_dir, "final.mp4")
+        concat_path = os.path.join(work_dir, "concat.mp4")
         res = _run_ffmpeg([
             "-f", "concat", "-safe", "0",
             "-i", concat_file,
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "24",
             "-c:a", "aac",
-            out_path,
+            concat_path,
         ], timeout=180)
         if res.returncode != 0:
             logger.error(f"ffmpeg concat failed: {res.stderr[-400:]}")
             raise RuntimeError(f"ffmpeg concat failed: {res.stderr[-200:]}")
+
+        # Phase M — Audio mixing pass.
+        # Build a single audio track (narration timeline + optional music background)
+        # then mux it onto the silent concat. Honest behaviour:
+        #   * If no narration AND no music track → keep silent (legacy).
+        #   * Music duck: -12 dB so narration sits above music.
+        #   * Music looped/trimmed to total video duration.
+        narration_used = []
+        narration_input_args: list[str] = []
+        # Compute scene-index → start-second using same dur_by_idx + cover.
+        running_t = COVER_DURATION_SEC
+        delays_by_input_idx: dict[int, int] = {}
+        next_input_idx = 1   # input 0 is the concat video; we add audio inputs after.
+        for s in scenes:
+            idx = int(s.get("scene_index") or 0)
+            dur = dur_by_idx.get(idx, 6.0)
+            n = narration_by_idx.get(idx)
+            n_fid = _file_id_from_url((n or {}).get("audio_url"))
+            n_bytes = await _fetch_file_bytes(n_fid) if n_fid else None
+            if n_bytes:
+                npath = os.path.join(work_dir, f"nar_{idx:02d}.mp3")
+                with open(npath, "wb") as f:
+                    f.write(n_bytes)
+                narration_input_args += ["-i", npath]
+                delays_by_input_idx[next_input_idx] = int(running_t * 1000)
+                narration_used.append(idx)
+                next_input_idx += 1
+            running_t += dur
+
+        music_path = None
+        music_used = False
+        m_url = (music_track or {}).get("audio_url") if music_track else None
+        m_fid = _file_id_from_url(m_url) if m_url else None
+        m_bytes = await _fetch_file_bytes(m_fid) if m_fid else None
+        if m_bytes:
+            music_path = os.path.join(work_dir, "music.mp3")
+            with open(music_path, "wb") as f:
+                f.write(m_bytes)
+            music_used = True
+
+        out_path = os.path.join(work_dir, "final.mp4")
+        if not narration_input_args and not music_used:
+            # Nothing to mix — keep the silent concat as the final.
+            os.rename(concat_path, out_path)
+            audio_mix_meta = {"narration_count": 0, "music_used": False, "mode": "silent"}
+        else:
+            # Build a filter_complex graph:
+            #   Each narration input: [k:a]adelay=msec|msec[nk]
+            #   Mix narrations: [n0][n1]... amix=inputs=N:dropout_transition=0[narmix]
+            #   Music: [M:a]aloop=loop=-1:size=2147483647,atrim=0:total_dur,volume=0.32[bg]
+            #   Final: [narmix][bg] amix=inputs=2:duration=longest[aout]
+            args = ["-i", concat_path, *narration_input_args]
+            if music_used:
+                args += ["-stream_loop", "-1", "-i", music_path]
+
+            filter_parts: list[str] = []
+            nar_outs: list[str] = []
+            for k, in_idx in enumerate(range(1, 1 + len(narration_input_args) // 2)):
+                msec = delays_by_input_idx[in_idx]
+                filter_parts.append(f"[{in_idx}:a]adelay={msec}|{msec}[n{k}]")
+                nar_outs.append(f"[n{k}]")
+            if nar_outs:
+                if len(nar_outs) == 1:
+                    filter_parts.append(f"{nar_outs[0]}aresample=async=1[narmix]")
+                else:
+                    filter_parts.append(
+                        f"{''.join(nar_outs)}amix=inputs={len(nar_outs)}:dropout_transition=0,aresample=async=1[narmix]"
+                    )
+            music_input_idx = 1 + (len(narration_input_args) // 2) if music_used else None
+            if music_used:
+                # Duck music if narration exists; full level otherwise.
+                vol = "0.32" if nar_outs else "0.85"
+                filter_parts.append(f"[{music_input_idx}:a]volume={vol},aresample=async=1[bg]")
+            if nar_outs and music_used:
+                filter_parts.append("[narmix][bg]amix=inputs=2:duration=longest[aout]")
+                final_label = "[aout]"
+            elif nar_outs:
+                final_label = "[narmix]"
+            else:
+                final_label = "[bg]"
+
+            filter_complex = ";".join(filter_parts)
+            res = _run_ffmpeg([
+                *args,
+                "-filter_complex", filter_complex,
+                "-map", "0:v:0",
+                "-map", final_label,
+                "-c:v", "copy",
+                "-c:a", "aac", "-b:a", "160k",
+                "-shortest",
+                out_path,
+            ], timeout=240)
+            if res.returncode != 0:
+                logger.warning(f"ffmpeg mix failed (falling back to silent video): {res.stderr[-400:]}")
+                # Last-resort fallback: ship the silent concat.
+                os.rename(concat_path, out_path)
+                audio_mix_meta = {
+                    "narration_count": 0, "music_used": False,
+                    "mode": "silent_after_mix_failure",
+                    "error": res.stderr[-200:],
+                }
+            else:
+                audio_mix_meta = {
+                    "narration_count":     len(nar_outs),
+                    "narration_scene_idx": narration_used,
+                    "music_used":          music_used,
+                    "music_provider":      (music_track or {}).get("provider"),
+                    "music_model":         (music_track or {}).get("model"),
+                    "music_db_volume":     "0.32_when_narrating" if nar_outs and music_used else ("0.85" if music_used else None),
+                    "mode":                "narration+music" if (nar_outs and music_used) else
+                                           ("narration_only" if nar_outs else "music_only"),
+                }
+        if res.returncode != 0:
+            pass  # already handled above
 
         with open(out_path, "rb") as f:
             video_bytes = f.read()
@@ -316,7 +441,10 @@ async def assemble_video(
 
         meta = {
             "audio_background_mode":  audio_background_mode,
-            "audio_track":            "silent-placeholder",
+            "audio_track":            audio_mix_meta.get("mode", "silent"),
+            "audio_mix_meta":         audio_mix_meta,
+            "music_track_id":         (music_track or {}).get("id"),
+            "music_skipped":          music_track is None,
             "total_duration_seconds": round(total_duration, 2),
             "clip_count":             len(clip_paths),
             "real_clips_used":        used_real_clips,
@@ -325,7 +453,7 @@ async def assemble_video(
             "assembly_mode":          assembly_mode,
             "encoder":                "ffmpeg",
             "resolution":             "1280x720",
-            "real_narration_used":    False,
+            "real_narration_used":    audio_mix_meta.get("narration_count", 0) > 0,
             "note":                   ("Real per-scene Kling clips spliced with ffmpeg." if used_real_clips
                                        else "Slideshow fallback. Add FAL_KEY + enable video_generation for real clips."),
         }

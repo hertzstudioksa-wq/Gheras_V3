@@ -50,7 +50,7 @@ DEFAULT_PRICING_CONFIG: dict = {
         "cover_image":             0.30,   # cover illustration
         "narration_audio":         0.20,   # per scene — ElevenLabs eleven_multilingual_v2 ~ $0.045/scene → ~0.20 SAR
         "narration_generation":    0.20,   # canonical stage_key alias (used by lab + readiness)
-        "music_generation":        0.40,   # per story (Suno/ElevenLabs Music — when wired)
+        "music_generation":        1.50,   # per story (ElevenLabs Music ~ $0.40/min × 1-2 min ~ 1.50 SAR)
         "video_generation":        2.50,   # per scene clip (~5s on fal.ai Kling v2.1 standard)
         "book_page_asset":         0.02,   # per book page (reuses scene image)
         "vision_describe":         0.10,   # per uploaded toy/character analysis

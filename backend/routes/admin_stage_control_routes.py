@@ -39,6 +39,9 @@ from services.tts_service import (
 from services.video_generation_service import (
     video_real_call_available, DEFAULT_KLING_MODEL,
 )
+from services.music_generation_service import (
+    music_real_call_available, DEFAULT_ELEVENLABS_MUSIC_MODEL,
+)
 from services.audit_service import record_audit
 
 
@@ -60,7 +63,6 @@ _IMAGE_PROVIDERS = ["openai", "gemini"]
 _TTS_PROVIDERS   = ["elevenlabs", "openai", "mock"]
 _VIDEO_PROVIDERS = ["kling", "sora", "luma", "ffmpeg"]
 _MUSIC_PROVIDERS = ["elevenlabs", "suno", "mock"]
-_LOCAL_PROVIDERS = ["ffmpeg", "reportlab"]
 
 PROVIDER_CHOICES_BY_STAGE: dict[str, list[str]] = {
     "scenario_generation":         _TEXT_PROVIDERS,
@@ -127,6 +129,15 @@ async def get_state():
             "strategy": "hybrid_i2v_then_t2v",
             "default_duration_seconds": 5,
             "default_aspect_ratio": "16:9",
+        },
+        "music_real_call_available":         await music_real_call_available(),
+        "music_defaults": {
+            "model":             DEFAULT_ELEVENLABS_MUSIC_MODEL,
+            "env_key":           "ELEVENLABS_API_KEY",
+            "supported_modes":   ["music", "human_rhythm", "none"],
+            "default_duration":  60,
+            "plan_required":     "Creator+ on ElevenLabs (Music API access)",
+            "human_rhythm_note": "human_rhythm is prompt-biased only — no native API support.",
         },
         "stages_remaining_to_wire":          remaining_to_wire,
         "available_env_keys":                list({m.get("env_key") for m in PROVIDER_ENV_MAP.values() if m.get("env_key")}),

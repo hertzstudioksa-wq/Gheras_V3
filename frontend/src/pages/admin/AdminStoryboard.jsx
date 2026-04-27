@@ -488,11 +488,155 @@ function StageOutput({ stage }) {
     case "extra_character_i2i": return <OutExtraCharacters o={o} />;
     case "scene_image_generation": return <OutSceneImages o={o} />;
     case "narration_generation": return <OutNarration o={o} />;
+    case "video_generation": return <OutVideoGeneration o={o} />;
+    case "music_generation": return <OutMusicGeneration o={o} stage={stage} />;
     case "book_assets_generation": return <OutBookAssets o={o} />;
     case "video_assembly": return <OutVideo o={o} />;
     case "pdf_assembly": return <OutPDF o={o} />;
     default: return <KeyValueTable obj={o} />;
   }
+}
+
+function OutVideoGeneration({ o }) {
+  const clips = o.scene_clips || [];
+  if (clips.length === 0) {
+    return (
+      <div className="text-sm text-[#5A677D] italic" data-testid="video-gen-empty">
+        لا توجد لقطات فيديو محفوظة لهذا الطلب بعد. لتفعيل التوليد: اضبط <code>FAL_KEY</code> ومرحلة <code>video_generation</code> في إعدادات خط الإنتاج.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3" data-testid="video-gen-clips">
+      <div className="text-xs text-[#5A677D]">
+        <b>{o.completed_count}</b> / {o.total_count} لقطة جاهزة
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {clips.map((c) => (
+          <div
+            key={c.scene_index}
+            className="bg-white border-2 border-[#E2D8C9] rounded-2xl p-3 space-y-2"
+            data-testid={`video-clip-${c.scene_index}`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-[#2D3748] text-sm">
+                مشهد {c.scene_index} {c.scene_title ? `— ${c.scene_title}` : ""}
+              </div>
+              <span className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${
+                c.state === "COMPLETED" ? "bg-[#DEEBCF] text-[#3F5B2E]" :
+                c.state === "FAILED"    ? "bg-[#FCE6D4] text-[#B8612F]" :
+                                          "bg-[#F8F1E7] text-[#8B5A2B]"
+              }`}>
+                {c.state || "—"}
+              </span>
+            </div>
+            {c.video_url ? (
+              <video
+                src={c.video_url}
+                controls
+                className="w-full rounded-xl bg-black/5 max-h-64"
+                data-testid={`video-clip-player-${c.scene_index}`}
+              />
+            ) : (
+              <div className="bg-[#F8F1E7] text-[#8B5A2B] text-xs italic rounded-xl p-3 text-center">
+                لا يوجد فيديو محلّي. {c.error ? `خطأ: ${String(c.error).slice(0,120)}` : "في انتظار التوليد."}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-[#5A677D]">
+              <span>المزوّد: <b>{c.provider || "—"}</b></span>
+              <span>الاستراتيجية: <b>{c.clip_strategy || "—"}</b></span>
+              <span className="col-span-2 truncate">النموذج: <code className="font-mono">{c.model || "—"}</code></span>
+              <span>المدّة: <b>{c.duration_seconds ?? "—"}s</b></span>
+              <span>الأبعاد: <b>{c.aspect_ratio || "—"}</b></span>
+              <span>real_call: <b>{c.real_call ? "نعم" : "لا"}</b></span>
+              <span>fallback: <b>{c.fallback_to_mock ? "نعم" : "لا"}</b></span>
+              {c.uses_child_ref && <span className="text-[#3F5B2E]">✓ مرجع الطفل</span>}
+              {c.uses_extras > 0 && <span className="text-[#3F5B2E]">✓ {c.uses_extras} شخصيات</span>}
+              {c.uses_toy_ref && <span className="text-[#3F5B2E]">✓ مرجع لعبة</span>}
+            </div>
+            {c.request_id && (
+              <div className="text-[10px] text-[#8A9AB0] truncate font-mono">
+                request_id: {c.request_id}
+              </div>
+            )}
+            {c.video_prompt && (
+              <details className="text-[11px] text-[#5A677D]">
+                <summary className="cursor-pointer">عرض البرومبت</summary>
+                <div className="mt-1 bg-[#FDFBF7] rounded-lg p-2 leading-relaxed whitespace-pre-wrap">
+                  {c.video_prompt}
+                </div>
+              </details>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OutMusicGeneration({ o, stage }) {
+  const i = stage.input_summary || {};
+  const skipped = !!o.skipped;
+  return (
+    <div className="space-y-3" data-testid="music-gen-output">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <Pill label="الوضع المطلوب" value={i.requested_mode || "—"} />
+        <Pill label="الوضع الفعلي"   value={i.actual_mode || "—"}
+              tone={i.requested_mode === i.actual_mode ? "ok" : "warn"} />
+        <Pill label="المدّة"          value={`${i.duration_seconds ?? 0}s`} />
+        <Pill label="المزوّد"         value={o.provider || "—"} />
+      </div>
+      {skipped ? (
+        <div className="bg-[#F8F1E7] text-[#8B5A2B] text-sm rounded-xl p-3 border border-[#D4A373]/40" data-testid="music-skipped">
+          <b>تمّ تخطّي الموسيقى.</b> السبب: <code className="bg-white px-1 rounded">{o.skip_reason || "—"}</code>
+          {o.skip_reason === "missing_key" && " — أضف ELEVENLABS_API_KEY من /admin/secrets."}
+          {o.skip_reason === "plan_required" && " — تتطلّب خطّة Creator+ على ElevenLabs."}
+          {o.skip_reason === "mode_none" && " — العميل اختار 'بدون موسيقى خلفية'."}
+        </div>
+      ) : o.audio_url ? (
+        <audio
+          src={o.audio_url}
+          controls
+          className="w-full"
+          data-testid="music-player"
+        />
+      ) : (
+        <div className="text-xs text-[#5A677D] italic">في انتظار التوليد…</div>
+      )}
+      {o.mode_implementation && (
+        <div className="text-[11px] text-[#5A677D]">
+          تنفيذ الوضع: <code className="font-mono">{o.mode_implementation}</code>
+        </div>
+      )}
+      {o.prompt_used && (
+        <details className="text-[11px] text-[#5A677D]">
+          <summary className="cursor-pointer">عرض البرومبت المستخدَم</summary>
+          <div className="mt-1 bg-[#FDFBF7] rounded-lg p-2 leading-relaxed whitespace-pre-wrap">
+            {o.prompt_used}
+          </div>
+        </details>
+      )}
+      {o.error && (
+        <div className="bg-[#FCE6D4] text-[#B8612F] text-xs rounded-xl p-2 border border-[#E07A5F]/40">
+          {o.error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Pill({ label, value, tone = "info" }) {
+  const tones = {
+    ok:   "bg-[#DEEBCF] text-[#3F5B2E]",
+    warn: "bg-[#FFE9C7] text-[#9A6515]",
+    info: "bg-[#F8F1E7] text-[#8B5A2B]",
+  };
+  return (
+    <div className={`rounded-xl px-2 py-1.5 ${tones[tone]}`}>
+      <div className="text-[10px] opacity-80">{label}</div>
+      <div className="font-bold text-xs truncate">{value}</div>
+    </div>
+  );
 }
 
 function OutScenarios({ o }) {
@@ -846,10 +990,32 @@ function OutBookAssets({ o }) {
 
 function OutVideo({ o }) {
   if (!o.video_url) return <div className="text-[11px] text-[#8A9AB0]">لم يتم التجميع بعد</div>;
+  const am = o.assembly_metadata || {};
+  const mix = am.audio_mix_meta || {};
+  const assemblyMode = am.assembly_mode || "—";
+  const modeColor = assemblyMode === "real_clips" ? "bg-[#DEEBCF] text-[#3F5B2E]"
+                  : assemblyMode === "hybrid"     ? "bg-[#FFE9C7] text-[#9A6515]"
+                  :                                 "bg-[#F8F1E7] text-[#8B5A2B]";
   return (
-    <div className="space-y-2">
+    <div className="space-y-3" data-testid="final-video-output">
       <video controls poster={o.thumbnail_url ? fileSrc(o.thumbnail_url) : undefined} src={fileSrc(o.video_url)} className="w-full max-w-md rounded-xl border border-[#E2D8C9]" data-testid="storyboard-video-player" />
-      <KeyValueTable obj={{ duration_seconds: o.duration_seconds, audio_background_mode: o.audio_background_mode, provider: o.provider, assembly_metadata: o.assembly_metadata }} />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <Pill label="assembly_mode" value={assemblyMode}
+              tone={assemblyMode === "real_clips" ? "ok" : assemblyMode === "hybrid" ? "warn" : "info"} />
+        <Pill label="real clips"    value={`${am.real_clips_used ?? 0}`} />
+        <Pill label="slideshow frames" value={`${am.slideshow_frames_used ?? 0}`} />
+        <Pill label="placeholder"   value={`${am.placeholder_frames ?? 0}`} />
+        <Pill label="audio mix"     value={mix.mode || "silent"}
+              tone={mix.mode && mix.mode.includes("narration") ? "ok" : "info"} />
+        <Pill label="narrations"    value={`${mix.narration_count ?? 0}`} />
+        <Pill label="music used"    value={mix.music_used ? "نعم" : "لا"}
+              tone={mix.music_used ? "ok" : "info"} />
+        <Pill label="duration"      value={`${am.total_duration_seconds ?? "—"}s`} />
+      </div>
+      <details className="text-[11px] text-[#5A677D]">
+        <summary className="cursor-pointer">الـ metadata الكاملة</summary>
+        <KeyValueTable obj={am} />
+      </details>
     </div>
   );
 }

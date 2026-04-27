@@ -73,11 +73,11 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
         "env_key": "FAL_KEY",
     },
     "music_generation": {
-        "provider": "mock",
-        "model_name": "mock-music-v1",
-        "fallback_provider": None,
-        "fallback_model": None,
-        "env_key": None,
+        "provider": "elevenlabs",
+        "model_name": "eleven_music_v1",
+        "fallback_provider": "mock",
+        "fallback_model": "mock-music-v1",
+        "env_key": "ELEVENLABS_API_KEY",
     },
     "final_assembly": {
         "provider": "ffmpeg",

@@ -55,6 +55,8 @@ REAL_CALL_STAGES = {
     "narration_generation",
     # Phase L — video_generation via fal.ai Kling.
     "video_generation",
+    # Phase M — music_generation via ElevenLabs Music.
+    "music_generation",
 }
 
 # Phase G — `executor_status` classifies WHY a stage is callable or not:
@@ -76,7 +78,7 @@ EXECUTOR_STATUS: dict[str, str] = {
     "book_page_image_generation": "reuse-from-other-stage",
     "narration_generation":     "real-call-when-keyed",  # Phase K — ElevenLabs TTS executor wired
     "video_generation":         "real-call-when-keyed",  # Phase L — fal.ai Kling adapter wired
-    "music_generation":         "not-yet-wired",
+    "music_generation":         "real-call-when-keyed",  # Phase M — ElevenLabs Music adapter wired (plan-gated)
     "video_assembly":           "local-binary",
     "pdf_assembly":             "local-binary",
 }
@@ -90,7 +92,7 @@ STAGE_NOTES_AR: dict[str, str] = {
     "book_page_image_generation": "حالياً يُعاد استخدام صورة المشهد المقابلة (provider=reused). القالب جاهز لتوليد إيضاحات كتاب مستقلّة عند توصيل executor.",
     "narration_generation":     "تكامل ElevenLabs TTS فعلي عند توفّر ELEVENLABS_API_KEY (يُقرأ من /admin/secrets). بدون مفتاح يعود إلى المحاكاة تلقائياً.",
     "video_generation":         "تكامل fal.ai Kling فعلي عند توفّر FAL_KEY (يُقرأ من /admin/secrets). افتراضي: kling-video/v2.1/standard. قابل للتعديل من Stage Control. الاستراتيجية: I2V عند توفّر صورة المشهد، وإلا T2V.",
-    "music_generation":         "غير موصَّل بعد — القالب جاهز لتوصيل Suno / ElevenLabs Music لاحقاً.",
+    "music_generation":         "تكامل ElevenLabs Music فعلي عند توفّر ELEVENLABS_API_KEY (يحتاج خطّة Creator+ على ElevenLabs). يحترم audio_background_mode (music | human_rhythm | none). human_rhythm مدعوم prompt-bias فقط — لا توجد قدرة أصلية على الإيقاع البشري في API.",
     "video_assembly":           "تجميع محلّي بـ ffmpeg (لا موفّر LLM، لا تكلفة API). الإعدادات تظهر للفحص فقط.",
     "pdf_assembly":             "تجميع محلّي بـ reportlab (لا موفّر LLM، لا تكلفة API). الإعدادات تظهر للفحص فقط.",
 }
@@ -399,6 +401,86 @@ async def _run_video_generation(input_payload: dict) -> dict:
         },
         "result_summary": " · ".join(summary_bits),
     }
+
+
+async def _run_music_generation_lab(input_payload: dict) -> dict:
+    """Phase M — real ElevenLabs Music sample (per-story background).
+
+    Lab-only constraints:
+      * single track preview, 30s default (cap 60s)
+      * audio_background_mode honored ('none' returns skipped, no API call)
+    """
+    from services.music_generation_service import generate_music
+    import asyncio as _asyncio
+    import uuid as _uuid
+    from storage import put_object, APP_NAME
+    from db import db
+
+    audio_mode = (input_payload.get("audio_background_mode") or "music").lower()
+    duration = min(int(input_payload.get("duration_seconds") or 30), 60)
+    prompt = (input_payload.get("base_prompt")
+              or input_payload.get("prompt")
+              or "Warm, hopeful children's storybook background.")
+    keywords = input_payload.get("story_keywords") or ["warmth", "kindness", "wonder"]
+    arc = input_payload.get("emotional_arc") or "gentle, hopeful"
+
+    audio_bytes, mime, meta = await generate_music(
+        audio_background_mode=audio_mode,
+        base_prompt=prompt,
+        duration_seconds=duration,
+        story_keywords=keywords if isinstance(keywords, list) else [str(keywords)],
+        emotional_arc=arc,
+    )
+
+    audio_url = None
+    if audio_bytes:
+        file_id = str(_uuid.uuid4())
+        storage_path = f"{APP_NAME}/lab/music/{file_id}.mp3"
+        loop = _asyncio.get_running_loop()
+        try:
+            stored = await loop.run_in_executor(
+                None, lambda: put_object(storage_path, audio_bytes, mime),
+            )
+            await db.files.insert_one({
+                "id": file_id, "user_id": "lab-admin", "scope": "lab-music",
+                "storage_path": stored.get("path", storage_path),
+                "original_filename": "music.mp3",
+                "content_type": mime,
+                "size": stored.get("size", len(audio_bytes)),
+                "is_deleted": False, "created_at": _now(),
+            })
+            audio_url = f"/api/uploads/file/{file_id}"
+        except Exception as e:  # noqa: BLE001
+            meta["storage_error"] = f"{type(e).__name__}: {e}"
+
+    summary = [
+        f"mode={audio_mode}",
+        f"impl={meta.get('mode_implementation')}",
+        f"real_call={meta.get('real_call')}",
+    ]
+    if meta.get("skip_reason"):
+        summary.append(f"skip={meta['skip_reason']}")
+
+    return {
+        "output_preview": {
+            "audio_url":          audio_url,
+            "duration_seconds":   meta.get("duration_seconds"),
+            "provider":           meta.get("provider"),
+            "model":              meta.get("model"),
+            "real_call":          bool(meta.get("real_call")),
+            "skip_reason":        meta.get("skip_reason"),
+            "audio_background_mode": meta.get("audio_background_mode"),
+            "mode_implementation":   meta.get("mode_implementation"),
+            "secret_source":      meta.get("secret_source"),
+            "latency_ms":         meta.get("latency_ms"),
+            "bytes":              meta.get("bytes"),
+            "error":              meta.get("error"),
+            "prompt_used":        (meta.get("prompt_used") or "")[:300],
+        },
+        "result_summary": " · ".join(summary),
+    }
+
+
 
 
 
@@ -887,6 +969,8 @@ async def run_stage_test(stage_key: str, input_payload: dict, admin_id: str | No
                 res = await _run_narration_generation(input_payload)
             elif stage_key == "video_generation":
                 res = await _run_video_generation(input_payload)
+            elif stage_key == "music_generation":
+                res = await _run_music_generation_lab(input_payload)
             else:
                 res = await _run_preview_only(stage_key, input_payload)
                 status = "preview-only"

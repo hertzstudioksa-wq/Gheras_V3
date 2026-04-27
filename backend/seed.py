@@ -336,25 +336,24 @@ async def seed_prompt_templates():
         },
         {
             "stage_key": "music_generation",
-            "name": "Music per-story / per-scene (default, not yet wired)",
+            "name": "Music per-story (ElevenLabs Music)",
             "template_text": (
-                "Audio background mode for this story: $audio_background_mode. "
-                "If audio_background_mode='none', return an empty composition (no music "
-                "track). If 'human_rhythm', generate a soft hand-percussion / clap-only "
-                "rhythm with no instruments. Otherwise (mode='music'): compose child-safe "
-                "background music matching the story's emotional arc.\n"
-                "Story-level direction: $story_music_prompt. "
-                "Story-level keywords: $story_music_keywords. "
-                "Current scene cue: $music_prompt. Scene keywords: $music_keywords. "
-                "Duration: $estimated_duration_seconds s. Mood progression: $emotional_arc."
+                "Background music for a children's story video, total length "
+                "$estimated_total_duration_seconds seconds. "
+                "Story value: $value_label. Theme keywords: $story_keywords. "
+                "Emotional arc: $emotional_arc. "
+                "Mode: $audio_background_mode. "
+                "Style: warm, gentle, family-friendly, no vocals (when mode=music), "
+                "vocal-percussion only (when mode=human_rhythm), "
+                "low-mid dynamics so narration sits above the music in the mix."
             ),
             "variables": [
-                "audio_background_mode",
-                "story_music_prompt", "story_music_keywords", "music_prompt",
-                "music_keywords", "estimated_duration_seconds", "emotional_arc",
+                "estimated_total_duration_seconds", "value_label",
+                "story_keywords", "emotional_arc", "audio_background_mode",
             ],
-            "notes": "Editable now; will be consumed when a music-generation executor is added. "
-                     "Honors order.data.audio_background.mode (music | human_rhythm | none).",
+            "notes": "Phase M — Used by ElevenLabs Music adapter (per-story). "
+                     "Mode 'human_rhythm' is prompt-biased only (no native API support). "
+                     "Mode 'none' skips this stage entirely.",
         },
         {
             "stage_key": "extra_character_i2i",

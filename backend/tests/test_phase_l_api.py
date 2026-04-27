@@ -40,7 +40,8 @@ def test_stage_control_state_video_defaults(auth_client):
     assert vd.get("model", "").startswith("fal-ai/kling-video/")
     remaining = body.get("stages_remaining_to_wire") or []
     assert "video_generation" not in remaining
-    assert remaining == ["music_generation"] or "music_generation" in remaining
+    # Phase M: music_generation also moved out of not-yet-wired.
+    assert "music_generation" not in remaining
 
 
 def test_stage_control_state_video_row(auth_client):

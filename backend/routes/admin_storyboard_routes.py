@@ -39,6 +39,8 @@ STAGE_ORDER = [
     "extra_character_i2i",
     "scene_image_generation",
     "narration_generation",
+    "video_generation",
+    "music_generation",
     "book_assets_generation",
     "video_assembly",
     "pdf_assembly",
@@ -802,6 +804,177 @@ async def _stage_narration(order: dict, pipeline_cfg: dict) -> dict:
     }
 
 
+
+async def _stage_video_generation(order: dict, pipeline_cfg: dict,
+                                   scene_plans: list[dict]) -> dict:
+    """Phase L/M — per-scene Kling clip surfacing.
+
+    Read-only aggregation from `db.video_clips`. Each scene exposes:
+      scene_index, video_url (playable), provider, model, clip_strategy,
+      duration, request_id, real_call/fallback, error.
+    """
+    stage_flags = pipeline_cfg.get("stages", {}).get("video_generation") or {}
+    enabled = stage_flags.get("enabled", False)
+    summary = order.get("video_generation_summary") or {}
+
+    clips = await db.video_clips.find(
+        {"order_id": order["id"]},
+        {"_id": 0},
+    ).sort("scene_index", 1).to_list(50)
+    by_idx = {int(c.get("scene_index") or 0): c for c in clips}
+
+    scene_clips: list[dict] = []
+    for sp in scene_plans:
+        idx = int(sp.get("scene_index") or 0)
+        c = by_idx.get(idx) or {}
+        # Reference flags from scene plan inputs.
+        refs = (sp.get("references") or {})
+        scene_clips.append({
+            "scene_index":      idx,
+            "scene_title":      sp.get("scene_title"),
+            "video_url":        c.get("video_url"),
+            "remote_video_url": c.get("remote_video_url"),
+            "state":            c.get("state"),
+            "provider":         c.get("provider"),
+            "model":            c.get("model"),
+            "clip_strategy":    c.get("clip_strategy"),
+            "duration_seconds": c.get("duration_seconds"),
+            "aspect_ratio":     c.get("aspect_ratio"),
+            "request_id":       c.get("request_id"),
+            "real_call":        bool(c.get("real_call")),
+            "fallback_to_mock": bool(c.get("fallback_to_mock")),
+            "error":            c.get("error"),
+            "uses_child_ref":   bool(refs.get("child_id")),
+            "uses_extras":      len((refs.get("extra_character_ids") or [])),
+            "uses_toy_ref":     bool(refs.get("toy_id")),
+            "video_prompt":     ((sp.get("video_prompt") or {}).get("prompt_text"))[:300] if (sp.get("video_prompt") or {}).get("prompt_text") else None,
+            "created_at":       c.get("created_at"),
+        })
+
+    completed = sum(1 for s in scene_clips if s["state"] == "COMPLETED" and s["video_url"])
+    total = len(scene_clips)
+    if not enabled:
+        status = "skipped"
+    elif total == 0 or completed == 0:
+        status = "skipped" if not summary else "pending"
+    elif completed == total:
+        status = "completed"
+    else:
+        status = "running" if completed > 0 else "pending"
+
+    provider, model_name, model_source = await _resolve_model_current("video_generation")
+    return {
+        "stage_key": "video_generation",
+        "name_ar": _display_name("video_generation")["ar"],
+        "name_en": _display_name("video_generation")["en"],
+        "config_enabled": bool(enabled),
+        "status": status,
+        "started_at": None,
+        "ended_at": None,
+        "latency_ms_estimate": None,
+        "latency_is_estimate": True,
+        "attempts": 0,
+        "provider": provider,
+        "model_name": model_name,
+        "model_source": model_source,
+        "prompt_source": "template",
+        "fallback_used": any(s["fallback_to_mock"] for s in scene_clips),
+        "error_message": next((s["error"] for s in scene_clips if s["error"]), None),
+        "mock_mode": False,
+        "input_summary": {
+            "total_scenes":       total,
+            "audio_aware":        False,
+            "summary":            summary,
+        },
+        "output_summary": {
+            "scene_clips":        scene_clips,
+            "completed_count":    completed,
+            "total_count":        total,
+            "summary":            summary,
+        },
+        "events": [],
+        "actions": {
+            "regenerate_endpoint": None,
+            "supports_copy_prompt": False,
+            "download_url": None,
+        },
+    }
+
+
+async def _stage_music_generation(order: dict, pipeline_cfg: dict) -> dict:
+    """Phase M — per-story music track surfacing.
+
+    Honest fields:
+      requested_mode, actual_mode, skipped, skip_reason, audio_url,
+      provider, model, real_call, mode_implementation, error, prompt_used.
+    """
+    stage_flags = pipeline_cfg.get("stages", {}).get("music_generation") or {}
+    enabled = stage_flags.get("enabled", False)
+    summary = order.get("music_generation_summary") or {}
+    track = await db.music_tracks.find_one(
+        {"order_id": order["id"]},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+
+    # Status logic
+    if not enabled:
+        status = "skipped"
+    elif not track:
+        status = "pending"
+    elif track.get("audio_url"):
+        status = "completed"
+    elif track.get("skipped"):
+        status = "skipped"
+    else:
+        status = "failed" if track.get("error") else "pending"
+
+    provider, model_name, model_source = await _resolve_model_current("music_generation")
+    return {
+        "stage_key": "music_generation",
+        "name_ar": _display_name("music_generation")["ar"],
+        "name_en": _display_name("music_generation")["en"],
+        "config_enabled": bool(enabled),
+        "status": status,
+        "started_at": (track or {}).get("created_at"),
+        "ended_at":   (track or {}).get("updated_at"),
+        "latency_ms_estimate": (track or {}).get("latency_ms"),
+        "latency_is_estimate": False,
+        "attempts": 1 if track else 0,
+        "provider": provider,
+        "model_name": model_name,
+        "model_source": model_source,
+        "prompt_source": "template",
+        "fallback_used": bool((track or {}).get("skipped")),
+        "error_message": (track or {}).get("error"),
+        "mock_mode": (track or {}).get("provider") == "mock",
+        "input_summary": {
+            "requested_mode":        (track or {}).get("requested_mode"),
+            "actual_mode":           (track or {}).get("actual_mode"),
+            "duration_seconds":      (track or {}).get("duration_seconds"),
+        },
+        "output_summary": {
+            "audio_url":             (track or {}).get("audio_url"),
+            "skipped":               bool((track or {}).get("skipped")),
+            "skip_reason":           (track or {}).get("skip_reason"),
+            "provider":              (track or {}).get("provider"),
+            "model":                 (track or {}).get("model"),
+            "real_call":             bool((track or {}).get("real_call")),
+            "mode_implementation":   (track or {}).get("mode_implementation"),
+            "duration_seconds":      (track or {}).get("duration_seconds"),
+            "prompt_used":           (track or {}).get("prompt_used"),
+            "summary":               summary,
+        },
+        "events": [],
+        "actions": {
+            "regenerate_endpoint": None,
+            "supports_copy_prompt": False,
+            "download_url": (track or {}).get("audio_url"),
+        },
+    }
+
+
+
 async def _stage_book_assets(order: dict, pipeline_cfg: dict) -> dict:
     # book_assets is not tracked as a distinct stage in pipeline_config; treat as
     # enabled unless explicitly disabled in the future config.
@@ -970,6 +1143,8 @@ async def get_storyboard(order_id: str) -> dict[str, Any]:
         await _stage_extra_character_i2i(order, pipeline_cfg),
         await _stage_scene_image_generation(order, pipeline_cfg, scene_plans),
         await _stage_narration(order, pipeline_cfg),
+        await _stage_video_generation(order, pipeline_cfg, scene_plans),
+        await _stage_music_generation(order, pipeline_cfg),
         await _stage_book_assets(order, pipeline_cfg),
         await _stage_assembly(order, "final_video_assembly", "final_videos", "video_url", "video_assembly"),
         await _stage_assembly(order, "final_pdf_assembly",   "final_pdfs",   "pdf_url",   "pdf_assembly"),

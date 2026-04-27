@@ -29,6 +29,9 @@ from services.scene_reference_service import resolve_scene_references
 from services.video_generation_service import (
     submit_all_then_poll, video_real_call_available,
 )
+from services.music_generation_service import (
+    generate_music, music_real_call_available,
+)
 from services.config_service import get_pipeline_config
 
 logger = logging.getLogger("generation_orchestrator")
@@ -170,6 +173,136 @@ async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> d
         }},
     )
     return {"ran": True, "saved": saved, "total": len(payloads)}
+
+
+async def _run_music_generation_stage(order: dict, plan: dict, run_id: str) -> dict:
+    """Phase M — per-story ElevenLabs Music background track.
+
+    Honest gates:
+      * pipeline_config.music_generation.enabled must be True
+      * audio_background_mode must NOT be 'none'
+      * music_real_call_available() must be True (key present)
+    On any miss → records a `music_tracks` row with skip_reason and returns
+    {"ran": False, ...}. The assembly stage will produce video without music.
+    """
+    cfg = await get_pipeline_config()
+    stage_cfg = (cfg.get("stages") or {}).get("music_generation") or {}
+    if not stage_cfg.get("enabled", False):
+        return {"ran": False, "reason": "music_generation disabled in pipeline_config"}
+
+    audio_mode = (plan.get("audio_background") or {}).get("mode") or \
+                 (order.get("data") or {}).get("audio_background_mode") or "music"
+
+    # Always persist a row so storyboard can show the requested vs actual mode.
+    track_id = str(uuid.uuid4())
+    base = {
+        "id":                  track_id,
+        "order_id":            order["id"],
+        "production_plan_id":  plan["id"],
+        "run_id":              run_id,
+        "requested_mode":      audio_mode,
+        "actual_mode":         audio_mode,
+        "created_at":          _now(),
+        "updated_at":          _now(),
+    }
+
+    if audio_mode == "none":
+        await db.music_tracks.insert_one({
+            **base, "actual_mode": "none", "skipped": True,
+            "skip_reason": "mode_none",
+            "audio_url": None, "duration_seconds": 0,
+            "provider": "skipped", "model": None, "real_call": False,
+            "mode_implementation": "skipped_by_request",
+        })
+        return {"ran": False, "reason": "audio_background_mode=none"}
+
+    if not await music_real_call_available():
+        await db.music_tracks.insert_one({
+            **base, "skipped": True,
+            "skip_reason": "missing_key",
+            "audio_url": None, "duration_seconds": 0,
+            "provider": "elevenlabs", "model": None, "real_call": False,
+            "mode_implementation": "skipped_missing_key",
+            "error": "ELEVENLABS_API_KEY not configured",
+        })
+        return {"ran": False, "reason": "missing_key"}
+
+    # Estimate duration from scene plans.
+    scenes = await db.scene_plans.find(
+        {"order_id": order["id"], "production_plan_id": plan["id"], "is_archived": False},
+        {"_id": 0, "estimated_duration_seconds": 1},
+    ).to_list(50)
+    total_dur = int(sum((s.get("estimated_duration_seconds") or 6) for s in scenes)) + 5
+
+    story_keywords = (plan.get("story_keywords") or [])[:6]
+    emotional_arc = plan.get("emotional_arc") or plan.get("story_summary")
+    base_prompt = (plan.get("story_music_prompt")
+                   or (plan.get("music_prompt") or {}).get("prompt_text"))
+
+    audio_bytes, mime, meta = await generate_music(
+        audio_background_mode=audio_mode,
+        base_prompt=base_prompt,
+        duration_seconds=total_dur,
+        story_keywords=story_keywords,
+        emotional_arc=emotional_arc,
+    )
+
+    # Persist audio if any.
+    audio_url = None
+    if audio_bytes:
+        file_id = str(uuid.uuid4())
+        storage_path = f"{APP_NAME}/orders/{order['id']}/generated/music/{file_id}.mp3"
+        loop = asyncio.get_running_loop()
+        try:
+            stored = await loop.run_in_executor(
+                None, lambda: put_object(storage_path, audio_bytes, mime),
+            )
+            await db.files.insert_one({
+                "id": file_id,
+                "user_id": order.get("user_id"),
+                "scope": "generated-music",
+                "storage_path": stored.get("path", storage_path),
+                "original_filename": "music.mp3",
+                "content_type": mime,
+                "size": stored.get("size", len(audio_bytes)),
+                "is_deleted": False,
+                "created_at": _now(),
+            })
+            audio_url = f"/api/uploads/file/{file_id}"
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[music_generation] storage failed: {e}")
+            meta["storage_error"] = f"{type(e).__name__}: {e}"
+
+    skip_reason = meta.get("skip_reason")
+    skipped = (audio_url is None) or (skip_reason in ("plan_required", "auth_failed", "provider_unavailable"))
+
+    await db.music_tracks.insert_one({
+        **base,
+        "skipped":             bool(skipped),
+        "skip_reason":         skip_reason if skipped else None,
+        "audio_url":           audio_url,
+        "duration_seconds":    meta.get("duration_seconds") or total_dur,
+        "provider":            meta.get("provider"),
+        "model":               meta.get("model"),
+        "real_call":           bool(meta.get("real_call")),
+        "mode_implementation": meta.get("mode_implementation"),
+        "prompt_used":         meta.get("prompt_used"),
+        "error":               meta.get("error"),
+        "latency_ms":          meta.get("latency_ms"),
+        "bytes":               meta.get("bytes"),
+    })
+    await db.orders.update_one(
+        {"id": order["id"]},
+        {"$set": {"music_generation_summary": {
+            "skipped": bool(skipped),
+            "skip_reason": skip_reason if skipped else None,
+            "audio_url": audio_url,
+            "duration_seconds": meta.get("duration_seconds"),
+            "provider": meta.get("provider"),
+            "ran_at": _now(),
+        }}},
+    )
+    return {"ran": not skipped, "audio_url": audio_url, "skip_reason": skip_reason}
 
 
 BACKOFF_SECONDS = [1, 3, 7]  # between attempts (index = attempt_count - 1)

@@ -62,16 +62,16 @@ def test_book_page_image_generation_is_reuse():
 
 
 def test_not_yet_wired_stages():
-    # Phase K: narration moved out. Phase L: video_generation moved out
-    # (fal.ai Kling executor wired). Music remains the only not-yet-wired stage.
-    expected = {"music_generation"}
+    # Phase K: narration moved out. Phase L: video moved out. Phase M: music moved out.
+    # No stages remain `not-yet-wired`.
+    expected: set = set()
     actual = {s for s, st in EXECUTOR_STATUS.items() if st == "not-yet-wired"}
     assert actual == expected, f"not-yet-wired mismatch: {actual} vs {expected}"
 
 
 def test_real_call_when_keyed_stages():
-    # Phase L expanded this bucket to include video_generation alongside narration.
-    expected = {"narration_generation", "video_generation"}
+    # Phase M: narration + video + music all live in this bucket.
+    expected = {"narration_generation", "video_generation", "music_generation"}
     actual = {s for s, st in EXECUTOR_STATUS.items() if st == "real-call-when-keyed"}
     assert actual == expected, f"real-call-when-keyed mismatch: {actual} vs {expected}"
 

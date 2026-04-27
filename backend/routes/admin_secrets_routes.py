@@ -56,15 +56,17 @@ KNOWN_ENV_KEYS: list[dict] = [
     },
     {
         "key": "ELEVENLABS_API_KEY",
-        "label": "ElevenLabs (TTS)",
+        "label": "ElevenLabs (TTS + Music)",
         "providers": ["elevenlabs"],
-        "purpose": "Text-to-Speech للسرد العربي (يحلّ محلّ المحاكاة الحالية).",
+        "purpose": "Text-to-Speech للسرد العربي + Music API لخلفية الفيديو (Music API يحتاج خطّة Creator+).",
         "rotation_instructions": (
             "1) سجّل دخول إلى https://elevenlabs.io/app/settings/api-keys\n"
             "2) أنشئ مفتاحاً جديداً.\n"
-            "3) استخدم زرّ 'تحديث آمن' هنا — لا يحتاج إعادة تشغيل."
+            "3) استخدم زرّ 'تحديث آمن' هنا — لا يحتاج إعادة تشغيل.\n"
+            "4) للـ Music API: تأكّد أنّ خطّتك Creator+ أو أعلى."
         ),
         "test_provider_key": "elevenlabs",
+        "extra_test_keys": ["elevenlabs_music"],
         "optional": True,
     },
     {

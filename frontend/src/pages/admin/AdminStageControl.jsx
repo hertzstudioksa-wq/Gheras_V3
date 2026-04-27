@@ -4,7 +4,7 @@ import { api } from "../../lib/api";
 import {
   Layers, Save, Loader2, RefreshCcw, Info, Star, AlertTriangle,
   CheckCircle2, ShieldCheck, ShieldAlert, RotateCcw, Beaker, Lock,
-  FileText, Volume2, Cpu, Workflow, Clapperboard,
+  FileText, Volume2, Cpu, Workflow, Clapperboard, Music,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -132,7 +132,7 @@ export default function AdminStageControl() {
       </div>
 
       {/* KPI summary */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
         <KpiCard
           label="مراحل قابلة للتشغيل"
           value={`${counts.callable}/${counts.total}`}
@@ -168,6 +168,12 @@ export default function AdminStageControl() {
           value={state.video_real_call_available ? "نعم" : "لا"}
           tone={state.video_real_call_available ? "ok" : "warn"}
           tid="kpi-video"
+        />
+        <KpiCard
+          label="موسيقى ElevenLabs"
+          value={state.music_real_call_available ? "نعم" : "لا"}
+          tone={state.music_real_call_available ? "ok" : "warn"}
+          tid="kpi-music"
         />
       </div>
 
@@ -225,6 +231,33 @@ export default function AdminStageControl() {
           </div>
         </div>
       )}
+
+      {/* Music banner */}
+      {!state.music_real_call_available && (
+        <div
+          className="bg-[#F8F1E7]/90 border border-[#D4A373]/40 rounded-2xl p-3 text-sm flex items-start gap-2"
+          data-testid="music-banner"
+        >
+          <Music className="w-4 h-4 mt-0.5 text-[#8B5A2B]" />
+          <div className="flex-1">
+            <div className="font-bold text-[#8B5A2B] mb-1">موسيقى الخلفية — وضع الكتم</div>
+            <div className="text-xs text-[#8B5A2B]/90 leading-relaxed">
+              الموسيقى الخلفية في الفيديو النهائي معطَّلة الآن. لتفعيل التوليد الحقيقي عبر <b>ElevenLabs Music</b>:
+              ضع <code className="bg-white px-1 rounded">ELEVENLABS_API_KEY</code> من{" "}
+              <Link to="/admin/secrets" className="underline font-bold">صفحة المفاتيح</Link>،
+              ثم اختبر الاتصال بزر <b>elevenlabs_music</b>.
+              <br />
+              <b>ملاحظة هامّة:</b> ElevenLabs Music تتطلّب خطّة <b>Creator+</b> أو أعلى.
+              إن أعطى الاختبار 403 ستظهر شارة "plan-required".
+              <br />
+              الأوضاع المدعومة: <code className="bg-white px-1 rounded">music</code> (موسيقى آلية)،{" "}
+              <code className="bg-white px-1 rounded">human_rhythm</code> (إيقاع بشري — prompt-biased فقط لا قدرة API أصلية)،{" "}
+              <code className="bg-white px-1 rounded">none</code> (تخطّي تلقائي).
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Integrity */}
       {!state.integrity?.ok && (

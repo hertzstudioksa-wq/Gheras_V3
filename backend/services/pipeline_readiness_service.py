@@ -26,6 +26,7 @@ from services.pricing_service import get_pricing_config
 from services.secret_overrides_service import secret_source
 from services.tts_service import narration_real_call_available
 from services.video_generation_service import video_real_call_available
+from services.music_generation_service import music_real_call_available
 
 
 # Phase K — stages whose prompt is editable from /admin/prompts.
@@ -113,11 +114,13 @@ async def build_readiness() -> dict:
         if executor_status == "real-call":
             executor_callable = sec_source in ("env", "override") if env_key else True
         elif executor_status == "real-call-when-keyed":
-            # Phase K/L — narration_generation + video_generation live here.
+            # Phase K/L/M — narration_generation + video_generation + music_generation live here.
             if s == "narration_generation":
                 executor_callable = await narration_real_call_available()
             elif s == "video_generation":
                 executor_callable = await video_real_call_available()
+            elif s == "music_generation":
+                executor_callable = await music_real_call_available()
             else:
                 executor_callable = sec_source in ("env", "override")
         elif executor_status == "local-binary":

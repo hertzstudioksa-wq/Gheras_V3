@@ -141,6 +141,50 @@ async def test_elevenlabs() -> dict:
                        f"{type(e).__name__}: {e}")
 
 
+# ---- ElevenLabs Music ------------------------------------------------------
+async def test_elevenlabs_music() -> dict:
+    """Probes /v1/music with a minimal payload to detect plan availability.
+
+    Distinguishes:
+      * missing_key       → no key configured
+      * auth_failed (401) → key invalid
+      * plan_required (403)→ key valid but plan does not include Music API
+      * ok (any 2xx)      → plan allows Music
+    """
+    secret, source = await get_secret_with_source("ELEVENLABS_API_KEY")
+    if not secret:
+        return _result("elevenlabs_music", False, False, False, 0, None,
+                       "missing", "ELEVENLABS_API_KEY not configured")
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            # Minimal payload — provider may still bill if successful, so we
+            # use the smallest legal request and rely on auth failure first.
+            r = await c.post(
+                "https://api.elevenlabs.io/v1/music",
+                headers={"xi-api-key": secret, "Content-Type": "application/json"},
+                json={"prompt": "test", "music_length_ms": 10000,
+                      "output_format": "mp3_44100_128"},
+            )
+        latency = int((time.monotonic() - started) * 1000)
+        if r.status_code in (200, 201, 202):
+            return _result("elevenlabs_music", True, True, True, latency,
+                           secret, source, model_reachable=True)
+        if r.status_code == 401:
+            return _result("elevenlabs_music", False, False, True, latency,
+                           secret, source, "HTTP 401: invalid key")
+        if r.status_code == 403:
+            return _result("elevenlabs_music", False, True, True, latency,
+                           secret, source,
+                           "HTTP 403: plan does not include Music API (Creator+ required)")
+        return _result("elevenlabs_music", False, True, True, latency,
+                       secret, source, f"HTTP {r.status_code}: {r.text[:200]}")
+    except Exception as e:  # noqa: BLE001
+        latency = int((time.monotonic() - started) * 1000)
+        return _result("elevenlabs_music", False, False, False, latency,
+                       secret, source, f"{type(e).__name__}: {e}")
+
+
 # ---- fal.ai (Kling) -------------------------------------------------------
 async def test_fal() -> dict:
     secret, source = await get_secret_with_source("FAL_KEY")
@@ -207,11 +251,12 @@ async def test_stripe() -> dict:
 
 
 PROVIDERS = {
-    "openai":     test_openai,
-    "emergent":   test_emergent_llm,
-    "elevenlabs": test_elevenlabs,
-    "fal":        test_fal,
-    "stripe":     test_stripe,
+    "openai":            test_openai,
+    "emergent":          test_emergent_llm,
+    "elevenlabs":        test_elevenlabs,
+    "elevenlabs_music":  test_elevenlabs_music,
+    "fal":               test_fal,
+    "stripe":            test_stripe,
 }
 
 
