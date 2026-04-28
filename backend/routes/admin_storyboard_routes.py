@@ -31,6 +31,35 @@ router = APIRouter(
 )
 
 
+
+def _extract_video_prompt_text(scene: dict) -> str | None:
+    """Defensively read scene_plans.video_prompt — old plans store it as a
+    string, newer plans store {prompt_text, camera_motion_hint, ...}.
+
+    Never raises; always returns a trimmed string or None.
+    """
+    return _flatten_prompt_field((scene or {}).get("video_prompt"), 300)
+
+
+def _flatten_prompt_field(value, max_len: int = 300) -> str | None:
+    """Coerce a prompt field that may be string OR {prompt_text:...} OR
+    None into a single string preview. Never raises."""
+    if not value:
+        return None
+    if isinstance(value, str):
+        return value[:max_len] if value.strip() else None
+    if isinstance(value, dict):
+        text = value.get("prompt_text") or value.get("text") or ""
+        if isinstance(text, str) and text.strip():
+            return text[:max_len]
+    return None
+
+
+def _safe_dict(value) -> dict:
+    """Return value if it's a dict, else empty dict."""
+    return value if isinstance(value, dict) else {}
+
+
 # --- helpers ---------------------------------------------------------------
 STAGE_ORDER = [
     "scenario_generation",
@@ -350,7 +379,7 @@ async def _stage_production_planning(order: dict, pipeline_cfg: dict) -> dict:
         "scene_count": len(scenes),
         "book_pages_count": pages,
         "character_profiles_count": chars,
-        "style_guide": (plan or {}).get("style_guide") or {},
+        "style_guide": _safe_dict((plan or {}).get("style_guide")),
         "cover_prompt_preview": ((plan or {}).get("cover_prompt") or "")[:240],
         # Phase D.4 — story-level downstream fields
         "story_keywords":       (plan or {}).get("story_keywords") or [],
@@ -366,9 +395,9 @@ async def _stage_production_planning(order: dict, pipeline_cfg: dict) -> dict:
                 "narration_preview":  (s.get("narration_text") or "")[:160],
                 "book_text_preview":  (s.get("book_text") or "")[:160],
                 "key_objects":        s.get("key_objects") or [],
-                "video_prompt":       s.get("video_prompt") or "",
-                "voice_prompt":       s.get("voice_prompt") or "",
-                "music_prompt":       s.get("music_prompt") or "",
+                "video_prompt":       _flatten_prompt_field(s.get("video_prompt"), 600) or "",
+                "voice_prompt":       _flatten_prompt_field(s.get("voice_prompt"), 600) or "",
+                "music_prompt":       _flatten_prompt_field(s.get("music_prompt"), 600) or "",
                 "music_keywords":     s.get("music_keywords") or [],
                 "camera_motion_hint": s.get("camera_motion_hint") or "",
                 "estimated_duration_seconds": s.get("estimated_duration_seconds"),
@@ -853,7 +882,7 @@ async def _stage_video_generation(order: dict, pipeline_cfg: dict,
             "uses_child_ref":   bool(refs.get("child_id")),
             "uses_extras":      len((refs.get("extra_character_ids") or [])),
             "uses_toy_ref":     bool(refs.get("toy_id")),
-            "video_prompt":     ((sp.get("video_prompt") or {}).get("prompt_text"))[:300] if (sp.get("video_prompt") or {}).get("prompt_text") else None,
+            "video_prompt":     _extract_video_prompt_text(sp),
             "created_at":       c.get("created_at"),
         })
 

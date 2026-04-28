@@ -1290,3 +1290,65 @@ Tests
   - `tests/test_phase_n_smart_narration.py` (NEW, 9)
   - `tests/test_phase_n_api.py` (NEW via testing agent, 9)
 
+
+---
+
+### Phase N hotfix — Storyboard 500 on schema-drifted scene_plans (Feb 2026) ✅
+
+**Bug**: `/api/admin/orders/{id}/storyboard` returned HTTP 500 for ALL orders
+(both new and old), surfacing as "صفحة storyboard لا تفتح" in the admin UI.
+The user reported it only failed on new orders, but live testing confirmed
+it failed on old orders too — they had been silently broken by the same root
+cause introduced when Phase L wired `_stage_video_generation`.
+
+**Root cause**: `routes/admin_storyboard_routes.py:856` did
+```python
+((sp.get("video_prompt") or {}).get("prompt_text"))[:300] if ...
+```
+This pattern only protects against `None` — when `video_prompt` is a
+**string** (the canonical schema for new Claude plans, see
+`production_service.py:737` which stores `s.get("video_prompt") or ""`),
+the `or {}` is bypassed and `.get(...)` raises `AttributeError: 'str'
+object has no attribute 'get'` → 500 propagates. The same dict-vs-string
+ambiguity existed in `services/generation_orchestrator.py` lines 90-94
+(silently broken — would have crashed any new order at video_generation
+stage if FAL_KEY_VIDEO had been configured).
+
+**Fix**:
+- New helper `_extract_video_prompt_text(scene)` in storyboard route +
+  generic `_flatten_prompt_field(value, max_len)` that handles
+  string / dict / None / list shapes safely.
+- New `_safe_dict(value)` and `_safe_dict_or_str(value)` helpers in
+  `services/generation_orchestrator.py` — replaces all unsafe
+  `(x.get("...") or {}).get(...)` patterns for `image_prompt`,
+  `video_prompt`, `music_prompt`, and `style_guide`.
+- Hardened `production_service.py:699-700` so a Claude response that
+  accidentally returns `image_prompt`/`animation_prompt` as strings does
+  not crash plan persistence.
+- Storyboard UI fields `video_prompt / voice_prompt / music_prompt` now
+  pass through `_flatten_prompt_field(..., 600)` so the frontend always
+  receives a clean preview string.
+
+**Tests** — `tests/test_phase_n_storyboard_regression.py` (NEW, 8/8):
+  pins the helpers against string OR dict OR None OR list inputs so the
+  bug can never silently come back. Long strings truncate to 300 chars.
+  `_safe_dict_or_str` round-trips correctly. Run alongside the existing
+  Phase N suites:
+  ```
+  tests/test_phase_n_provider_matrix.py  10/10 ✅
+  tests/test_phase_n_smart_narration.py   9/9  ✅
+  tests/test_phase_n_storyboard_regression.py 8/8 ✅
+  ```
+
+**Live verification**: After fix —
+  * newest delivered (359f01b8…) → HTTP 200, 49714 bytes, all 11 stages.
+  * old delivered (dc284f4a…)    → HTTP 200, 43639 bytes.
+  * legacy scenarios_ready (b8dea19c…) → HTTP 200, 18238 bytes.
+
+**Files modified**
+  - `backend/routes/admin_storyboard_routes.py` (helpers + 4 call sites)
+  - `backend/services/generation_orchestrator.py` (helpers + 5 call sites)
+  - `backend/services/production_service.py` (defensive isinstance on
+    image_prompt/animation_prompt)
+  - `backend/tests/test_phase_n_storyboard_regression.py` (NEW, 8 tests)
+

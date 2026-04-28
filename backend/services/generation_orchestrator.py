@@ -36,6 +36,25 @@ from services.config_service import get_pipeline_config
 
 logger = logging.getLogger("generation_orchestrator")
 
+
+def _safe_dict(value) -> dict:
+    """Return value if it's a dict, else empty dict. Defensive read for fields
+    whose schema has drifted across plan versions (e.g. video_prompt stored as
+    string by new Claude prompts, dict by older fallback)."""
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_dict_or_str(value):
+    """Like _safe_dict but preserves a non-empty string so the caller can
+    branch (dict vs string). Empty/None → empty string."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        return value
+    return ""
+
+
+
 MAX_ATTEMPTS = 3
 
 
@@ -87,11 +106,12 @@ async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> d
         public_img = None
         if local_img and base:
             public_img = local_img if local_img.startswith("http") else f"{base}{local_img}"
-        ip = (s.get("image_prompt") or {}).get("prompt_text") or ""
-        vp = (s.get("video_prompt") or {}).get("prompt_text") or ""
+        ip = _safe_dict(s.get("image_prompt")).get("prompt_text") or ""
+        vp_obj = _safe_dict_or_str(s.get("video_prompt"))
+        vp = vp_obj.get("prompt_text") if isinstance(vp_obj, dict) else (vp_obj or "")
         prompt = (vp or ip or s.get("visual_description") or s.get("scene_goal") or "warm storybook scene")
         # Include emotional_tone + camera hint to help motion direction.
-        cam = (s.get("video_prompt") or {}).get("camera_motion_hint") or ""
+        cam = vp_obj.get("camera_motion_hint") if isinstance(vp_obj, dict) else ""
         if cam:
             prompt = f"{prompt}. Camera: {cam}"
         payloads.append({
@@ -237,7 +257,7 @@ async def _run_music_generation_stage(order: dict, plan: dict, run_id: str) -> d
     story_keywords = (plan.get("story_keywords") or [])[:6]
     emotional_arc = plan.get("emotional_arc") or plan.get("story_summary")
     base_prompt = (plan.get("story_music_prompt")
-                   or (plan.get("music_prompt") or {}).get("prompt_text"))
+                   or _safe_dict(plan.get("music_prompt")).get("prompt_text"))
 
     audio_bytes, mime, meta = await generate_music(
         audio_background_mode=audio_mode,
@@ -459,7 +479,7 @@ def _build_scene_image_context(order: dict, plan: dict, scene: dict) -> dict:
     chars = data.get("characters", []) or []
     audio_bg = (data.get("audio_background") or {}).get("mode") or "music"
 
-    img_prompt_obj = scene.get("image_prompt") or {}
+    img_prompt_obj = _safe_dict(scene.get("image_prompt"))
 
     # Phase D.3 — include auto-extracted visuals for uploaded assets.
     toy_desc = pers.get("toy_description_auto") or ""
@@ -494,8 +514,8 @@ def _build_scene_image_context(order: dict, plan: dict, scene: dict) -> dict:
         # Plan-level
         "selected_scenario_title":           plan.get("title", ""),
         "selected_scenario_emotional_angle": plan.get("emotional_angle", "") or "",
-        "selected_scenario_visual_style":    (plan.get("style_guide") or {}).get("art_direction", ""),
-        "style_guide":                       ", ".join(f"{k}:{v}" for k, v in (plan.get("style_guide") or {}).items()) or "",
+        "selected_scenario_visual_style":    _safe_dict(plan.get("style_guide")).get("art_direction", ""),
+        "style_guide":                       ", ".join(f"{k}:{v}" for k, v in _safe_dict(plan.get("style_guide")).items()) or "",
         "character_reference_note":          img_prompt_obj.get("character_reference_note", ""),
         # Style
         "story_type":  enriched.get("type_name", "") or "",
@@ -536,8 +556,8 @@ async def _execute_scene_image(job: dict, order: dict, plan: dict) -> tuple[str,
     scene = await db.scene_plans.find_one({"id": job["target_id"]}, {"_id": 0})
     if not scene:
         raise ValueError(f"scene_plan {job['target_id']} not found")
-    default_prompt = (scene.get("image_prompt") or {}).get("prompt_text") or scene.get("visual_description") or ""
-    char_note = (scene.get("image_prompt") or {}).get("character_reference_note") or ""
+    default_prompt = _safe_dict(scene.get("image_prompt")).get("prompt_text") or scene.get("visual_description") or ""
+    char_note = _safe_dict(scene.get("image_prompt")).get("character_reference_note") or ""
 
     # Phase B.3 — admin prompt override (scene-level, falls back cleanly).
     admin_prompt, prompt_src, reason = await _resolve_scene_image_prompt(order, plan, scene)

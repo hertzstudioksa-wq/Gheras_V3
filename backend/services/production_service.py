@@ -696,8 +696,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
     words_total = 0
     for s in payload.get("scenes", []) or []:
         sid = str(uuid.uuid4())
-        img = s.get("image_prompt") or {}
-        anim = s.get("animation_prompt") or {}
+        img = s.get("image_prompt") if isinstance(s.get("image_prompt"), dict) else {}
+        anim = s.get("animation_prompt") if isinstance(s.get("animation_prompt"), dict) else {}
         chars_in = []
         for t in s.get("characters_in_scene", []) or []:
             cpid = type_to_id.get(t)
