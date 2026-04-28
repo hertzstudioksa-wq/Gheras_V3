@@ -347,7 +347,7 @@ function StageCard({ stage, expanded, onToggle, innerRef, onReload }) {
 
           {/* Output summary — custom rendering per stage */}
           <DetailBlock title="Output">
-            <StageOutput stage={stage} />
+            <StageOutput stage={stage} orderId={orderId} onReload={load} />
           </DetailBlock>
 
           {/* Events */}
@@ -479,7 +479,7 @@ function StageIcon({ stageKey }) {
 }
 
 // --- Per-stage output renderers ------------------------------------------
-function StageOutput({ stage }) {
+function StageOutput({ stage, orderId, onReload }) {
   const o = stage.output_summary || {};
   switch (stage.stage_key) {
     case "scenario_generation": return <OutScenarios o={o} />;
@@ -488,7 +488,7 @@ function StageOutput({ stage }) {
     case "extra_character_i2i": return <OutExtraCharacters o={o} />;
     case "scene_image_generation": return <OutSceneImages o={o} />;
     case "narration_generation": return <OutNarration o={o} />;
-    case "video_generation": return <OutVideoGeneration o={o} />;
+    case "video_generation": return <OutVideoGeneration o={o} orderId={orderId} onReload={onReload} />;
     case "music_generation": return <OutMusicGeneration o={o} stage={stage} />;
     case "book_assets_generation": return <OutBookAssets o={o} />;
     case "video_assembly": return <OutVideo o={o} />;
@@ -497,15 +497,47 @@ function StageOutput({ stage }) {
   }
 }
 
-function OutVideoGeneration({ o }) {
+function OutVideoGeneration({ o, orderId, onReload }) {
   const clips = o.scene_clips || [];
+  const [importing, setImporting] = useState({});
+  const handleImport = async (sceneIndex, requestId) => {
+    if (!requestId) {
+      const manualId = prompt("ادخل request_id من لوحة fal.ai:");
+      if (!manualId) return;
+      requestId = manualId;
+    }
+    setImporting((m) => ({ ...m, [sceneIndex]: true }));
+    try {
+      const r = await api.post(
+        `/api/admin/orders/${orderId}/video-clips/import-by-request-id`,
+        { scene_index: sceneIndex, request_id: requestId, force: true },
+      );
+      const d = r.data || {};
+      if (d.ok) {
+        toast.success(`تم استيراد المشهد ${sceneIndex} (${Math.round((d.bytes||0)/1024)}KB)`);
+        onReload && onReload();
+      } else {
+        toast.error(d.error || "فشل الاستيراد");
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || e.message || "فشل الاستيراد");
+    } finally {
+      setImporting((m) => ({ ...m, [sceneIndex]: false }));
+    }
+  };
   if (clips.length === 0) {
     return (
       <div className="text-sm text-[#5A677D] italic" data-testid="video-gen-empty">
-        لا توجد لقطات فيديو محفوظة لهذا الطلب بعد. لتفعيل التوليد: اضبط <code>FAL_KEY</code> ومرحلة <code>video_generation</code> في إعدادات خط الإنتاج.
+        لا توجد لقطات فيديو محفوظة لهذا الطلب بعد. لتفعيل التوليد: اضبط <code>FAL_KEY_VIDEO</code> ومرحلة <code>video_generation</code> في إعدادات خط الإنتاج.
       </div>
     );
   }
+  const importStatusTone = (s) => {
+    if (s === "imported") return "bg-[#DEEBCF] text-[#3F5B2E]";
+    if (s === "still_pending" || s === "pending") return "bg-[#F8F1E7] text-[#8B5A2B]";
+    if (s === "fallback") return "bg-[#FCE6D4] text-[#B8612F]";
+    return "bg-[#FCE6D4] text-[#B8612F]"; // error variants
+  };
   return (
     <div className="space-y-3" data-testid="video-gen-clips">
       <div className="text-xs text-[#5A677D]">
@@ -518,17 +550,32 @@ function OutVideoGeneration({ o }) {
             className="bg-white border-2 border-[#E2D8C9] rounded-2xl p-3 space-y-2"
             data-testid={`video-clip-${c.scene_index}`}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="font-bold text-[#2D3748] text-sm">
                 مشهد {c.scene_index} {c.scene_title ? `— ${c.scene_title}` : ""}
               </div>
-              <span className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${
-                c.state === "COMPLETED" ? "bg-[#DEEBCF] text-[#3F5B2E]" :
-                c.state === "FAILED"    ? "bg-[#FCE6D4] text-[#B8612F]" :
-                                          "bg-[#F8F1E7] text-[#8B5A2B]"
-              }`}>
-                {c.state || "—"}
-              </span>
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${
+                  c.state === "COMPLETED" ? "bg-[#DEEBCF] text-[#3F5B2E]" :
+                  c.state === "FAILED"    ? "bg-[#FCE6D4] text-[#B8612F]" :
+                                            "bg-[#F8F1E7] text-[#8B5A2B]"
+                }`}>
+                  {c.state || "—"}
+                </span>
+                {c.import_status && (
+                  <span
+                    className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${importStatusTone(c.import_status)}`}
+                    data-testid={`video-clip-import-status-${c.scene_index}`}
+                  >
+                    {c.import_status}
+                  </span>
+                )}
+                {c.manually_recovered && (
+                  <span className="text-[10px] rounded-full px-2 py-0.5 font-bold bg-[#E0EAF6] text-[#1F4068]" title="استُرجِع يدوياً عبر admin recovery">
+                    مُستَرجَع
+                  </span>
+                )}
+              </div>
             </div>
             {c.video_url ? (
               <video
@@ -539,7 +586,7 @@ function OutVideoGeneration({ o }) {
               />
             ) : (
               <div className="bg-[#F8F1E7] text-[#8B5A2B] text-xs italic rounded-xl p-3 text-center">
-                لا يوجد فيديو محلّي. {c.error ? `خطأ: ${String(c.error).slice(0,120)}` : "في انتظار التوليد."}
+                لا يوجد فيديو محلّي. {c.error ? `خطأ: ${String(c.error).slice(0,120)}` : (c.fallback_reason || "في انتظار التوليد.")}
               </div>
             )}
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-[#5A677D]">
@@ -558,6 +605,18 @@ function OutVideoGeneration({ o }) {
               <div className="text-[10px] text-[#8A9AB0] truncate font-mono">
                 request_id: {c.request_id}
               </div>
+            )}
+            {/* Phase N — admin recovery: re-import a fal.ai result by request_id. */}
+            {(c.import_status !== "imported" || !c.video_url) && (
+              <button
+                type="button"
+                disabled={importing[c.scene_index]}
+                onClick={() => handleImport(c.scene_index, c.request_id)}
+                className="w-full bg-[#87A96B] hover:bg-[#6F8C57] disabled:opacity-60 text-white text-xs rounded-xl py-1.5 font-bold transition"
+                data-testid={`video-clip-import-btn-${c.scene_index}`}
+              >
+                {importing[c.scene_index] ? "جاري الاستيراد…" : c.request_id ? "استيراد من fal.ai" : "استيراد من fal.ai (request_id يدوي)"}
+              </button>
             )}
             {c.video_prompt && (
               <details className="text-[11px] text-[#5A677D]">

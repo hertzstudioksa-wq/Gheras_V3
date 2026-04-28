@@ -1,0 +1,74 @@
+{
+  "summary": "Phase N backend regression complete. Ran 52 structural tests across 6 files: 50 PASSED, 2 FAILED (same root cause). All structural fixes verified: (a) fal.ai URL pattern fix [_model_app_prefix strips versioned slug → 'fal-ai/kling-video' for v3/pro/image-to-video, root cause of HTTP 405 confirmed fixed]; (b) multi-shape video URL extractor handles all 8 shapes incl. {video:{url}}, {video:'http'}, {output:{video:{url}}}, {output:{video:'http'}}, {video_url}, {files:[mp4]}, plus None/dict/string/int garbage; (c) recovery endpoint POST /api/admin/orders/{id}/video-clips/import-by-request-id works end-to-end: bogus request_id → 200 ok=false import_status=import_failed (NOT 500), already-imported → 200 ok=true state=ALREADY_IMPORTED, missing order → 404, unauthenticated → 401/403; (d) GET /api/admin/orders/{id}/video-clips lists rows with import_status/request_id/scene_index; (e) recovered order 359f01b8 confirmed has 5 imported clips with manually_recovered=true and real /api/uploads/file/* URLs; (f) storyboard /api/admin/orders/{id}/storyboard for video_generation stage exposes per-clip import_status/fallback_reason/submit_state/submitted_at/imported_at/manually_recovered (verified live); (g) generation_orchestrator code path inspected: video_clips row pre-created with submit_state='submitted'+request_id BEFORE poll loop (orchestrator lines 128-160 use poll_and_download instead of double-submit); (h) 4/5 strict-2D prompt template stages contain canonical phrase 'STRICT STYLE — soft pastel 2D' + FORBIDDEN guard. ONE FINDING: video_generation v5 active prompt uses variant wording 'STRICT STYLE — preserve the soft pastel 2D children's storybook…' which does NOT contain the contiguous canonical phrase 'STRICT STYLE — soft pastel 2D'. Both substrings are present but not adjacent. Reported to main agent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/admin/prompt-templates/stage/video_generation (active version)",
+        "issue": "video_generation active template (version 5) wording is 'STRICT STYLE — preserve the soft pastel 2D children's storybook cartoon style of the input image' — does NOT contain the canonical contiguous phrase 'STRICT STYLE — soft pastel 2D' that the user spec requires for all 5 stages. The other 4 stages (child_character_i2i v2, extra_character_i2i v2, scene_image_generation v3, book_page_image_generation v2) all have the exact phrase. FORBIDDEN guard is present in all 5. Recommend tightening seed wording for video_generation to start with 'STRICT STYLE — soft pastel 2D ...' so it matches the spec exactly OR relaxing the contract to require both substrings (not necessarily contiguous)."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase_n_fal_video_flow.py (10/10 passed)",
+    "/app/backend/tests/test_phase_n_provider_matrix.py (10/10 passed)",
+    "/app/backend/tests/test_phase_n_smart_narration.py (9/9 passed)",
+    "/app/backend/tests/test_phase_n_storyboard_regression.py (8/8 passed)",
+    "/app/backend/tests/test_phase_n_strict2d_prompts.py (NEW, 6/8 passed)",
+    "/app/backend/tests/test_phase_n_video_recovery.py (NEW, 7/7 passed)",
+    "/app/backend/tests/conftest.py (NEW — env bootstrap)",
+    "/app/test_reports/pytest/phase_n_results.xml"
+  ],
+  "strict_2d_prompt_template_summary": [
+    {"stage_key": "child_character_i2i", "version": 2, "has_strict_phrase": true, "has_forbidden_guard": true},
+    {"stage_key": "extra_character_i2i", "version": 2, "has_strict_phrase": true, "has_forbidden_guard": true},
+    {"stage_key": "scene_image_generation", "version": 3, "has_strict_phrase": true, "has_forbidden_guard": true},
+    {"stage_key": "book_page_image_generation", "version": 2, "has_strict_phrase": true, "has_forbidden_guard": true},
+    {"stage_key": "video_generation", "version": 5, "has_strict_phrase": false, "has_forbidden_guard": true, "note": "wording variant — has 'STRICT STYLE' AND 'soft pastel 2D' but not contiguous"}
+  ],
+  "recovery_endpoint_behavior": {
+    "bogus_request_id_on_valid_order": "200 ok=false import_status=import_failed error='final_state=UNKNOWN' (graceful, NOT 500) ✅",
+    "already_imported_no_force": "200 ok=true state=ALREADY_IMPORTED import_status=imported ✅",
+    "missing_order": "404 'الطلب غير موجود' ✅",
+    "unauthenticated": "401/403 ✅"
+  },
+  "recovered_order_359f01b8": {
+    "imported_clip_count": "5+ (verified via GET /api/admin/orders/.../video-clips and storyboard)",
+    "all_have_manually_recovered_true": true,
+    "real_fal_media_urls_present": true,
+    "storyboard_metadata_fields_exposed": ["import_status", "fallback_reason", "submit_state", "submitted_at", "imported_at", "manually_recovered"]
+  },
+  "regression_summary": {
+    "test_phase_n_provider_matrix": "10/10 PASS",
+    "test_phase_n_smart_narration": "9/9 PASS",
+    "test_phase_n_storyboard_regression": "8/8 PASS",
+    "test_phase_n_fal_video_flow": "10/10 PASS — _model_app_prefix + _extract_video_url_from_fal_response 100% covered",
+    "test_phase_n_strict2d_prompts": "6/8 PASS — 2 failures both rooted in video_generation prompt wording (single business issue)",
+    "test_phase_n_video_recovery": "7/7 PASS — auth, 404, bogus, already-imported, listing, metadata, smoke-run verification"
+  },
+  "action_items": [
+    "Tighten /app/backend/seed.py video_generation prompt template_text to start with the exact canonical phrase 'STRICT STYLE — soft pastel 2D' (currently 'STRICT STYLE — preserve the soft pastel 2D ...'). Then bump version to v6 OR adjust the migration guard in server.py (currently checks for the phrase substring, which now passes for the 4 image stages but not for video). One-word edit fixes both failing tests."
+  ],
+  "critical_code_review_comments": [
+    "Recovery endpoint /admin/orders/{id}/video-clips/import-by-request-id is well-structured: idempotent on already-imported, persists every state transition (still_pending / import_failed / import_failed_remote_url_only / import_failed_storage / imported), records audit log, requires admin. Strong recovery story.",
+    "_model_app_prefix correctly handles edge cases (empty, single segment, leading slash). Test fixture exhaustively covers Kling v3 pro/standard slugs and other fal.ai apps (sora-2, luma-dream-machine).",
+    "_extract_video_url_from_fal_response covers 6 real shapes plus 4 garbage shapes; 'files' array correctly filters .mp4 and skips thumbnails. Defensive coding done right.",
+    "generation_orchestrator (lines 128-160) ALWAYS persists request_id + submit_state='submitted' before entering the poll loop. Even if the process crashes, the admin can recover via /import-by-request-id. This is the critical fix that prevents data loss.",
+    "Storyboard route (admin_storyboard_routes.py:882-887) exposes the recovery metadata fields on every clip. Live verification of order 359f01b8 confirms manually_recovered=true and imported_at populated.",
+    "Phase N strict-2D migration on startup (server.py:188-236) is idempotent: skips stages that already have the canonical phrase. Safe to redeploy.",
+    "MINOR: video_generation prompt has FORBIDDEN guard but the canonical opening phrase is paraphrased — the migration guard `if 'STRICT STYLE — soft pastel 2D' in current_text: continue` will keep re-bumping this stage forever because the seed text also lacks the contiguous phrase. Not a runtime bug (the seed wording is good and the model will still cartoonify), but it means the stage keeps incrementing version on every server restart. Verified: video_generation is at v5 while the others are at v2-v3."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (created — load .env for test env)",
+    "/app/backend/tests/test_phase_n_strict2d_prompts.py (created)",
+    "/app/backend/tests/test_phase_n_video_recovery.py (created)"
+  ],
+  "success_rate": {"backend": "96% (50/52)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "admin@gheras.com / Admin@1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "test_post_new_prompt_template_creates_inactive_version creates 1 inactive prompt_template row with name='TEST_strict_v_probe' on stage video_generation. Safe to leave (inactive, prefixed TEST_).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase N backend hardening verified end-to-end. The single open issue is wording-only on video_generation prompt template — main agent only needs to align the seed text to start with 'STRICT STYLE — soft pastel 2D' (not 'STRICT STYLE — preserve the soft pastel 2D'), bump server.py migration's STAGES_TO_BUMP guard to also bump on the variant phrase OR keep as-is and tighten the assertion. After fix, re-run: pytest /app/backend/tests/test_phase_n_strict2d_prompts.py — should be 8/8. Recovery endpoint, fal.ai URL fix, multi-shape extractor, orchestrator pre-persist of request_id, and storyboard metadata exposure are ALL live-verified against the recovered order 359f01b8 with 5 real Kling cartoon clips imported.",
+  "rca_of_the_issue": "video_generation prompt template wording deviation: the seed text in /app/backend/seed.py for video_generation begins with 'STRICT STYLE — preserve the soft pastel 2D children's storybook cartoon style of the input image' (interpolating an extra 'preserve the' between STRICT STYLE and 'soft pastel 2D'). The other 4 visual stages all begin with the exact canonical phrase 'STRICT STYLE — soft pastel 2D'. The startup migration in server.py:207 has guard `if 'STRICT STYLE — soft pastel 2D' in current_text: continue` — which means the video_generation stage's text never satisfies this and gets re-bumped on every server start (now at v5 vs others at v2-v3). Reproduction: GET /api/admin/prompt-templates/stage/video_generation → active.template_text does not contain the exact substring. Mitigation: change the seed wording to start with 'STRICT STYLE — soft pastel 2D children's storybook cartoon style — preserve the look of the input image' OR change the migration guard to check for both substrings independently. Either fix is < 5 lines."
+}

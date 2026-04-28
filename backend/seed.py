@@ -211,11 +211,34 @@ async def seed_prompt_templates():
     These templates can be edited later via /admin/prompts UI.
     Only inserts if no template exists for that stage; never overwrites.
     """
+    seeds = await _build_prompt_template_seeds()
+    for s in seeds:
+        exists = await db.prompt_templates.find_one({"stage_key": s["stage_key"]})
+        if exists:
+            continue
+        doc = {
+            "id": str(uuid.uuid4()),
+            "stage_key":     s["stage_key"],
+            "name":          s["name"],
+            "template_text": s["template_text"],
+            "variables":     s["variables"],
+            "notes":         s["notes"],
+            "version":       1,
+            "active":        True,
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        await db.prompt_templates.insert_one(doc)
+
+
+async def _build_prompt_template_seeds():
+    """Returns the canonical list of prompt template seeds — used by both the
+    initial seeder and Phase N strict-2D migration."""
     from services.child_character_service import DEFAULT_PROMPT as CC_DEFAULT_PROMPT
     seeds = [
         {
             "stage_key": "child_character_i2i",
-            "name": "Child Character (Phase C default)",
+            "name": "Child Character (Phase N — strict 2D cartoon)",
             "template_text": CC_DEFAULT_PROMPT,
             "variables": [
                 "child_name", "child_age", "child_gender",
@@ -274,17 +297,28 @@ async def seed_prompt_templates():
         },
         {
             "stage_key": "scene_image_generation",
-            "name": "Scene Image Prompt (default)",
+            "name": "Scene Image Prompt (Phase N — strict 2D cartoon)",
             "template_text": (
-                "Professional children's storybook illustration, warm earth tones, soft "
-                "golden-hour lighting, whimsical watercolor style. Art direction: "
-                "$art_direction. Palette: $palette. Scene: $scene_title. Visual: "
-                "$visual_description. Child: $child_name, $child_age years old, "
-                "$child_gender. Appearance: $child_appearance_notes. Hijab: $child_hijab. "
-                "Characters in frame: $characters_in_scene. Extra visuals: "
-                "$extra_characters_visuals. Key objects: $key_objects. Toy/object: "
-                "$toy_summary. Emotional tone: $emotional_tone. Camera/motion: "
-                "$camera_motion_hint. Aspect 16:9."
+                "STRICT STYLE — soft pastel 2D children's storybook illustration. "
+                "Use a soft pastel 2D children's storybook style with warm colors, "
+                "gentle shading, charming proportions, and a premium illustrated "
+                "cartoon look. The result MUST feel clearly animated / illustrated, "
+                "NOT photorealistic, NOT live-action, NOT semi-real human rendering, "
+                "NOT 3D-CGI render, NOT a photo filter — suitable for ages 3-9. "
+                "Use the SAME cartoon character identity already established in the "
+                "child_character reference image (do NOT redesign the character — "
+                "preserve face, hair, outfit, palette).\n\n"
+                "Art direction: $art_direction. Palette: $palette. Lighting: warm "
+                "golden-hour, soft. Scene: $scene_title. Visual: $visual_description. "
+                "Child: $child_name, $child_age years old, $child_gender. Appearance: "
+                "$child_appearance_notes. Hijab: $child_hijab. "
+                "Characters in frame: $characters_in_scene. Extra characters visual "
+                "hints: $extra_characters_visuals. Key objects: $key_objects. "
+                "Toy/object reference: $toy_summary. Emotional tone: $emotional_tone. "
+                "Camera/motion hint: $camera_motion_hint. Aspect 16:9.\n\n"
+                "FORBIDDEN: photorealism, realistic skin texture, photographic depth-"
+                "of-field, real-life human faces, uncanny realism, plastic 3D-render "
+                "look. The illustrated world must stay coherent across all scenes."
             ),
             "variables": [
                 "art_direction", "palette", "scene_title", "visual_description",
@@ -292,7 +326,9 @@ async def seed_prompt_templates():
                 "child_hijab", "characters_in_scene", "extra_characters_visuals",
                 "key_objects", "toy_summary", "emotional_tone", "camera_motion_hint",
             ],
-            "notes": "Per-scene image prompt template. Sent directly to Nano Banana.",
+            "notes": "Phase N — strict cartoon 2D enforcement + character consistency. "
+                     "Sent to fal.ai gemini-25-flash-image / Nano Banana when ref image "
+                     "is provided.",
         },
         {
             "stage_key": "narration_generation",
@@ -317,21 +353,34 @@ async def seed_prompt_templates():
         },
         {
             "stage_key": "video_generation",
-            "name": "Video per-scene (fal.ai Kling)",
+            "name": "Video per-scene (Phase N — strict 2D cartoon over fal.ai Kling)",
             "template_text": (
-                "Children's storybook scene $scene_index, $estimated_duration_seconds-second cinematic shot. "
-                "Subject: $scene_title. Visual: $visual_description. "
-                "Motion: $camera_motion_hint. Mood: $emotional_tone. "
-                "Style: $art_direction, warm tones, soft lighting, child-safe, no text overlay. "
-                "Subtle natural motion in characters and ambient elements. "
-                "Per-scene cue: $video_prompt."
+                "STRICT STYLE — preserve the soft pastel 2D children's storybook "
+                "cartoon style of the input image. The output video clip MUST stay "
+                "in 2D illustrated / animated style — do NOT morph into "
+                "photorealism, do NOT add live-action faces, do NOT change the "
+                "character identity, outfit, or scene composition. Keep the same "
+                "cartoon character from the input frame consistent in face, hair, "
+                "and outfit throughout the clip.\n\n"
+                "Children's storybook scene $scene_index, $estimated_duration_seconds-"
+                "second cinematic shot for ages 3-9. Subject: $scene_title. Visual: "
+                "$visual_description. Camera/motion: $camera_motion_hint. Mood: "
+                "$emotional_tone. Style: $art_direction, warm pastel tones, soft "
+                "lighting, child-safe, no text overlay.\n\n"
+                "Motion: gentle child-safe motion only — slow camera dolly/parallax, "
+                "subtle character expression changes, ambient micro-motion (sparkles, "
+                "leaves, fabric drift). Avoid fast cuts, harsh whips, action-movie "
+                "motion, or realistic physical impact. Per-scene cue: $video_prompt.\n\n"
+                "FORBIDDEN: photorealism, live-action, semi-real human rendering, "
+                "3D-CGI photo realism, realistic skin pores, photographic lighting."
             ),
             "variables": [
                 "estimated_duration_seconds", "scene_index", "scene_title",
                 "visual_description", "camera_motion_hint", "emotional_tone",
                 "art_direction", "toy_summary", "video_prompt",
             ],
-            "notes": "Phase L — Used by fal.ai Kling adapter (I2V when scene image exists, T2V fallback). "
+            "notes": "Phase N — Used by fal.ai Kling adapter (I2V when scene image "
+                     "exists, T2V fallback). Strict 2D cartoon style enforcement. "
                      "Edit freely; admin-overridable model from /admin/stage-control.",
         },
         {
@@ -357,49 +406,74 @@ async def seed_prompt_templates():
         },
         {
             "stage_key": "extra_character_i2i",
-            "name": "Extra Character (reuses child_character_i2i template by default)",
+            "name": "Extra Character (Phase N — strict 2D cartoon, identity-preserving)",
             "template_text": (
-                "This is a supporting character for a children's storybook ($character_role). "
-                "Apply the same storybook transformation rules used for the main child "
-                "character so all characters share one consistent visual style.\n\n"
-                "Character name: $character_name. Type: $character_type. "
-                "Visible details: $character_visual_description.\n\n"
+                "STRICT STYLE — soft pastel 2D children's storybook cartoon. Convert "
+                "the uploaded real photo into a clearly illustrated 2D cartoon "
+                "character that matches the SAME visual world as the main child "
+                "character. The result must NOT be photorealistic, NOT semi-real, "
+                "NOT live-action — it must read instantly as a hand-drawn / digitally "
+                "painted storybook character suitable for ages 3-9.\n\n"
+                "This is a supporting character for a children's storybook "
+                "($character_role). Apply the same storybook transformation rules "
+                "used for the main child character so all characters share one "
+                "consistent visual style: soft pastel colors, gentle shading, "
+                "charming proportions, premium illustrated cartoon look.\n\n"
+                "Identity preservation (mandatory): preserve recognizable identity "
+                "from the source photo — face shape, hair, gender, age impression, "
+                "skin tone, expression, outfit family. Respect hijab if present.\n\n"
+                "Character name: $character_name. Type: $character_type. Visible "
+                "details: $character_visual_description.\n\n"
                 "Generate ONE single full-body standing version centered in frame, "
-                "transparent background, clean PNG, expressive but simple, animation-ready, "
-                "consistent palette: $palette, art_direction: $art_direction."
+                "transparent background, clean PNG, expressive but simple, "
+                "animation-ready, consistent palette: $palette, art_direction: "
+                "$art_direction.\n\n"
+                "FORBIDDEN: photorealism, live-action, realistic skin pores, "
+                "real-life human rendering, 3D-CGI render, plastic doll look."
             ),
             "variables": [
                 "character_name", "character_type", "character_role",
                 "character_visual_description", "palette", "art_direction",
             ],
-            "notes": "Per-character prompt. The live extra_characters_service currently "
-                     "reuses the child_character_i2i template at runtime (services/"
-                     "extra_characters_service.py:_build_character_prompt). Editing this "
+            "notes": "Phase N — strict 2D cartoon enforcement. The live "
+                     "extra_characters_service currently reuses the "
+                     "child_character_i2i template at runtime. Editing this "
                      "template lets admin diverge later without touching the child template.",
         },
         {
             "stage_key": "book_page_image_generation",
-            "name": "Book Page Illustration (currently reused from scene image)",
+            "name": "Book Page Illustration (Phase N — strict 2D cartoon, scene-consistent)",
             "template_text": (
-                "Generate a children's storybook page illustration in the SAME identity, "
-                "outfit, palette, and art direction as the corresponding scene image. "
-                "Page text (Arabic, will be overlaid or printed beside the illustration): "
-                "$book_text. Page number: $page_number of $total_pages. Scene index: "
-                "$scene_index. Scene title: $scene_title. Visual: $visual_description. "
-                "Key objects: $key_objects. Background setting: $background_setting. "
-                "Compose as a portrait-friendly print page (A5 landscape), generous "
-                "negative space on the right for the Arabic text block, RTL-safe layout. "
-                "Style: $art_direction, $palette, $lighting. Children's storybook print "
-                "feel, slightly more detailed than a frame intended for video."
+                "STRICT STYLE — soft pastel 2D children's storybook print "
+                "illustration. Use the SAME identity, outfit, palette, and art "
+                "direction as the corresponding scene image. The output MUST be a "
+                "clearly illustrated 2D cartoon page — NOT photorealistic, NOT "
+                "live-action, NOT semi-real human rendering, NOT 3D-CGI render. "
+                "Preserve the cartoon character identity already established in "
+                "the scene image (face, hair, outfit, palette).\n\n"
+                "Page text (Arabic, will be overlaid or printed beside the "
+                "illustration): $book_text. Page number: $page_number of "
+                "$total_pages. Scene index: $scene_index. Scene title: "
+                "$scene_title. Visual: $visual_description. Key objects: "
+                "$key_objects. Background setting: $background_setting.\n\n"
+                "Compose as a portrait-friendly print page (A5 landscape), "
+                "generous negative space on the right for the Arabic text block, "
+                "RTL-safe layout. Style: $art_direction, $palette, $lighting. "
+                "Slightly more detailed than a video frame (print quality), "
+                "soft pastel storybook 2D, warm child-friendly premium "
+                "illustrated cartoon look.\n\n"
+                "FORBIDDEN: photorealism, live-action, realistic skin texture, "
+                "photographic depth-of-field, real-life human faces."
             ),
             "variables": [
                 "book_text", "page_number", "total_pages", "scene_index", "scene_title",
                 "visual_description", "key_objects", "background_setting",
                 "art_direction", "palette", "lighting",
             ],
-            "notes": "TODAY the pipeline reuses the corresponding scene_image (provider="
-                     "reused). This template is editable now and will be consumed when "
-                     "the orchestrator switches to a dedicated book illustration pass.",
+            "notes": "Phase N — strict 2D cartoon enforcement + scene-character "
+                     "consistency. Today the pipeline reuses the corresponding "
+                     "scene_image (provider=reused). This template is editable now "
+                     "and consumed when the orchestrator switches to a dedicated pass.",
         },
         {
             "stage_key": "video_assembly",
@@ -433,23 +507,7 @@ async def seed_prompt_templates():
                      "admin visibility — not consumed at runtime.",
         },
     ]
-    for s in seeds:
-        exists = await db.prompt_templates.find_one({"stage_key": s["stage_key"]})
-        if exists:
-            continue
-        doc = {
-            "id": str(uuid.uuid4()),
-            "stage_key":     s["stage_key"],
-            "name":          s["name"],
-            "template_text": s["template_text"],
-            "variables":     s["variables"],
-            "notes":         s["notes"],
-            "version":       1,
-            "active":        True,
-            "created_at": _now(),
-            "updated_at": _now(),
-        }
-        await db.prompt_templates.insert_one(doc)
+    return seeds
 
 
 async def seed_all():

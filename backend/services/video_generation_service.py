@@ -100,6 +100,24 @@ async def _kling_submit(
         }
 
 
+def _model_app_prefix(model_slug: str) -> str:
+    """fal.ai queue status/result endpoints use ONLY the app prefix
+    (e.g. ``fal-ai/kling-video``), NOT the full versioned slug
+    (``fal-ai/kling-video/v3/pro/image-to-video``).
+
+    This is a fal.ai-specific URL convention — submitting goes to the
+    full slug, but polling / result fetching goes to ``{app}/requests/{id}``.
+
+    Phase N: this was the root cause of "fal.ai dashboard shows COMPLETED
+    but our system shows fallback" — we were polling
+    ``{full_slug}/requests/{id}/status`` which returned 405.
+    """
+    parts = (model_slug or "").strip("/").split("/")
+    if len(parts) >= 2:
+        return f"{parts[0]}/{parts[1]}"
+    return model_slug or ""
+
+
 async def _kling_poll(
     fal_key: str,
     model_slug: str,
@@ -108,9 +126,16 @@ async def _kling_poll(
     """Single poll tick. Returns (state, info) where state is one of:
        'IN_QUEUE', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'UNKNOWN'.
     `info` carries video_url when COMPLETED.
+
+    Phase N hardening: handles multiple fal.ai result-data shapes — the API
+    has shipped at least 4 different shapes for video assets across model
+    versions (`data.video.url`, `data.video` as string, `data.output.video.url`,
+    `data.video_url`, `data.files[i].url`). We probe all of them so a
+    successful generation on fal.ai is never lost on our side.
     """
-    status_url = f"{FAL_QUEUE_BASE}/{model_slug}/requests/{request_id}/status"
-    result_url = f"{FAL_QUEUE_BASE}/{model_slug}/requests/{request_id}"
+    app_prefix = _model_app_prefix(model_slug)
+    status_url = f"{FAL_QUEUE_BASE}/{app_prefix}/requests/{request_id}/status"
+    result_url = f"{FAL_QUEUE_BASE}/{app_prefix}/requests/{request_id}"
     headers = {"Authorization": f"Key {fal_key}"}
     try:
         async with httpx.AsyncClient(timeout=POLL_TIMEOUT) as c:
@@ -122,14 +147,56 @@ async def _kling_poll(
             async with httpx.AsyncClient(timeout=POLL_TIMEOUT) as c:
                 rr = await c.get(result_url, headers=headers)
             data = rr.json() if rr.status_code == 200 else {}
-            video_url = (((data or {}).get("video") or {}).get("url"))
+            video_url = _extract_video_url_from_fal_response(data)
             return ("COMPLETED" if video_url else "FAILED",
-                    {"video_url": video_url, "raw": data if not video_url else None})
+                    {"video_url": video_url,
+                     "raw":       data if not video_url else None,
+                     "raw_kept":  data})
         if st in ("IN_QUEUE", "IN_PROGRESS"):
             return st, {}
         return "UNKNOWN", {"raw_status": st}
     except Exception as e:  # noqa: BLE001
         return "UNKNOWN", {"error": f"{type(e).__name__}: {e}"}
+
+
+def _extract_video_url_from_fal_response(data: dict | None) -> str | None:
+    """Defensively pull a video URL out of any fal.ai result shape."""
+    if not isinstance(data, dict):
+        return None
+    # Shape 1: {"video": {"url": "..."}}
+    v1 = data.get("video")
+    if isinstance(v1, dict):
+        u = v1.get("url")
+        if isinstance(u, str) and u.startswith("http"):
+            return u
+    # Shape 2: {"video": "https://..."}
+    if isinstance(v1, str) and v1.startswith("http"):
+        return v1
+    # Shape 3: {"output": {"video": {"url": "..."}}}  (Kling v3 sometimes uses this)
+    out = data.get("output")
+    if isinstance(out, dict):
+        v3 = out.get("video")
+        if isinstance(v3, dict):
+            u = v3.get("url")
+            if isinstance(u, str) and u.startswith("http"):
+                return u
+        if isinstance(v3, str) and v3.startswith("http"):
+            return v3
+    # Shape 4: {"video_url": "..."}
+    vu = data.get("video_url")
+    if isinstance(vu, str) and vu.startswith("http"):
+        return vu
+    # Shape 5: {"files": [{"url": "..."}, ...]}  (some queue endpoints)
+    files = data.get("files")
+    if isinstance(files, list):
+        for f in files:
+            if isinstance(f, dict):
+                u = f.get("url")
+                if isinstance(u, str) and u.startswith("http") and (
+                    "video" in u.lower() or u.lower().endswith(".mp4")
+                ):
+                    return u
+    return None
 
 
 async def _kling_download(video_url: str) -> bytes | None:
@@ -354,6 +421,57 @@ async def generate_clip_sync(
     }
 
 
+async def poll_and_download(
+    submitted: list[dict],
+    max_wait_s: int = 900,
+    poll_interval_s: int = 10,
+) -> list[dict]:
+    """Poll every already-submitted row and download bytes for completed ones.
+
+    `submitted` shape (per row, from a prior `submit_clip` call):
+        {"index": int, "scene": {...}, "request_id": str|None,
+         "meta": {...}, "model": "fal-ai/...", "state": "IN_QUEUE" | "FAILED"}
+
+    Returns one dict per row in input order with: index, request_id, state,
+    video_url, bytes, mime, meta.
+
+    Phase N: this function does NOT re-submit, so it is safe to call after
+    the orchestrator has already submitted + persisted request_ids.
+    """
+    started = time.monotonic()
+    while time.monotonic() - started < max_wait_s:
+        pending = [r for r in submitted
+                   if r["state"] in ("IN_QUEUE", "IN_PROGRESS") and r["request_id"]]
+        if not pending:
+            break
+
+        async def _tick(row):
+            st, info = await poll_clip(row["request_id"], row["model"])
+            row["state"], row["info"] = st, info
+
+        await asyncio.gather(*(_tick(r) for r in pending))
+        if all(r["state"] not in ("IN_QUEUE", "IN_PROGRESS") for r in submitted):
+            break
+        await asyncio.sleep(poll_interval_s)
+
+    out: list[dict] = []
+    for r in submitted:
+        bytes_ = None
+        info = r.get("info") or {}
+        if r["state"] == "COMPLETED" and info.get("video_url"):
+            bytes_ = await download_clip(info["video_url"])
+        out.append({
+            "index":       r["index"],
+            "request_id":  r["request_id"],
+            "state":       r["state"],
+            "video_url":   info.get("video_url") if r["state"] == "COMPLETED" else None,
+            "bytes":       bytes_,
+            "mime":        "video/mp4",
+            "meta":        {**(r.get("meta") or {}), "final_state": r["state"]},
+        })
+    return out
+
+
 async def submit_all_then_poll(
     scenes: list[dict],
     max_wait_s: int = 600,
@@ -377,37 +495,5 @@ async def submit_all_then_poll(
             "state":      "IN_QUEUE" if req_id else "FAILED",
             "info":       {},
         })
-
-    # 2. Poll loop until every job is in a terminal state OR we time out.
-    started = time.monotonic()
-    while time.monotonic() - started < max_wait_s:
-        pending = [r for r in submitted
-                   if r["state"] in ("IN_QUEUE", "IN_PROGRESS") and r["request_id"]]
-        if not pending:
-            break
-
-        async def _tick(row):
-            st, info = await poll_clip(row["request_id"], row["model"])
-            row["state"], row["info"] = st, info
-
-        await asyncio.gather(*(_tick(r) for r in pending))
-        if all(r["state"] not in ("IN_QUEUE", "IN_PROGRESS") for r in submitted):
-            break
-        await asyncio.sleep(poll_interval_s)
-
-    # 3. Download bytes for every COMPLETED row.
-    out: list[dict] = []
-    for r in submitted:
-        bytes_ = None
-        if r["state"] == "COMPLETED" and r["info"].get("video_url"):
-            bytes_ = await download_clip(r["info"]["video_url"])
-        out.append({
-            "index":       r["index"],
-            "request_id":  r["request_id"],
-            "state":       r["state"],
-            "video_url":   r["info"].get("video_url") if r["state"] == "COMPLETED" else None,
-            "bytes":       bytes_,
-            "mime":        "video/mp4",
-            "meta":        {**r["meta"], "final_state": r["state"]},
-        })
-    return out
+    # 2 + 3 — delegate to the shared poll/download helper.
+    return await poll_and_download(submitted, max_wait_s=max_wait_s, poll_interval_s=poll_interval_s)

@@ -27,7 +27,7 @@ from services.child_character_service import safe_run as run_child_character_sta
 from services.extra_characters_service import safe_run as run_extra_characters_stage
 from services.scene_reference_service import resolve_scene_references
 from services.video_generation_service import (
-    submit_all_then_poll, video_real_call_available,
+    submit_clip, poll_and_download, video_real_call_available,
 )
 from services.music_generation_service import (
     generate_music, music_real_call_available,
@@ -124,11 +124,66 @@ async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> d
         })
 
     logger.info(f"[video_generation] submitting {len(payloads)} clips order={order['id']}")
-    results = await submit_all_then_poll(payloads, max_wait_s=900, poll_interval_s=10)
+
+    # Phase N hardening — pre-create video_clips rows in `submitted` state with
+    # request_id PERSISTED IMMEDIATELY after submit. This guarantees that if
+    # the process crashes mid-poll OR the poll loop times out, we still have
+    # a paper-trail (request_id + model + scene_index) so the admin can later
+    # recover the result via /api/admin/orders/{id}/video-clips/import-by-request-id.
+    submitted_rows: list[dict] = []
+    for sc in payloads:
+        req_id, sub_meta = await submit_clip(sc)
+        submitted_rows.append({
+            "scene_payload": sc,
+            "request_id":    req_id,
+            "sub_meta":      sub_meta,
+        })
+        # Persist as soon as the request_id exists — even if it's None we still
+        # mark the row as 'submit_failed' so the storyboard surfaces the truth.
+        await db.video_clips.update_one(
+            {"order_id": order["id"], "scene_index": sc["_scene_index"]},
+            {"$set": {
+                "id":                 str(uuid.uuid4()) if True else None,  # noqa: SIM222
+                "order_id":           order["id"],
+                "production_plan_id": plan["id"],
+                "scene_plan_id":      sc["_scene_id"],
+                "scene_index":        sc["_scene_index"],
+                "run_id":             run_id,
+                "provider":           sub_meta.get("provider") or "kling",
+                "model":              sub_meta.get("model") or sub_meta.get("endpoint_used"),
+                "request_id":         req_id,
+                "submit_state":       "submitted" if req_id else "submit_failed",
+                "submit_error":       None if req_id else sub_meta.get("error"),
+                "import_status":      "pending" if req_id else "submit_failed",
+                "submitted_at":       _now(),
+                "updated_at":         _now(),
+            }, "$setOnInsert": {"created_at": _now()}},
+            upsert=True,
+        )
+
+    # Now run a poll-only loop using the request_ids we just persisted.
+    poll_input = [
+        {
+            "index":      i,
+            "scene":      row["scene_payload"],
+            "request_id": row["request_id"],
+            "meta":       row["sub_meta"],
+            "model":      row["sub_meta"].get("model"),
+            "state":      "IN_QUEUE" if row["request_id"] else "FAILED",
+            "info":       {},
+        }
+        for i, row in enumerate(submitted_rows)
+    ]
+    results = await poll_and_download(poll_input, max_wait_s=900, poll_interval_s=10)
 
     # Persist clips and per-scene results.
     saved = 0
     for r, sc in zip(results, payloads):
+        # Patch the request_id from our pre-submit if the lib lost it.
+        if not r.get("request_id"):
+            row = next((x for x in submitted_rows if x["scene_payload"]["_scene_index"] == sc["_scene_index"]), None)
+            if row and row.get("request_id"):
+                r["request_id"] = row["request_id"]
         clip_url: str | None = None
         if r.get("bytes"):
             file_id = str(uuid.uuid4())
@@ -154,29 +209,48 @@ async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> d
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[video_generation] storage failed: {e}")
 
+        # Phase N — derive a stable import_status from the result.
+        meta_dict = r.get("meta") or {}
+        if clip_url:
+            import_status = "imported"
+            fallback_reason = None
+        elif r.get("video_url"):
+            # fal.ai succeeded but our download failed → recoverable.
+            import_status = "import_failed_remote_url_only"
+            fallback_reason = "download_failed_after_completion"
+        elif meta_dict.get("fallback_to_mock"):
+            import_status = "fallback"
+            fallback_reason = meta_dict.get("error") or f"final_state={r.get('state')}"
+        elif r.get("request_id"):
+            import_status = "submitted_no_result"
+            fallback_reason = meta_dict.get("error") or f"final_state={r.get('state')}"
+        else:
+            import_status = "submit_failed"
+            fallback_reason = meta_dict.get("error") or "no_request_id"
+
         await db.video_clips.update_one(
             {"order_id": order["id"], "scene_index": sc["_scene_index"]},
             {"$set": {
-                "id":                str(uuid.uuid4()),
-                "order_id":          order["id"],
                 "production_plan_id": plan["id"],
                 "scene_plan_id":     sc["_scene_id"],
-                "scene_index":       sc["_scene_index"],
                 "run_id":            run_id,
-                "provider":          (r.get("meta") or {}).get("provider"),
-                "model":             (r.get("meta") or {}).get("model"),
-                "clip_strategy":     (r.get("meta") or {}).get("clip_strategy"),
+                "provider":          meta_dict.get("provider") or "kling",
+                "model":             meta_dict.get("model") or meta_dict.get("endpoint_used"),
+                "clip_strategy":     meta_dict.get("clip_strategy"),
                 "request_id":        r.get("request_id"),
                 "state":             r.get("state"),
                 "video_url":         clip_url,
                 "remote_video_url":  r.get("video_url"),
                 "duration_seconds":  sc.get("duration") or 5,
                 "aspect_ratio":      sc.get("aspect_ratio") or "16:9",
-                "fallback_to_mock":  bool((r.get("meta") or {}).get("fallback_to_mock")),
-                "real_call":         bool((r.get("meta") or {}).get("real_call")),
-                "error":             (r.get("meta") or {}).get("error"),
+                "fallback_to_mock":  bool(meta_dict.get("fallback_to_mock")),
+                "real_call":         bool(meta_dict.get("real_call")),
+                "error":             meta_dict.get("error"),
+                "import_status":     import_status,
+                "fallback_reason":   fallback_reason,
+                "imported_at":       _now() if import_status == "imported" else None,
                 "updated_at":        _now(),
-            }, "$setOnInsert": {"created_at": _now()}},
+            }, "$setOnInsert": {"created_at": _now(), "id": str(uuid.uuid4())}},
             upsert=True,
         )
 

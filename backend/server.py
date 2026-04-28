@@ -1,6 +1,7 @@
 """Gheras — v2 main entry."""
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,6 +25,7 @@ from routes.production_routes import user_router as production_user_router, admi
 from routes.media_routes import user_router as media_user_router, admin_router as media_admin_router  # noqa: E402
 from routes.admin_config_routes import router as admin_config_router  # noqa: E402
 from routes.admin_storyboard_routes import router as admin_storyboard_router  # noqa: E402
+from routes.admin_video_recovery_routes import router as admin_video_recovery_router  # noqa: E402
 from routes.admin_pricing_routes import router as admin_pricing_router, order_router as admin_pricing_orders_router  # noqa: E402
 from routes.admin_lab_routes import router as admin_lab_router  # noqa: E402
 from routes.admin_secrets_routes import router as admin_secrets_router  # noqa: E402
@@ -59,6 +61,7 @@ api_router.include_router(media_user_router)
 api_router.include_router(media_admin_router)
 api_router.include_router(admin_config_router)
 api_router.include_router(admin_storyboard_router)
+api_router.include_router(admin_video_recovery_router)
 api_router.include_router(admin_pricing_router)
 api_router.include_router(admin_pricing_orders_router)
 api_router.include_router(admin_lab_router)
@@ -181,6 +184,56 @@ async def on_startup():
                             f"{current} → {new.get('provider')}/{new.get('model_name')} [{new.get('env_key')}]")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Phase N migration skipped: {e}")
+
+    # Phase N — strict cartoon 2D prompt template migration. Bumps v1 → v2
+    # for the 4 visual stages so the new wording lands without manual seeding.
+    try:
+        from seed import _build_prompt_template_seeds
+        latest_seeds_list = await _build_prompt_template_seeds()
+        latest_seeds = {s["stage_key"]: s for s in latest_seeds_list}
+        STAGES_TO_BUMP = [
+            "scene_image_generation",
+            "book_page_image_generation",
+            "extra_character_i2i",
+            "video_generation",
+            "child_character_i2i",
+        ]
+        import uuid as _uuid
+        bumped = 0
+        for stage in STAGES_TO_BUMP:
+            current = await db.prompt_templates.find_one(
+                {"stage_key": stage, "active": True}, {"_id": 0}
+            )
+            if current and "STRICT STYLE — soft pastel 2D" in (current.get("template_text") or ""):
+                continue
+            new_seed = latest_seeds.get(stage)
+            if not new_seed:
+                continue
+            if current:
+                await db.prompt_templates.update_one(
+                    {"id": current["id"]},
+                    {"$set": {"active": False,
+                              "deactivated_at": datetime.now(timezone.utc).isoformat(),
+                              "deactivated_reason": "phase_n_strict_cartoon_2d"}},
+                )
+            prev_versions = await db.prompt_templates.count_documents({"stage_key": stage})
+            await db.prompt_templates.insert_one({
+                "id":            str(_uuid.uuid4()),
+                "stage_key":     stage,
+                "name":          new_seed["name"],
+                "template_text": new_seed["template_text"],
+                "variables":     new_seed["variables"],
+                "notes":         new_seed["notes"],
+                "version":       prev_versions + 1,
+                "active":        True,
+                "created_at":    datetime.now(timezone.utc).isoformat(),
+                "updated_at":    datetime.now(timezone.utc).isoformat(),
+            })
+            bumped += 1
+        if bumped:
+            logger.info(f"prompt_templates: Phase N strict-2D bumped {bumped} stages")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Phase N prompt migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:
