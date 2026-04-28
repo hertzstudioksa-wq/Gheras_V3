@@ -1352,3 +1352,143 @@ stage if FAL_KEY_VIDEO had been configured).
     image_prompt/animation_prompt)
   - `backend/tests/test_phase_n_storyboard_regression.py` (NEW, 8 tests)
 
+
+---
+
+### Phase N v2 — Strict 2D Cartoon Style + fal.ai Result Import Recovery (Feb 2026) ✅
+
+**User report**: (1) Generated images/videos came out photorealistic instead
+of cartoon. (2) fal.ai dashboard showed COMPLETED clips but Gheras showed
+fallback / no result. User authorized: 1e (soft pastel storybook 2D), 2b
+(strict non-photorealistic), 4a (keep Kling, strengthen prompt), 5a (apply
+to all 5 visual stages). User explicitly demanded NOT a prompt-only fix.
+
+**Fixes — 3 layers, deeper than prompt edits.**
+
+#### 1. Strict 2D cartoon prompt enforcement (5 stages)
+All 5 visual prompt templates now begin with the canonical phrase
+`STRICT STYLE — soft pastel 2D children's storybook` and end with an
+explicit `FORBIDDEN: photorealism, live-action, semi-real human rendering,
+3D-CGI render, plastic doll look` guard:
+  * `child_character_i2i` (services/child_character_service.DEFAULT_PROMPT)
+  * `extra_character_i2i`
+  * `scene_image_generation`
+  * `book_page_image_generation`
+  * `video_generation` (Kling I2V)
+
+A startup migration in `server.py` deactivates legacy v1 templates and
+inserts the strict-2D versions automatically. The migration is idempotent
+(skips stages whose active text already contains the canonical phrase).
+DB confirms all 5 stages are now on the strict-2D version.
+
+#### 2. fal.ai polling URL pattern fix — ROOT CAUSE OF "fallback when fal.ai had a result"
+The fal.ai queue status/result endpoints use ONLY the **app prefix**
+(e.g. `fal-ai/kling-video`), NOT the full versioned slug
+(`fal-ai/kling-video/v3/pro/image-to-video`). Our previous code polled
+`{full_slug}/requests/{id}/status` which returned **HTTP 405** for every
+request, marking every real Kling success as `state=UNKNOWN` /
+`fallback_to_mock`.
+
+  * `_model_app_prefix(slug)` helper added — strips to `app/model`.
+  * `_extract_video_url_from_fal_response(data)` handles 6 shapes
+    (`{video:{url}}`, `{video:'http'}`, `{output:{video:{url}}}`,
+    `{output:{video:'http'}}`, `{video_url}`, `{files:[{.mp4}]}`) plus
+    None/dict/string/int garbage. Defensive coding done right.
+
+#### 3. Pre-poll persistence of `request_id` + manual recovery endpoint
+**Bug**: Previously `video_clips` rows were inserted only AFTER the poll
+loop completed. If the process crashed mid-poll OR the poll loop timed
+out, the `request_id` was lost permanently — even though fal.ai had
+already generated and was holding the clip.
+
+**Fix in `generation_orchestrator._run_video_generation_stage`**:
+the row is now upserted with `submit_state='submitted'` and
+`request_id` IMMEDIATELY after `submit_clip()` returns, BEFORE the
+poll loop starts. Refactored `submit_all_then_poll` → `poll_and_download`
+helper so the orchestrator polls without re-submitting (no double-charge).
+
+**New endpoint** `POST /api/admin/orders/{id}/video-clips/import-by-request-id`
+(routes/admin_video_recovery_routes.py):
+  * Accepts `{scene_index, request_id, model_slug?, force?}`.
+  * Resolves FAL_KEY_VIDEO via secret_overrides_service.
+  * Polls fal.ai once for the request_id (no re-submit, no extra cost).
+  * On COMPLETED → downloads bytes, persists to storage, updates the row
+    to `import_status='imported'` + `manually_recovered=true` +
+    `imported_at` + `imported_by` (admin email).
+  * Idempotent: re-running on already-imported is a no-op unless `force=true`.
+  * Honest state surfacing: `still_pending`, `import_failed`,
+    `import_failed_remote_url_only`, `import_failed_storage`, `imported`.
+  * Audit log entry recorded.
+
+**Live verification**: Order `359f01b8-356f-46e7-9217-f6d30f57c9d5` had
+5 video_clips with real fal.ai request_ids in `state=UNKNOWN`. Running
+the recovery endpoint against each succeeded:
+| scene | request_id (truncated) | state | bytes |
+|---|---|---|---|
+| 1 | `019dd5b0-7cb3-…` | COMPLETED | 6.49 MB |
+| 2 | `019dd5b0-7cf3-…` | COMPLETED | 7.61 MB |
+| 3 | `019dd5b0-7d19-…` | COMPLETED | 7.35 MB |
+| 4 | `019dd5b0-7d42-…` | COMPLETED | 6.63 MB |
+| 5 | `019dd5b0-7d6e-…` | COMPLETED | 5.18 MB |
+**Total: 33 MB of real Kling cartoon video successfully recovered.**
+
+#### Storyboard / Admin UI updates
+  * Storyboard endpoint now exposes per-clip:
+    `import_status`, `fallback_reason`, `submit_state`, `submitted_at`,
+    `imported_at`, `manually_recovered`.
+  * `OutVideoGeneration` component shows colored `import_status` badge
+    + a "مُستَرجَع" badge on manually-recovered clips + an
+    "استيراد من fal.ai" button (data-testid `video-clip-import-btn-{i}`)
+    for any clip whose `import_status != imported`. The button accepts a
+    manual `request_id` if the clip never got persisted.
+  * `GET /api/admin/orders/{id}/video-clips` lists all rows for admin
+    inspection.
+
+**Tests (NEW — 25 added; 52/52 Phase N green total)**
+  * `tests/test_phase_n_fal_video_flow.py` (10): `_model_app_prefix` strips
+    versioned Kling slug correctly + handles edge cases. Multi-shape
+    URL extractor covers 8 cases.
+  * `tests/test_phase_n_strict2d_prompts.py` (8): every active prompt
+    template for the 5 stages contains both `STRICT STYLE — soft pastel 2D`
+    AND a `FORBIDDEN` guard. Active-version single-row invariant. POST
+    new template creates inactive version.
+  * `tests/test_phase_n_video_recovery.py` (7): unauthenticated rejects,
+    missing order → 404, bogus request_id → 200 ok=false (NOT 500),
+    already-imported → ALREADY_IMPORTED, listing returns recovery metadata,
+    smoke verification of order 359f01b8.
+
+**Files modified**
+Backend
+  * `services/video_generation_service.py` (+`_model_app_prefix`,
+    +`_extract_video_url_from_fal_response`, +`poll_and_download`,
+    `_kling_poll` fixed)
+  * `services/generation_orchestrator.py` (pre-persist request_id,
+    use `poll_and_download` instead of double-submit)
+  * `services/child_character_service.py` (DEFAULT_PROMPT → strict-2D)
+  * `routes/admin_storyboard_routes.py` (storyboard exposes recovery
+    metadata per clip)
+  * `routes/admin_video_recovery_routes.py` (NEW — recovery endpoint +
+    listing endpoint)
+  * `seed.py` (5 prompt seeds → strict-2D; `_build_prompt_template_seeds`
+    helper exposed)
+  * `server.py` (Phase N strict-2D migration on startup; recovery
+    router registered)
+Frontend
+  * `pages/admin/AdminStoryboard.jsx` (`OutVideoGeneration` shows
+    `import_status` badge, "مُستَرجَع" indicator, and
+    "استيراد من fal.ai" button per clip)
+Tests
+  * `tests/test_phase_n_fal_video_flow.py` (NEW, 10)
+  * `tests/test_phase_n_strict2d_prompts.py` (NEW, 8 — by testing agent)
+  * `tests/test_phase_n_video_recovery.py` (NEW, 7 — by testing agent)
+  * `tests/conftest.py` (NEW — env bootstrap)
+
+**Outstanding for user**
+  * Add the 4 fal.ai keys via /admin/secrets (encrypted override).
+  * Run a fresh story end-to-end with strict-2D prompts active.
+  * Verify on fal.ai dashboard + Gheras Storyboard that imported clips
+    show in **2D cartoon** style (the prompts now make it nearly
+    impossible for Kling to generate live-action / photorealistic motion).
+  * If any future fal.ai run completes on their side but doesn't appear
+    in Gheras: open Storyboard → click "استيراد من fal.ai" — will recover.
+

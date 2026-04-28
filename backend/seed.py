@@ -355,13 +355,13 @@ async def _build_prompt_template_seeds():
             "stage_key": "video_generation",
             "name": "Video per-scene (Phase N — strict 2D cartoon over fal.ai Kling)",
             "template_text": (
-                "STRICT STYLE — preserve the soft pastel 2D children's storybook "
-                "cartoon style of the input image. The output video clip MUST stay "
-                "in 2D illustrated / animated style — do NOT morph into "
-                "photorealism, do NOT add live-action faces, do NOT change the "
-                "character identity, outfit, or scene composition. Keep the same "
-                "cartoon character from the input frame consistent in face, hair, "
-                "and outfit throughout the clip.\n\n"
+                "STRICT STYLE — soft pastel 2D children's storybook cartoon. Preserve "
+                "the illustrated 2D look of the input image throughout the clip. The "
+                "output video MUST stay in 2D illustrated / animated style — do NOT "
+                "morph into photorealism, do NOT add live-action faces, do NOT change "
+                "the character identity, outfit, or scene composition. Keep the same "
+                "cartoon character from the input frame consistent in face, hair, and "
+                "outfit throughout the clip.\n\n"
                 "Children's storybook scene $scene_index, $estimated_duration_seconds-"
                 "second cinematic shot for ages 3-9. Subject: $scene_title. Visual: "
                 "$visual_description. Camera/motion: $camera_motion_hint. Mood: "
