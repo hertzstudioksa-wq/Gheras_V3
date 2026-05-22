@@ -1,0 +1,61 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: ''
+          CI: false
+        run: |
+          npm install -g yarn
+          yarn install
+          yarn build
+
+      - name: Deploy backend to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          source: "backend/"
+          target: "/var/www/gheras/"
+
+      - name: Deploy frontend build to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          source: "frontend/build/"
+          target: "/var/www/gheras/frontend/"
+          strip_components: 2
+
+      - name: Restart services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          script: |
+            cd /var/www/gheras
+            venv/bin/pip install -q -r backend/requirements_local.txt 2>/dev/null || true
+            systemctl restart gheras
+            systemctl reload nginx
+            sleep 3
+            curl -s http://127.0.0.1:8001/api/ | grep -q "healthy" && echo "Deploy SUCCESS!" || echo "ERROR: backend not responding"
