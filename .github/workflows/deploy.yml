@@ -6,9 +6,21 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+  workflow_dispatch:
+
+env:
+  VPS_HOST: 76.13.0.195
+  # Gheras backend listens on 127.0.0.1 only; nginx serves the frontend and
+  # proxies /api to it. (8001 belongs to another app on this VPS.)
+  GHERAS_PORT: 8010
 
 jobs:
   deploy:
+    # Push deploys stay off until Gheras is provisioned on the VPS and the repo
+    # variable GHERAS_DEPLOY_ENABLED is set to 'true'. Manual runs always go
+    # through the checks below, which stop before copying anything if the
+    # server isn't ready.
+    if: vars.GHERAS_DEPLOY_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
@@ -35,34 +47,37 @@ jobs:
       # The VPS also hosts the Lizam production site. This workflow must only
       # ever touch Gheras: it reads Lizam's status but never restarts or reloads
       # anything shared (no nginx reload, no broad systemctl commands).
-      - name: Pre-deploy check (Lizam must be up)
+      - name: Pre-deploy checks (Lizam up, Gheras provisioned)
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          host: ${{ env.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
             systemctl is-active --quiet lizam || { echo "ABORT: lizam is not active before deploy - check it first"; exit 1; }
             code=$(curl -s -o /dev/null -w '%{http_code}' https://lizamcenter.com/api/public/site-settings)
             [ "$code" = "200" ] || { echo "ABORT: lizam API returned $code before deploy"; exit 1; }
             echo "Lizam OK before deploy"
+            systemctl cat gheras >/dev/null 2>&1 && [ -x /var/www/gheras/venv/bin/pip ] \
+              || { echo "ABORT: Gheras is not provisioned on this VPS (no gheras.service or /var/www/gheras/venv) - nothing copied"; exit 1; }
+            echo "Gheras provisioned"
 
       - name: Deploy backend to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          host: ${{ env.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
           source: "backend/"
           target: "/var/www/gheras/"
 
       - name: Deploy frontend build to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          host: ${{ env.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
           source: "frontend/build/"
           target: "/var/www/gheras/frontend/"
           strip_components: 2
@@ -70,15 +85,16 @@ jobs:
       - name: Restart Gheras and verify both sites
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          host: ${{ env.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: GHERAS_PORT
           script: |
             set -e
             cd /var/www/gheras
             venv/bin/pip install -q -r backend/requirements_local.txt
             systemctl restart gheras
-            curl -fsS --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:8001/api/ | grep -q "healthy" \
+            curl -fsS --retry 10 --retry-delay 2 --retry-connrefused "http://127.0.0.1:${GHERAS_PORT}/api/" | grep -q "healthy" \
               || { echo "ERROR: gheras backend not healthy after restart"; exit 1; }
             echo "Gheras OK"
             systemctl is-active --quiet lizam || { echo "ERROR: lizam is not active after deploy"; exit 1; }
