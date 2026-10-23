@@ -1,4 +1,4 @@
-"""Production planning service — Claude Sonnet 4.5 primary, deterministic fallback.
+"""Production planning service — one AI call per order (no template fallback).
 
 One mega-JSON call that produces: production_plan + scene_plans + book_pages + character_profiles.
 """
@@ -8,14 +8,12 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from models import ARC_TEMPLATES, duration_scene_range
 
 logger = logging.getLogger("production_service")
 
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 MODEL_PROVIDER = "anthropic"
-MODEL_NAME = "claude-sonnet-4-5-20250929"
+MODEL_NAME = "claude-opus-5-5"
 
 
 SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محترف. مهمتك إنتاج **خطة إنتاج كاملة** لقصة مختارة، تتضمّن:
@@ -302,8 +300,8 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**{" (أو أي عدد داخل النطاق " + f"{brange[0]}–{brange[1]}" + " إن كان أنسب للسرد)" if brange else ""}، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
 
 
-from services.config_service import resolve_model, resolve_prompt, resolve_transport
-from services.llm_direct import direct_openai_chat
+from services.config_service import resolve_model, resolve_prompt
+from services.ai.text_client import generate_text
 
 
 def _build_production_context(order: dict, scenario: dict, target_scenes: int) -> dict:
@@ -372,9 +370,7 @@ def _build_production_context(order: dict, scenario: dict, target_scenes: int) -
 
 
 async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) -> dict:
-    if not EMERGENT_LLM_KEY:
-        raise RuntimeError("EMERGENT_LLM_KEY missing")
-    session_id = f"production-{order.get('id', uuid.uuid4())}-{uuid.uuid4().hex[:6]}"
+    """Ask the configured text model for the full production plan. Raises on any failure."""
     provider, model_name, model_src = await resolve_model(
         "production_planning", MODEL_PROVIDER, MODEL_NAME
     )
@@ -390,24 +386,18 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
         logger.info(f"[config] stage=production_planning prompt_source=default reason={reason}")
         prompt = _build_user_prompt(order, scenario, target_scenes)
 
-    chat = (
-        LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
-        .with_model(provider, model_name)
+    # The plan is a large nested JSON (scenes, pages, characters); its shape is
+    # enforced by SYSTEM_MSG and validated below rather than by a strict schema.
+    response = await generate_text(
+        stage="production_planning",
+        provider=provider,
+        model=model_name,
+        system=SYSTEM_MSG,
+        user=prompt,
+        effort="high",
+        max_tokens=48000,
+        timeout=600.0,
     )
-
-    # Transport selection — Phase D.2: see scenario_service for details.
-    transport = await resolve_transport("production_planning")
-    logger.info(f"[config] stage=production_planning transport={transport}")
-    if transport == "direct-openai":
-        # Production plan JSON is larger than scenarios — keep headroom.
-        response = await direct_openai_chat(
-            system_message=SYSTEM_MSG,
-            user_message=prompt,
-            model=model_name,
-            timeout=180.0,
-        )
-    else:
-        response = await chat.send_message(UserMessage(text=prompt))
     text = (response or "").strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -436,209 +426,10 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
     return payload
 
 
-def _fallback_payload(order: dict, scenario: dict, target_scenes: int) -> dict:
-    """Deterministic minimal plan. Used if Claude fails — preserves UX continuity."""
-    data = order.get("data", {}) or {}
-    duration = order.get("duration", {}) or {}
-    child = data.get("child", {}) or {}
-    chars = data.get("characters", []) or []
-    name_ar = child.get("name") or "بطلنا"
-    name_en = name_ar  # transliteration not attempted here
-    arc = ARC_TEMPLATES.get(target_scenes) or ARC_TEMPLATES[6]
-    learning = scenario.get("learning_goal") or "قيمة جميلة"
-    summary = scenario.get("short_summary") or ""
-
-    style_guide = {
-        "palette": "warm earth tones with soft golden highlights",
-        "lighting": "gentle natural lighting, soft shadows",
-        "art_direction": "whimsical watercolor illustration, soft edges, Pixar-like warmth",
-    }
-
-    characters_out = [{
-        "type": "child",
-        "name": name_ar,
-        "name_en": name_en,
-        "visual_description": (
-            f"A {child.get('age','5')}-year-old {'boy' if child.get('gender')=='male' else 'girl'} "
-            f"with kind eyes, warm skin tone, styled hair. "
-            + (child.get('appearance_notes') or "")
-        ).strip(),
-        "clothing_style": "comfortable everyday clothes, simple colors",
-        "key_features": "expressive eyes, gentle smile, natural posture",
-        "reference_image_url": child.get("image_url"),
-    }]
-    for c in chars:
-        characters_out.append({
-            "type": c.get("type"),
-            "name": c.get("name"),
-            "name_en": c.get("name"),
-            "visual_description": f"A {c.get('type')} of {name_en}, warm and caring appearance",
-            "clothing_style": "traditional modest clothing",
-            "key_features": f"kind face, supportive presence for {name_en}",
-            "reference_image_url": c.get("image_url"),
-        })
-
-    scenes_out = []
-    book_pages_out = []
-    beat_to_ar = {
-        "setup": "المشهد التمهيدي",
-        "introduction": "البداية",
-        "problem": "تظهر المشكلة",
-        "turning_point": "لحظة التحوّل",
-        "escalation": "تتصاعد الأمور",
-        "escalation_1": "تتصاعد الأمور",
-        "escalation_2": "ذروة التصعيد",
-        "climax": "اللحظة الحاسمة",
-        "resolution": "الحل",
-        "reflection": "لحظة التأمّل",
-        "positive_ending": "النهاية الجميلة",
-    }
-
-    # Per-beat unique narration + book text snippets (Arabic) so fallback
-    # never returns duplicate content across scenes.
-    beat_narration = {
-        "setup":            f"في بدايتنا نلتقي بـ{name_ar} في عالمه المألوف، والأجواء هادئة.",
-        "introduction":     f"يخطو {name_ar} أول خطواته في رحلة جديدة تفتح قلبه للتعلّم.",
-        "problem":          f"فجأة يُواجه {name_ar} موقفاً صعباً يحتاج إلى التفكير بهدوء.",
-        "turning_point":    f"يتوقف {name_ar} للحظة ويبدأ في رؤية الأمر من زاوية جديدة.",
-        "escalation":       f"تتعقد الأمور حول {name_ar} ويحاول إيجاد طريقة أفضل للتعامل.",
-        "escalation_1":     f"يجرّب {name_ar} حلاً ويكتشف أن الأمر يحتاج إلى صبر أكبر.",
-        "escalation_2":     f"تزداد التحديات وتختبر {name_ar} في لحظات مهمة.",
-        "climax":           f"تأتي اللحظة الفاصلة حيث يتخذ {name_ar} قراره الشجاع.",
-        "resolution":       f"يجد {name_ar} أخيراً الطريق الصحيح ويشعر بالارتياح.",
-        "reflection":       f"يتأمّل {name_ar} ما تعلّمه اليوم ويبتسم للقيمة الجميلة.",
-        "positive_ending":  f"تنتهي الرحلة بابتسامة دافئة لـ{name_ar} وقلب مليء بالفخر.",
-    }
-    beat_book = {
-        "setup":            f"هذا {name_ar}، يعيش يوماً جميلاً.",
-        "introduction":     f"بدأ {name_ar} يوماً مليئاً بالمفاجآت.",
-        "problem":          f"واجه {name_ar} مشكلة صغيرة.",
-        "turning_point":    f"فكّر {name_ar} قليلاً وابتسم.",
-        "escalation":       f"حاول {name_ar} أن يجد حلاً.",
-        "escalation_1":     f"جرّب {name_ar} طريقة جديدة.",
-        "escalation_2":     f"لم يستسلم {name_ar} أبداً.",
-        "climax":           f"اختار {name_ar} أن يكون شجاعاً.",
-        "resolution":       f"وجد {name_ar} الحلّ الصحيح.",
-        "reflection":       f"تعلّم {name_ar} عن {learning}.",
-        "positive_ending":  f"فرح {name_ar} وابتسم بفخر.",
-    }
-    # Per-beat visual descriptor (English) for image prompts.
-    beat_visual = {
-        "setup":            "in a calm home setting, soft morning light, relaxed pose",
-        "introduction":     "stepping outside into a warm, inviting environment, curious expression",
-        "problem":          "noticing a small challenge ahead, thoughtful expression",
-        "turning_point":    "pausing mid-action, eyes widening with realization",
-        "escalation":       "actively trying to solve a growing problem, focused expression",
-        "escalation_1":     "attempting a new approach with determination",
-        "escalation_2":     "facing a harder challenge, breathing in deeply",
-        "climax":           "standing tall, making a brave decision, golden backlight",
-        "resolution":       "smiling gently, relieved shoulders, warm soft lighting",
-        "reflection":       "sitting peacefully, looking up with a proud smile",
-        "positive_ending":  "hugging a loved one, surrounded by warm sunset hues",
-    }
-
-    scenes_out = []
-    book_pages_out = []
-    for i, beat in enumerate(arc, start=1):
-        title_ar = f"{beat_to_ar.get(beat, 'مشهد')} — {name_ar}"
-        narration_ar = beat_narration.get(beat, f"مشهد {i} من قصة {name_ar}.")
-        # Add beat+index suffix so even if beats repeat, texts differ.
-        if arc.count(beat) > 1:
-            narration_ar = f"[{i}] {narration_ar}"
-        book_ar = beat_book.get(beat, f"{name_ar} يعيش لحظة جميلة.")
-        if arc.count(beat) > 1:
-            book_ar = f"{book_ar} (لحظة {i})"
-        visual_ar = beat_visual.get(beat, f"{name_en} in a meaningful moment")
-        scene = {
-            "scene_index": i,
-            "arc_beat": beat,
-            "title": title_ar,
-            "scene_goal": f"مشهد رقم {i}: إظهار {beat_to_ar.get(beat, beat)} بشكل يناسب عمر الطفل",
-            "narration_text": narration_ar,
-            "book_text": book_ar,
-            "emotional_tone": "gentle and warm",
-            "visual_description": f"{name_en} {visual_ar}",
-            "characters_in_scene": ["child"] + [c.get("type") for c in chars[:1]],
-            "key_objects": [],
-            "background_setting": "warm, familiar home environment with soft natural light",
-            "continuity_notes": f"Maintain {name_en}'s appearance and outfit consistent with previous scenes",
-            "image_prompt": {
-                "prompt_text": (
-                    f"Use the same child from the reference image. Scene {i} of {len(arc)}: "
-                    f"{name_en}, a {child.get('age','5')}-year-old "
-                    f"{'boy' if child.get('gender')=='male' else 'girl'}, {visual_ar}. "
-                    f"Warm earth tones, soft golden lighting, whimsical watercolor illustration. "
-                    f"Storybook composition, aspect 16:9."
-                ),
-                "style_reference": style_guide["art_direction"],
-                "character_reference_note": f"Use the reference image of {name_en} exactly as provided. Preserve face, hair, and clothing across all {len(arc)} scenes.",
-            },
-            "animation_prompt": {
-                "start_frame_description": f"Scene {i} start: {name_en} — {visual_ar}",
-                "end_frame_description":   f"Scene {i} end: {name_en} reacts to the moment in an age-appropriate way.",
-                "motion_hint": "gentle slow zoom-in, subtle parallax",
-                "camera_style": "smooth static with soft dolly-in",
-            },
-            # Phase D.4 — downstream generator fields (fallback)
-            "video_prompt": (
-                f"A warm children's storybook shot of {name_en}, scene {i}. "
-                f"{visual_ar.strip('.')}. Gentle slow push-in, soft cinematic lighting, warm tones, child-safe."
-            ),
-            "voice_prompt": "Gentle, warm Arabic narration, slow pacing, clear diction, child-friendly.",
-            "music_prompt": "Soft ambient children's music — warm, hopeful, unobtrusive, gentle strings and light piano.",
-            "music_keywords": ["warm", "gentle", "hopeful", "storybook"],
-            "camera_motion_hint": "slow push-in",
-            "estimated_duration_seconds": int((duration.get("seconds") or 60) / max(len(arc), 1)),
-        }
-        scenes_out.append(scene)
-        book_pages_out.append({
-            "page_number": i,
-            "scene_index": i,
-            "text": book_ar,
-            "illustration_prompt": (
-                f"Use the reference image of {name_en}. Page {i}: simple picture-book illustration of {name_en} {visual_ar}, "
-                f"warm earth tones, whimsical watercolor style."
-            ),
-        })
-
-    return {
-        "production_plan": {
-            "title": scenario.get("title") or f"قصة {name_ar}",
-            "story_summary": summary or f"رحلة {name_ar} لاكتشاف معنى {learning}.",
-            "main_message": scenario.get("learning_goal") or learning,
-            "emotional_arc": f"From quiet curiosity to heartfelt understanding over {duration.get('label','the story')}.",
-            "style_guide": style_guide,
-            "cover_prompt": (
-                f"Use the reference image of {name_en}. Book cover illustration showing {name_en} "
-                f"smiling warmly, golden hour lighting, whimsical watercolor style, title space at the top."
-            ),
-            "story_keywords": [
-                "children's story", "warm", "gentle", "lesson", "growth",
-                "family", "home", name_en.lower(), "storybook", "watercolor",
-            ],
-            "story_music_prompt": (
-                "Soft ambient children's music throughout — warm piano, gentle strings, light woodwinds. "
-                "Unobtrusive, emotionally present, evolving with the story's arc from quiet curiosity to heartfelt resolution."
-            ),
-            "story_music_keywords": ["warm", "gentle", "hopeful", "reflective", "soft"],
-            "story_voice_prompt": (
-                "Warm, slow-paced Arabic narration. Clear, gentle diction. "
-                "Soft emotional emphasis on key moments. Child-friendly cadence."
-            ),
-            "safety_check": "ok",
-        },
-        "characters": characters_out,
-        "scenes": scenes_out,
-        "book_pages": book_pages_out,
-    }
-
-
 async def generate_production_plan(order: dict, scenario: dict, target_scenes: int) -> tuple[dict, str, str | None]:
-    try:
-        return (await _generate_via_claude(order, scenario, target_scenes), "ai", None)
-    except Exception as e:
-        logger.warning(f"Claude production plan failed, using fallback: {e}")
-        return (_fallback_payload(order, scenario, target_scenes), "fallback", str(e))
+    # No template fallback (it produced generic, gender-blind plans that looked
+    # personalised). A failure propagates and the order is marked failed.
+    return (await _generate_via_claude(order, scenario, target_scenes), "ai", None)
 
 
 def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:

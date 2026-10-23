@@ -23,48 +23,49 @@ from db import db
 # Used whenever the admin hasn't overridden config in the DB yet. Matches the
 # existing service implementations exactly so behavior is unchanged.
 DEFAULT_MODELS: dict[str, dict[str, Any]] = {
-    # Phase N — user-specified provider/model matrix.
+    # Phase 1 (2026-10) — direct providers only; every entry here has a
+    # working executor in services/ai. Text: Claude. Images: GPT Image.
     "scenario_generation": {
-        "provider": "openai",
-        "model_name": "gpt-5.4-mini",
-        "fallback_provider": "anthropic",
-        "fallback_model": "claude-sonnet-4-5-20250929",
-        "env_key": "OPENAI_API_KEY",
+        "provider": "anthropic",
+        "model_name": "claude-opus-5-5",
+        "fallback_provider": None,
+        "fallback_model": None,
+        "env_key": "ANTHROPIC_API_KEY",
     },
     "production_planning": {
-        "provider": "openai",
-        "model_name": "gpt-5.4",
-        "fallback_provider": "anthropic",
-        "fallback_model": "claude-sonnet-4-5-20250929",
-        "env_key": "OPENAI_API_KEY",
+        "provider": "anthropic",
+        "model_name": "claude-opus-5-5",
+        "fallback_provider": None,
+        "fallback_model": None,
+        "env_key": "ANTHROPIC_API_KEY",
     },
     "child_character_i2i": {
         "provider": "openai",
-        "model_name": "gpt-image-1.5-2025-12-16",
-        "fallback_provider": "gemini",
-        "fallback_model": "gemini-3.1-flash-image-preview",
+        "model_name": "gpt-image-2",
+        "fallback_provider": None,
+        "fallback_model": None,
         "env_key": "OPENAI_API_KEY",
     },
     "extra_character_i2i": {
         "provider": "openai",
-        "model_name": "gpt-image-1.5-2025-12-16",
-        "fallback_provider": "gemini",
-        "fallback_model": "gemini-3.1-flash-image-preview",
+        "model_name": "gpt-image-2",
+        "fallback_provider": None,
+        "fallback_model": None,
         "env_key": "OPENAI_API_KEY",
     },
     "scene_image_generation": {
-        "provider": "fal_image",
-        "model_name": "fal-ai/gemini-25-flash-image",
-        "fallback_provider": "gemini",
-        "fallback_model": "gemini-3.1-flash-image-preview",
-        "env_key": "FAL_KEY_SCENE",
+        "provider": "openai",
+        "model_name": "gpt-image-2",
+        "fallback_provider": None,
+        "fallback_model": None,
+        "env_key": "OPENAI_API_KEY",
     },
     "book_page_image_generation": {
-        "provider": "fal_image",
-        "model_name": "fal-ai/gemini-25-flash-image",
-        "fallback_provider": "gemini",
-        "fallback_model": "gemini-3.1-flash-image-preview",
-        "env_key": "FAL_KEY_SCENE",
+        "provider": "openai",
+        "model_name": "gpt-image-2",
+        "fallback_provider": None,
+        "fallback_model": None,
+        "env_key": "OPENAI_API_KEY",
     },
     "narration_generation": {
         "provider": "fal_tts",
@@ -140,7 +141,7 @@ DEFAULT_PIPELINE = {
     "stages": {
         "scenario_generation":      {"enabled": True,  "max_retries": 2, "fallback_allowed": True},
         "production_planning":      {"enabled": True,  "max_retries": 2, "fallback_allowed": True},
-        "child_character_i2i":      {"enabled": False, "max_retries": 2, "fallback_allowed": False,
+        "child_character_i2i":      {"enabled": True,  "max_retries": 2, "fallback_allowed": False,
                                        "runs_before_scene_generation": True},
         "extra_character_i2i":      {"enabled": False, "max_retries": 2, "fallback_allowed": True,
                                        "runs_before_scene_generation": True},
@@ -169,8 +170,8 @@ DEFAULT_PIPELINE = {
 
 # Env-var mapping for admin API Status page (keys stored in .env, never in DB).
 PROVIDER_ENV_MAP = {
-    "anthropic":  {"env_key": "EMERGENT_LLM_KEY",   "label": "Claude (via Emergent)"},
-    "gemini":     {"env_key": "EMERGENT_LLM_KEY",   "label": "Gemini / Nano Banana (via Emergent)"},
+    "anthropic":  {"env_key": "ANTHROPIC_API_KEY",  "label": "Anthropic Claude (direct)"},
+    "gemini":     {"env_key": "EMERGENT_LLM_KEY",   "label": "Gemini (legacy, no executor)"},
     "openai":     {"env_key": "OPENAI_API_KEY",     "label": "OpenAI (direct)"},
     "elevenlabs": {"env_key": "ELEVENLABS_API_KEY", "label": "ElevenLabs TTS (direct, legacy)"},
     # Phase N — per-capability fal.ai keys.
@@ -221,37 +222,19 @@ async def resolve_model(stage_key: str, hardcoded_provider: str, hardcoded_model
         doc = None
     if doc and doc.get("provider") and doc.get("model_name"):
         return doc["provider"], doc["model_name"], "admin"
+    # DEFAULT_MODELS is the single default shown in the admin and used at
+    # runtime; the caller's hardcoded pair only covers stages missing from it.
+    default = DEFAULT_MODELS.get(stage_key) or {}
+    if default.get("provider") and default.get("model_name"):
+        return default["provider"], default["model_name"], "default"
     return hardcoded_provider, hardcoded_model, "fallback"
 
 
 async def resolve_transport(stage_key: str) -> str:
-    """Decide which transport to use for a given text stage.
-
-    Returns:
-      * "direct-openai" — when the admin registry row has provider=openai AND
-        env_key=OPENAI_API_KEY AND the env var is set. The caller should
-        bypass emergentintegrations and hit api.openai.com directly.
-      * "emergent"      — default. Use the emergentintegrations library with
-        EMERGENT_LLM_KEY (existing behavior, unchanged).
-
-    Safe by design: any DB hiccup or missing key → falls back to "emergent".
-    """
-    import os as _os
-    try:
-        doc = await db.model_registry.find_one(
-            {"stage_key": stage_key, "active": True},
-            {"_id": 0, "provider": 1, "env_key": 1},
-        )
-    except Exception:  # noqa: BLE001
-        doc = None
-    if (
-        doc
-        and doc.get("provider") == "openai"
-        and doc.get("env_key") == "OPENAI_API_KEY"
-        and _os.environ.get("OPENAI_API_KEY")
-    ):
-        return "direct-openai"
-    return "emergent"
+    """Display label for how a stage reaches its provider (Stage Lab / prompt
+    preview). All calls go directly to the provider SDK: "direct-<provider>"."""
+    provider, _model, _src = await resolve_model(stage_key, "", "")
+    return f"direct-{provider}" if provider else "unconfigured"
 
 
 # -----------------------------------------------------------------------------

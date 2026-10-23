@@ -56,6 +56,9 @@ def _safe_dict_or_str(value):
 
 
 MAX_ATTEMPTS = 3
+# Job providers that mean "no real asset was produced" (dev mocks, legacy
+# placeholders). Mandatory jobs with these never count as ready.
+NON_DELIVERABLE_PROVIDERS = {"mock", "fallback", "placeholder"}
 
 
 async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> dict:
@@ -938,18 +941,18 @@ async def run_asset_generation(order_id: str, run_id: str):
     await _append_status(order_id, order.get("status"), OrderStatus.ASSETS_GENERATING.value, "system",
                          reason=f"start assets generation (run {run_id[:8]}, {len(jobs)} jobs)")
 
-    # --- Phase C: child_character_i2i (OPTIONAL, disabled by default) -------
-    # Runs BEFORE any scene image generation. Never blocks the pipeline — even
-    # if it fails, downstream stages proceed with the existing text-only flow.
-    try:
-        cc_result = await run_child_character_stage(order, plan)
-        if cc_result.get("ran") and cc_result.get("status") == "failed":
-            logger.warning(
-                f"[child_character_i2i] stage failed but pipeline continues "
-                f"(order={order_id}, reason={cc_result.get('reason')})"
-            )
-    except Exception as e:  # noqa: BLE001 — safe_run should never raise, defense-in-depth
-        logger.exception(f"[child_character_i2i] unexpected crash (ignored): {e}")
+    # --- child_character_i2i: the child's cartoon character ------------------
+    # Runs BEFORE any scene image. When it ran (photo present, stage enabled)
+    # and failed, stop here: drawing the scenes without the child's likeness
+    # would deliver a generic book and still spend the whole image budget.
+    cc_result = await run_child_character_stage(order, plan)
+    if cc_result.get("ran") and cc_result.get("status") != "completed":
+        reason = f"child character failed: {cc_result.get('reason')}"
+        logger.warning(f"[child_character_i2i] order={order_id} {reason}")
+        await db.orders.update_one({"id": order_id}, {"$set": {"asset_generation_completed_at": _now()}})
+        await _append_status(order_id, OrderStatus.ASSETS_GENERATING.value, OrderStatus.MEDIA_FAILED.value,
+                             "system", reason=reason[:300])
+        return
 
     # --- Phase D: extra_character_i2i (OPTIONAL, disabled by default) -------
     # Processes every visible extra character that has an uploaded image.
@@ -1006,11 +1009,16 @@ async def run_asset_generation(order_id: str, run_id: str):
         mandatory_types.add("narration_audio")
     if output_type in ("pdf", "both"):
         mandatory_types.add("book_page_asset")
+    # A mandatory asset produced by a mock/placeholder path counts as failed:
+    # it must never reach assembly and be announced as a finished story.
     failed_mandatory = await db.generation_jobs.count_documents({
         "order_id": order_id,
         "run_id": run_id,
         "job_type": {"$in": list(mandatory_types)},
-        "status": "failed",
+        "$or": [
+            {"status": "failed"},
+            {"provider": {"$in": list(NON_DELIVERABLE_PROVIDERS)}},
+        ],
     })
     await db.orders.update_one(
         {"id": order_id},

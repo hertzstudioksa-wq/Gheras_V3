@@ -93,19 +93,13 @@ def _file_id_from_url(url: str) -> str | None:
     return parts[-1] if parts else None
 
 
-def _draw_wrapped_ar(c: canvas.Canvas, text: str, x: float, y: float, width: float, font_size: int, leading: float) -> float:
-    """Draw Arabic text wrapped within `width`. Returns final y after drawing."""
-    if not text:
-        return y
-    c.setFont(ARABIC_FONT_NAME, font_size)
-    # Split into lines that fit
-    words = str(text).split()
+def _wrap_ar(c: canvas.Canvas, text: str, width: float, font_size: float) -> list[str]:
+    """Split Arabic text into (logical-order) lines that fit `width`."""
     lines: list[str] = []
     current = ""
-    for w in words:
+    for w in str(text).split():
         attempt = (current + " " + w).strip()
-        shaped = _shape_ar(attempt)
-        if c.stringWidth(shaped, ARABIC_FONT_NAME, font_size) <= width:
+        if c.stringWidth(_shape_ar(attempt), ARABIC_FONT_NAME, font_size) <= width:
             current = attempt
         else:
             if current:
@@ -113,6 +107,29 @@ def _draw_wrapped_ar(c: canvas.Canvas, text: str, x: float, y: float, width: flo
             current = w
     if current:
         lines.append(current)
+    return lines
+
+
+def _draw_fitted_ar(c: canvas.Canvas, text: str, x: float, top: float, width: float, bottom: float,
+                    max_size: float = 20, min_size: float = 12) -> float:
+    """Draw wrapped Arabic text in the box [bottom, top], using the largest font
+    size that fits (so long page texts are never cut off below the page)."""
+    if not text:
+        return top
+    size = max_size
+    while size > min_size:
+        if len(_wrap_ar(c, text, width, size)) * size * 1.5 <= top - bottom:
+            break
+        size -= 1
+    return _draw_wrapped_ar(c, text, x, top - size, width, size, size * 1.5)
+
+
+def _draw_wrapped_ar(c: canvas.Canvas, text: str, x: float, y: float, width: float, font_size: float, leading: float) -> float:
+    """Draw Arabic text wrapped within `width`. Returns final y after drawing."""
+    if not text:
+        return y
+    c.setFont(ARABIC_FONT_NAME, font_size)
+    lines = _wrap_ar(c, text, width, font_size)
     for line in lines:
         shaped = _shape_ar(line)
         # Right-aligned since Arabic RTL
@@ -203,12 +220,10 @@ async def assemble_pdf(
         if img_bytes:
             _draw_image_fit(c, img_bytes, margin, img_box_y, page_w - 2 * margin, img_box_h)
 
-        # Text area
-        text_top = img_box_y - 8 * mm
-        _draw_wrapped_ar(c, ba.get("page_text") or "",
-                         x=margin, y=text_top,
-                         width=page_w - 2 * margin,
-                         font_size=13, leading=18)
+        # Text area: between the image and the page number, sized for young readers.
+        _draw_fitted_ar(c, ba.get("page_text") or "",
+                        x=margin, top=img_box_y - 4 * mm,
+                        width=page_w - 2 * margin, bottom=margin)
 
         # Page number (bottom center)
         c.setFont(ARABIC_FONT_NAME, 9)
@@ -225,7 +240,7 @@ async def assemble_pdf(
     tw = c.stringWidth(the_end, ARABIC_FONT_BOLD, 20)
     c.drawString((page_w - tw) / 2, page_h / 2 + 15 * mm, the_end)
     message = plan.get("main_message") or ""
-    _draw_wrapped_ar(c, message, x=margin, y=page_h / 2, width=page_w - 2 * margin, font_size=13, leading=20)
+    _draw_fitted_ar(c, message, x=margin, top=page_h / 2, width=page_w - 2 * margin, bottom=margin)
     c.showPage()
     pages_drawn += 2  # cover + back
 

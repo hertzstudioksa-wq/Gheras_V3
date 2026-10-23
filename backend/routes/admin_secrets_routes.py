@@ -37,7 +37,7 @@ KNOWN_ENV_KEYS: list[dict] = [
         "key": "OPENAI_API_KEY",
         "label": "OpenAI",
         "providers": ["openai"],
-        "purpose": "نصوص (gpt-5.2, gpt-5-mini) + صور (gpt-image-1) + رؤية (gpt-4o vision)",
+        "purpose": "صور الكتاب: شخصية الطفل + صور المشاهد + الغلاف (GPT Image)",
         "rotation_instructions": (
             "استخدم زرّ 'تحديث آمن' أعلاه — يُحفظ مشفّراً في DB ولا يحتاج إعادة تشغيل.\n"
             "أو يدوياً: ضع المفتاح في .env تحت OPENAI_API_KEY ثم: sudo supervisorctl restart backend."
@@ -45,14 +45,15 @@ KNOWN_ENV_KEYS: list[dict] = [
         "test_provider_key": "openai",
     },
     {
-        "key": "EMERGENT_LLM_KEY",
-        "label": "Emergent Universal Key",
-        "providers": ["anthropic", "gemini", "openai-via-emergent"],
-        "purpose": "Claude Sonnet 4.5 + Nano Banana + توليد الصور عبر بروكسي Emergent",
+        "key": "ANTHROPIC_API_KEY",
+        "label": "Anthropic (Claude)",
+        "providers": ["anthropic"],
+        "purpose": "كتابة القصة: السيناريوهات + خطة الإنتاج (Claude)",
         "rotation_instructions": (
-            "Profile → Universal Key على Emergent. ثم استخدم زرّ 'تحديث آمن' هنا."
+            "أنشئ مفتاحاً جديداً من console.anthropic.com → API Keys، "
+            "ضعه في .env تحت ANTHROPIC_API_KEY ثم أعد تشغيل خدمة gheras، واحذف القديم من الكونسول."
         ),
-        "test_provider_key": "emergent",
+        "test_provider_key": "anthropic",
     },
     {
         "key": "ELEVENLABS_API_KEY",

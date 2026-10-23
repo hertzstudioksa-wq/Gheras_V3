@@ -200,7 +200,7 @@ async def _run_child_character_i2i(input_payload: dict) -> dict:
     if not src:
         raise ValueError("child_image_url is required for child_character_i2i")
     from services.child_character_service import (
-        _openai_generate, _fetch_source_bytes, _save_generated_png,
+        _generate_character, _fetch_source_bytes, _save_generated_png,
         DEFAULT_PROMPT,
     )
     src_tuple = await _fetch_source_bytes(src)
@@ -216,12 +216,12 @@ async def _run_child_character_i2i(input_payload: dict) -> dict:
         },
     )
     prompt = prompt_admin if (prompt_src == "admin" and prompt_admin) else DEFAULT_PROMPT
-    res = await _openai_generate(src_bytes, src_mime, prompt, "gpt-image-1")
-    if not res or not res.get("image_bytes"):
-        raise RuntimeError("OpenAI did not return image bytes")
+    # Same resolution as the live pipeline, so a Lab run reproduces production.
+    provider, model_name, _src = await resolve_model("child_character_i2i", "openai", "gpt-image-2")
+    res = await _generate_character(src_bytes, prompt, provider, model_name)
     url = await _save_generated_png("lab-admin", "lab-admin", res["image_bytes"])
     return {
-        "output_preview": {"image_url": url, "prompt_used": prompt[:600]},
+        "output_preview": {"image_url": url, "prompt_used": prompt[:600], "model": f"{provider}/{model_name}"},
         "result_summary": f"image generated ({len(res['image_bytes'])} bytes)",
     }
 

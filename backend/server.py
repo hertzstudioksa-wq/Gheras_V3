@@ -260,6 +260,32 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Phase N prompt migration skipped: {e}")
+
+    # Phase 1 — Emergent removed. Stored rows pointing at providers that no
+    # longer have an executor (Emergent Claude/Gemini, fal_image) move to the
+    # direct defaults; the child character stage is switched on because every
+    # scene now relies on it for the child's likeness.
+    try:
+        if await _already_applied("phase1_direct_providers"):
+            raise _SkipMigration
+        from services.config_service import DEFAULT_MODELS
+        for stage_key in ("scenario_generation", "production_planning", "child_character_i2i",
+                          "extra_character_i2i", "scene_image_generation", "book_page_image_generation"):
+            res = await db.model_registry.update_many(
+                {"stage_key": stage_key},
+                {"$set": {**DEFAULT_MODELS[stage_key], "notes": "Phase 1 auto-migrated (direct providers)"}},
+            )
+            if res.modified_count:
+                logger.info(f"model_registry: Phase 1 migrated {stage_key} → "
+                            f"{DEFAULT_MODELS[stage_key]['provider']}/{DEFAULT_MODELS[stage_key]['model_name']}")
+        await db.pipeline_config.update_one(
+            {"id": "default"}, {"$set": {"stages.child_character_i2i.enabled": True}},
+        )
+        await _mark_applied("phase1_direct_providers")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Phase 1 provider migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

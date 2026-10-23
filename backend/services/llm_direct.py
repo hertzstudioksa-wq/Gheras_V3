@@ -1,4 +1,4 @@
-"""Direct OpenAI text path — bypasses emergentintegrations proxy.
+"""Direct OpenAI text path (used by services.ai.text_client for provider=openai).
 
 Used when the admin model_registry row has env_key="OPENAI_API_KEY" AND the
 OPENAI_API_KEY env var is set. The resulting call hits api.openai.com

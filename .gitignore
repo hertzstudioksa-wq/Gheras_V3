@@ -111,3 +111,5 @@ credentials.json
 docs/audit/
 # Local temp/dev helpers
 npm-temp-work/
+# Local media storage (dev default for STORAGE_DIR)
+.media/

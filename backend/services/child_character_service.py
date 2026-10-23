@@ -1,18 +1,18 @@
 """Phase C — child_character_i2i execution service.
 
-Generates a reusable cartoon character reference from the uploaded child photo.
-Real provider: OpenAI gpt-image-1 (image edits endpoint — identity-preserving I2I).
-Falls back to MOCK/dry-run if OPENAI_API_KEY missing, provider not configured,
-or any exception is raised inside the real provider call.
+Generates a reusable cartoon character reference from the uploaded child photo
+(services.ai.image_client, reference-guided edit). Every scene then uses this
+character as its visual reference, so it is what makes the child the hero.
 
-Safety rules (MUST NOT CHANGE):
+Rules:
   1. If `pipeline_config.stages.child_character_i2i.enabled` is False → skip.
   2. If the order has no child photo (`order.data.child.image_url` missing) → skip.
-  3. If anything inside this service raises → the exception is swallowed,
-     `scene_image_generation` continues unaffected. No regression possible.
+  3. A provider failure is recorded on the asset (status "failed" + reason) and
+     returned — never replaced by a mock. The orchestrator stops the order so
+     no book is produced without the child's likeness.
   4. Prompt text comes from `resolve_prompt(...)` with a hardcoded default.
      No eval/f-strings on DB input.
-  5. OPENAI_API_KEY is read from env only — never logged, never returned.
+  5. API keys are resolved by the adapter at call time — never logged or returned.
 """
 import asyncio
 import io
@@ -29,6 +29,7 @@ from services.config_service import (
     get_pipeline_config,
     DEFAULT_MODELS,
 )
+from services.ai.image_client import generate_image as generate_provider_image
 from storage import put_object, APP_NAME
 
 logger = logging.getLogger("child_character_service")
@@ -125,63 +126,16 @@ async def _fetch_source_bytes(source_image_url: str) -> tuple[bytes, str] | None
         return None
 
 
-async def _openai_generate(
-    source_bytes: bytes, source_mime: str, prompt: str, model_name: str,
-) -> dict[str, Any] | None:
-    """OpenAI gpt-image-1 images.edit — identity-preserving I2I.
-
-    Returns {image_bytes, mime_type, meta} on success, or None on any failure.
-    NEVER raises. Never logs the API key.
-    """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        logger.warning("[child_character_i2i] OPENAI_API_KEY not set — skipping real call")
-        return None
-    try:
-        from openai import AsyncOpenAI
-        # gpt-image-1 edits require PNG input. Convert if needed.
-        input_bytes = source_bytes
-        if source_mime != "image/png":
-            try:
-                from PIL import Image
-                img = Image.open(io.BytesIO(source_bytes)).convert("RGBA")
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                input_bytes = buf.getvalue()
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"[child_character_i2i] PIL convert failed: {e}")
-        file_arg = ("child.png", input_bytes, "image/png")
-        client = AsyncOpenAI(api_key=api_key, timeout=90.0)
-        resp = await client.images.edit(
-            model=model_name,
-            image=file_arg,
-            prompt=prompt,
-            size="1024x1024",
-            background="transparent",
-            n=1,
-        )
-        if not resp or not resp.data:
-            return None
-        b64 = getattr(resp.data[0], "b64_json", None)
-        if b64:
-            import base64
-            img_bytes = base64.b64decode(b64)
-            return {"image_bytes": img_bytes, "mime_type": "image/png",
-                    "meta": {"response_kind": "b64_json", "openai_model": model_name,
-                             "size": "1024x1024"}}
-        url = getattr(resp.data[0], "url", None)
-        if not url:
-            return None
-        import httpx
-        async with httpx.AsyncClient(timeout=60.0) as hc:
-            r = await hc.get(url)
-            if r.status_code != 200:
-                return None
-            return {"image_bytes": r.content, "mime_type": "image/png",
-                    "meta": {"response_kind": "url", "openai_model": model_name}}
-    except Exception as e:  # noqa: BLE001 — never leak
-        logger.warning(f"[child_character_i2i] OpenAI call failed: {type(e).__name__}: {str(e)[:300]}")
-        return None
+async def _generate_character(source_bytes: bytes, prompt: str, provider: str, model_name: str) -> dict[str, Any]:
+    """Identity-preserving photo → cartoon character via the image adapter. Raises AIError."""
+    image_bytes, mime, meta = await generate_provider_image(
+        stage="child_character_i2i",
+        provider=provider,
+        model=model_name,
+        prompt=prompt,
+        references=[source_bytes],
+    )
+    return {"image_bytes": image_bytes, "mime_type": mime, "meta": meta}
 
 
 async def _save_generated_png(order_id: str, user_id: str, png_bytes: bytes) -> str:
@@ -204,17 +158,6 @@ async def _save_generated_png(order_id: str, user_id: str, png_bytes: bytes) -> 
         "created_at": _now(),
     })
     return f"/api/uploads/file/{file_id}"
-
-
-async def _mock_generate(source_image_url: str, prompt: str) -> dict[str, Any]:
-    """Fallback mock/dry-run — mirrors source URL. Predictable, non-breaking."""
-    return {
-        "provider": "mock",
-        "model_name": "dry-run",
-        "generated_image_url": source_image_url,
-        "prompt_used": prompt,
-        "mock": True,
-    }
 
 
 async def _upsert_asset(order_id: str, patch: dict) -> dict:
@@ -278,39 +221,33 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
         provider, model_name, src = await resolve_model(
             "child_character_i2i",
             defaults.get("provider", "openai"),
-            defaults.get("model_name", "gpt-image-1"),
+            defaults.get("model_name", "gpt-image-2"),
         )
     except Exception:  # noqa: BLE001
-        provider, model_name, src = "openai", "gpt-image-1", "fallback"
+        provider, model_name, src = "openai", "gpt-image-2", "fallback"
     logger.info(f"[config] stage=child_character_i2i model_source={src} model={provider}/{model_name}")
 
-    real_ok = False
-    real_meta: dict[str, Any] = {}
     generated_url: str | None = None
-    use_real = provider == "openai" and bool(os.environ.get("OPENAI_API_KEY"))
-    if use_real:
-        src_tuple = await _fetch_source_bytes(source_image_url)
-        if not src_tuple:
-            logger.warning("[child_character_i2i] could not fetch source bytes; falling back to mock")
-        else:
-            src_bytes, src_mime = src_tuple
-            result = await _openai_generate(src_bytes, src_mime, prompt, model_name)
-            if result and result.get("image_bytes"):
-                try:
-                    generated_url = await _save_generated_png(
-                        order_id, order["user_id"], result["image_bytes"]
-                    )
-                    real_meta = result.get("meta") or {}
-                    real_ok = True
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"[child_character_i2i] save failed: {type(e).__name__}: {e}")
+    real_meta: dict[str, Any] = {}
+    error: str | None = None
+    src_tuple = await _fetch_source_bytes(source_image_url)
+    if not src_tuple:
+        error = "child photo could not be read from storage"
+    else:
+        try:
+            result = await _generate_character(src_tuple[0], prompt, provider, model_name)
+            generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
+            real_meta = result.get("meta") or {}
+        except Exception as e:  # noqa: BLE001 — recorded on the asset and surfaced to the orchestrator
+            error = f"{type(e).__name__}: {e}"
+            logger.warning(f"[child_character_i2i] generation failed order={order_id}: {error[:300]}")
 
     try:
-        if real_ok and generated_url:
+        if generated_url:
             asset = await _upsert_asset(order_id, {
                 "source_image_url":    source_image_url,
                 "generated_image_url": generated_url,
-                "provider":            "openai",
+                "provider":            provider,
                 "model_name":          model_name,
                 "prompt_used":         prompt,
                 "prompt_source":       prompt_source,
@@ -320,38 +257,15 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
                 "error_message":       None,
                 "meta":                real_meta,
             })
-            logger.info(f"[child_character_i2i] REAL (openai) completed for order={order_id}")
+            logger.info(f"[child_character_i2i] completed ({provider}/{model_name}) for order={order_id}")
             return {"ran": True, "skipped": False, "status": "completed", "asset": asset}
-
-        fallback_allowed = bool(stage_cfg.get("fallback_allowed", False))
-        if fallback_allowed:
-            meta = await _mock_generate(source_image_url, prompt)
-            asset = await _upsert_asset(order_id, {
-                "source_image_url":    source_image_url,
-                "generated_image_url": meta["generated_image_url"],
-                "provider":            meta["provider"],
-                "model_name":          meta["model_name"],
-                "prompt_used":         prompt,
-                "prompt_source":       prompt_source,
-                "status":              "completed",
-                "fallback_used":       use_real,  # true iff real attempted and failed
-                "mock":                True,
-                "error_message":       None,
-            })
-            logger.info(
-                f"[child_character_i2i] MOCK fallback used for order={order_id} "
-                f"(real_attempted={use_real})"
-            )
-            return {"ran": True, "skipped": False, "status": "completed",
-                    "asset": asset, "fallback_used": True}
 
         asset = await _upsert_asset(order_id, {
             "status":        "failed",
             "fallback_used": False,
-            "error_message": "real provider failed and fallback disabled",
+            "error_message": error,
         })
-        return {"ran": True, "skipped": False, "status": "failed",
-                "reason": "real_provider_failed_no_fallback", "asset": asset}
+        return {"ran": True, "skipped": False, "status": "failed", "reason": error, "asset": asset}
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
         logger.warning(f"[child_character_i2i] persist failed order={order_id} err={err}")

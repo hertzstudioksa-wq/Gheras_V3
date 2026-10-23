@@ -29,9 +29,8 @@ from services.config_service import (
 )
 from services.child_character_service import (
     _fetch_source_bytes,
-    _openai_generate,
+    _generate_character,
     _save_generated_png,
-    _mock_generate,
     DEFAULT_PROMPT as CHILD_DEFAULT_PROMPT,
 )
 
@@ -132,31 +131,26 @@ async def _run_one(order: dict, character_index: int, character: dict,
     base = admin_prompt if (prompt_src == "admin" and admin_prompt) else CHILD_DEFAULT_PROMPT
     prompt = _build_character_prompt(character, base)
 
-    use_real = provider == "openai"
-    real_ok = False
     generated_url: str | None = None
     real_meta: dict[str, Any] = {}
+    error: str | None = None
+    src_tuple = await _fetch_source_bytes(source_url)
+    if not src_tuple:
+        error = "character photo could not be read from storage"
+    else:
+        try:
+            result = await _generate_character(src_tuple[0], prompt, provider, model_name)
+            generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
+            real_meta = result.get("meta") or {}
+        except Exception as e:  # noqa: BLE001 — recorded on the asset; the book continues without this likeness
+            error = f"{type(e).__name__}: {e}"
+            logger.warning(f"[extra_character_i2i] failed order={order_id} char={character_index}: {error[:300]}")
 
-    if use_real:
-        src_tuple = await _fetch_source_bytes(source_url)
-        if src_tuple:
-            src_bytes, src_mime = src_tuple
-            result = await _openai_generate(src_bytes, src_mime, prompt, model_name)
-            if result and result.get("image_bytes"):
-                try:
-                    generated_url = await _save_generated_png(
-                        order_id, order["user_id"], result["image_bytes"]
-                    )
-                    real_meta = result.get("meta") or {}
-                    real_ok = True
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"[extra_character_i2i] save failed: {type(e).__name__}: {e}")
-
-    if real_ok and generated_url:
+    if generated_url:
         asset = await _upsert_asset(order_id, character_index, {
             "source_image_url":    source_url,
             "generated_image_url": generated_url,
-            "provider":            "openai",
+            "provider":            provider,
             "model_name":          model_name,
             "prompt_used":         prompt,
             "prompt_source":       "admin" if prompt_src == "admin" else "default",
@@ -165,30 +159,14 @@ async def _run_one(order: dict, character_index: int, character: dict,
             "mock":                False,
             "meta":                real_meta,
         })
-        logger.info(f"[extra_character_i2i] REAL ok order={order_id} char={character_index}")
+        logger.info(f"[extra_character_i2i] ok order={order_id} char={character_index}")
         return {"skipped": False, "status": "completed", "asset": asset}
 
-    # Real failed. Fallback if allowed; else silent text-only.
-    if bool(stage_cfg.get("fallback_allowed", True)):
-        mock_meta = await _mock_generate(source_url, prompt)
-        asset = await _upsert_asset(order_id, character_index, {
-            "source_image_url":    source_url,
-            "generated_image_url": mock_meta["generated_image_url"],
-            "provider":            mock_meta["provider"],
-            "model_name":          mock_meta["model_name"],
-            "prompt_used":         prompt,
-            "prompt_source":       "admin" if prompt_src == "admin" else "default",
-            "status":              "completed",
-            "fallback_used":       use_real,
-            "mock":                True,
-        })
-        logger.info(f"[extra_character_i2i] mock fallback order={order_id} char={character_index}")
-        return {"skipped": False, "status": "completed", "asset": asset, "fallback_used": True}
-
+    # No mock stand-in: scenes simply won't carry this character's likeness.
     asset = await _upsert_asset(order_id, character_index, {
         "status":        "failed",
         "fallback_used": False,
-        "error_message": "real provider failed and fallback disabled",
+        "error_message": error,
     })
     return {"skipped": False, "status": "failed", "asset": asset}
 

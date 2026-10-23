@@ -1,17 +1,14 @@
-"""Scenario generation service — Claude Sonnet 4.5 primary, deterministic fallback."""
+"""Scenario generation service — 3 AI-written story options per order (no template fallback)."""
 import os
 import json
 import logging
 import uuid
 from datetime import datetime, timezone
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-
 logger = logging.getLogger("scenario_service")
 
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 MODEL_PROVIDER = "anthropic"
-MODEL_NAME = "claude-sonnet-4-5-20250929"
+MODEL_NAME = "claude-opus-5-5"
 
 SYSTEM_MSG = """أنت كاتب قصص أطفال عربية محترف. مهمتك إنشاء 3 سيناريوهات قصيرة متنوعة ومميزة لكل طلب.
 
@@ -129,9 +126,37 @@ def _clamp_scene_count(requested: int, target: int, bucket_range: tuple[int, int
     return max(lo, min(hi, r))
 
 
-from services.config_service import resolve_model, resolve_prompt, resolve_transport
-from services.llm_direct import direct_openai_chat
+from services.config_service import resolve_model, resolve_prompt
+from services.ai.text_client import generate_text
 from models import duration_scene_range
+
+# Structured-output schema matching SYSTEM_MSG; the count (exactly 3) is
+# checked in code because array length limits aren't enforced by the schema.
+SCENARIOS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scenarios": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "short_summary": {"type": "string"},
+                    "emotional_angle": {"type": "string", "enum": TONES},
+                    "learning_goal": {"type": "string"},
+                    "visual_style_hint": {"type": "string"},
+                    "estimated_scene_count": {"type": "integer"},
+                    "why_this_fits": {"type": "string"},
+                },
+                "required": ["title", "short_summary", "emotional_angle", "learning_goal",
+                             "visual_style_hint", "estimated_scene_count", "why_this_fits"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["scenarios"],
+    "additionalProperties": False,
+}
 
 
 def _build_scenario_context(order: dict) -> dict:
@@ -205,10 +230,7 @@ def _build_scenario_context(order: dict) -> dict:
 
 
 async def _generate_via_claude(order: dict) -> list[dict]:
-    """Try Claude Sonnet 4.5. Raises on any failure."""
-    if not EMERGENT_LLM_KEY:
-        raise RuntimeError("EMERGENT_LLM_KEY missing")
-    session_id = f"scenarios-{order.get('id', uuid.uuid4())}"
+    """Ask the configured text model for 3 scenarios. Raises on any failure."""
     provider, model_name, model_src = await resolve_model(
         "scenario_generation", MODEL_PROVIDER, MODEL_NAME
     )
@@ -224,26 +246,17 @@ async def _generate_via_claude(order: dict) -> list[dict]:
         logger.info(f"[config] stage=scenario_generation prompt_source=default reason={reason}")
         user_prompt_text = _user_prompt(order)
 
-    chat = (
-        LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=SYSTEM_MSG)
-        .with_model(provider, model_name)
+    response = await generate_text(
+        stage="scenario_generation",
+        provider=provider,
+        model=model_name,
+        system=SYSTEM_MSG,
+        user=user_prompt_text,
+        json_schema=SCENARIOS_SCHEMA,
+        effort="medium",
+        max_tokens=16000,
+        timeout=180.0,
     )
-
-    # Transport selection — Phase D.2: direct OpenAI (billed to user's own
-    # OPENAI_API_KEY) OR Emergent proxy (billed to EMERGENT_LLM_KEY). The
-    # decision is a pure DB read; both paths produce the same string result
-    # so all downstream parsing/fallback logic is untouched.
-    transport = await resolve_transport("scenario_generation")
-    logger.info(f"[config] stage=scenario_generation transport={transport}")
-    if transport == "direct-openai":
-        response = await direct_openai_chat(
-            system_message=SYSTEM_MSG,
-            user_message=user_prompt_text,
-            model=model_name,
-            timeout=90.0,
-        )
-    else:
-        response = await chat.send_message(UserMessage(text=user_prompt_text))
     text = (response or "").strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -276,63 +289,6 @@ async def _generate_via_claude(order: dict) -> list[dict]:
     return out
 
 
-def _fallback_scenarios(order: dict) -> list[dict]:
-    """Deterministic fallback — 3 distinct tones derived from order data."""
-    data = order.get("data", {}) or {}
-    enriched = order.get("enriched", {}) or {}
-    child = data.get("child", {}) or {}
-    goal = data.get("goal", {}) or {}
-    name = child.get("name", "بطلنا")
-    age = child.get("age", 5)
-    theme = enriched.get("subcategory_name") or goal.get("custom_subcategory") or enriched.get("category_name") or "قيمة جميلة"
-    context_snip = (goal.get("context") or "").strip()
-    context_line = context_snip[:80] + ("..." if len(context_snip) > 80 else "")
-    scene_target = (order.get("duration") or {}).get("scene_target") or 5
-    brange = duration_scene_range(order.get("duration"))
-
-    return [
-        {
-            "title": f"قلب {name} الكبير",
-            "short_summary": (
-                f"قصة دافئة تلامس مشاعر {name}، تبدأ من الموقف الذي عاشه "
-                f"وتأخذه في رحلة هادئة لاكتشاف معنى {theme} من الداخل. "
-                f"تنتهي بلحظة مؤثرة تجعل الدرس يصل للقلب قبل العقل."
-            ),
-            "emotional_angle": "emotional",
-            "learning_goal": f"أن يفهم {name} قيمة {theme} بصدق مشاعره",
-            "visual_style_hint": "ألوان دافئة خفيفة، إضاءة ذهبية، لقطات قريبة من الوجه لإبراز المشاعر",
-            "estimated_scene_count": _clamp_scene_count(scene_target, scene_target, brange),
-            "why_this_fits": f"النبرة العاطفية تناسب {name} في عمر {age} وتربط مباشرة بمشاعره في الموقف الذي عاشه.",
-        },
-        {
-            "title": f"{name} يكتشف الحكمة",
-            "short_summary": (
-                f"قصة هادئة بأسلوب تعليمي لطيف، يتعلم فيها {name} معنى {theme} "
-                f"من شخصية حكيمة ولحظات بسيطة في حياته اليومية. "
-                f"مناسبة جداً لعمر {age} سنوات وتترك أثراً واضحاً."
-            ),
-            "emotional_angle": "educational",
-            "learning_goal": f"توضيح {theme} بأمثلة عملية يفهمها طفل بعمر {age}",
-            "visual_style_hint": "ألوان هادئة، زوايا ثابتة، تركيز على التعابير والتفاصيل الصغيرة",
-            "estimated_scene_count": _clamp_scene_count(scene_target, scene_target, brange),
-            "why_this_fits": f"الأسلوب التعليمي الهادئ مثالي لشرح {theme} بلغة مبسطة تناسب استيعاب طفل في عمر {age}.",
-        },
-        {
-            "title": f"مغامرة {name} الكبرى",
-            "short_summary": (
-                f"مغامرة مشوّقة يخوض فيها {name} تحدياً ممتعاً يعلّمه {theme}. "
-                f"أحداث سريعة وشخصيات مرحة ونهاية بطولية — بدون عنف ومناسبة للأطفال. "
-                + (f"القصة تبدأ من موقف شبيه بالذي عاشه: {context_line}" if context_line else "")
-            ),
-            "emotional_angle": "adventure",
-            "learning_goal": f"تعزيز {theme} عبر تجربة بطولية ممتعة",
-            "visual_style_hint": "ألوان زاهية، حركة ديناميكية، لقطات واسعة لإبراز المغامرة",
-            "estimated_scene_count": _clamp_scene_count(scene_target + 1, scene_target, brange),
-            "why_this_fits": f"المغامرة تجذب انتباه {name} وتحوّل الموقف الذي عاشه إلى تجربة بطولية ممتعة تترك أثر {theme} بشكل لا يُنسى.",
-        },
-    ]
-
-
 async def generate_scenarios(order: dict) -> tuple[list[dict], str, str | None]:
     """Main entry. Returns (scenarios, source, error_message_if_any)."""
     # Phase D.3 — populate auto visual descriptions for uploaded toy/character
@@ -344,12 +300,10 @@ async def generate_scenarios(order: dict) -> tuple[list[dict], str, str | None]:
         order = await ensure_vision_descriptions(order)
     except Exception as e:  # noqa: BLE001 — must never block scenarios
         logger.warning(f"[vision_describe] non-fatal: {type(e).__name__}: {e}")
-    try:
-        items = await _generate_via_claude(order)
-        return items, "ai", None
-    except Exception as e:
-        logger.warning(f"Claude scenario generation failed, using fallback: {e}")
-        return _fallback_scenarios(order), "fallback", str(e)
+    # No template fallback: generic stories presented as personalised ones
+    # mislead parents. A failure propagates and the order is marked failed.
+    items = await _generate_via_claude(order)
+    return items, "ai", None
 
 
 def build_scenario_docs(order_id: str, items: list[dict], batch_id: str, source: str) -> list[dict]:

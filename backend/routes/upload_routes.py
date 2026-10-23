@@ -1,8 +1,10 @@
-"""Image uploads (child, character, toy) via Emergent Object Storage."""
+"""Image uploads (child, character, toy) stored via storage.py."""
+import io
 import os
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header, Response
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from db import db
 from auth import get_current_user, decode_token
@@ -16,6 +18,28 @@ def _now():
 
 
 ALLOWED_SCOPES = {"child", "character", "toy"}
+MAX_SIDE = 2048
+
+
+def _sanitize_image(data: bytes) -> tuple[bytes, str]:
+    """Decode, drop metadata (EXIF/GPS), cap the size and re-encode.
+
+    These are mostly photos of children that later go to AI providers, so we
+    never keep the original bytes. Returns (bytes, ext); raises 400 if the
+    file isn't a real image whatever its extension says.
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            img.load()
+            fmt = "JPEG" if img.format in ("JPEG", "MPO") else "PNG"
+            img = ImageOps.exif_transpose(img)  # returns a new image without .format
+            img = img.convert("RGB" if fmt == "JPEG" else "RGBA")
+            img.thumbnail((MAX_SIDE, MAX_SIDE))
+            out = io.BytesIO()
+            img.save(out, format=fmt, **({"quality": 92} if fmt == "JPEG" else {}))
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(status_code=400, detail="الملف ليس صورة صالحة")
+    return out.getvalue(), ("jpg" if fmt == "JPEG" else "png")
 
 
 @router.post("/image")
@@ -30,11 +54,12 @@ async def upload_image(
     if ext not in ALLOWED_EXT:
         raise HTTPException(status_code=400, detail="امتداد الصورة غير مدعوم")
 
-    data = await file.read()
+    data = await file.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise HTTPException(status_code=400, detail="حجم الصورة كبير جداً (حد أقصى 6MB)")
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="ملف فارغ")
+    data, ext = _sanitize_image(data)
 
     content_type = MIME_TYPES.get(ext, file.content_type or "application/octet-stream")
     file_id = str(uuid.uuid4())

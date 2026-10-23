@@ -59,6 +59,8 @@ def _result(provider: str, ok: bool, auth_ok: bool, reachable: bool,
 
 # ---- OpenAI ---------------------------------------------------------------
 async def test_openai() -> dict:
+    from services.config_service import DEFAULT_MODELS
+
     secret, source = await get_secret_with_source("OPENAI_API_KEY")
     if not secret:
         return _result("openai", False, False, False, 0, None, "missing",
@@ -72,7 +74,7 @@ async def test_openai() -> dict:
         if resp.status_code == 200:
             data = resp.json()
             models = {m.get("id") for m in data.get("data", [])}
-            mr = "gpt-image-1" in models or "gpt-4o" in models
+            mr = DEFAULT_MODELS["scene_image_generation"]["model_name"] in models
             return _result("openai", True, True, True, latency, secret, source,
                            model_reachable=mr)
         if resp.status_code in (401, 403):
@@ -86,32 +88,31 @@ async def test_openai() -> dict:
                        f"{type(e).__name__}: {e}")
 
 
-# ---- Gemini / Emergent (probe via emergentintegrations) -------------------
-async def test_emergent_llm() -> dict:
-    """The Emergent Universal Key is used for both Gemini Nano Banana and
-    Claude routes. We can't introspect Emergent's quota directly, so we just
-    verify the SDK accepts the key shape and a minimal `LlmChat` instantiates
-    without raising. Real provider test happens on Stage Lab runs."""
-    secret, source = await get_secret_with_source("EMERGENT_LLM_KEY")
+# ---- Anthropic (Claude) — text stages ------------------------------------
+async def test_anthropic() -> dict:
+    """Lists models (no tokens spent): validates the key and that the default
+    text model is available to it."""
+    secret, source = await get_secret_with_source("ANTHROPIC_API_KEY")
     if not secret:
-        return _result("emergent", False, False, False, 0, None, "missing",
-                       "EMERGENT_LLM_KEY not configured")
+        return _result("anthropic", False, False, False, 0, None, "missing",
+                       "ANTHROPIC_API_KEY not configured")
+    import anthropic
+    from services.config_service import DEFAULT_MODELS
+
     started = time.monotonic()
     try:
-        from emergentintegrations.llm.chat import LlmChat
-        _ = LlmChat(api_key=secret, session_id="probe",
-                    system_message="probe").with_model("gemini", "gemini-2.5-flash")
+        client = anthropic.AsyncAnthropic(api_key=secret, timeout=TIMEOUT, max_retries=0)
+        page = await client.models.list(limit=100)
         latency = int((time.monotonic() - started) * 1000)
-        # Light ping to Google Generative API to validate net path.
-        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as c:
-            r = await c.get("https://generativelanguage.googleapis.com/", follow_redirects=False)
-        return _result("emergent", True, True, r.status_code in (200, 301, 302, 404),
-                       latency, secret, source,
-                       error=None,
-                       model_reachable=True)
+        wanted = DEFAULT_MODELS["scenario_generation"]["model_name"]
+        return _result("anthropic", True, True, True, latency, secret, source,
+                       model_reachable=wanted in {m.id for m in page.data})
+    except anthropic.AuthenticationError as e:
+        latency = int((time.monotonic() - started) * 1000)
+        return _result("anthropic", False, False, True, latency, secret, source, f"auth failed: {e}")
     except Exception as e:  # noqa: BLE001
         latency = int((time.monotonic() - started) * 1000)
-        return _result("emergent", False, False, False, latency, secret, source,
+        return _result("anthropic", False, False, False, latency, secret, source,
                        f"{type(e).__name__}: {e}")
 
 
@@ -292,7 +293,7 @@ async def test_stripe() -> dict:
 
 PROVIDERS = {
     "openai":            test_openai,
-    "emergent":          test_emergent_llm,
+    "anthropic":         test_anthropic,
     "elevenlabs":        test_elevenlabs,
     "elevenlabs_music":  test_elevenlabs_music,
     "fal":               test_fal,
