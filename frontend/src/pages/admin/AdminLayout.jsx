@@ -1,6 +1,8 @@
 import React from "react";
-import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import ErrorBoundary from "../../components/ErrorBoundary";
+import AdminPasswordGate from "./AdminPasswordGate";
 import {
   LayoutDashboard, Users, BookOpen, Sprout, FileText, Wand2,
   CreditCard, Settings, LogOut, Palette, Cpu, Workflow, ShieldCheck,
@@ -37,6 +39,7 @@ const items = [
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const doLogout = () => {
     logout();
@@ -127,7 +130,9 @@ export default function AdminLayout() {
         </div>
 
         <div className="p-6 md:p-10">
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            {user?.must_change_password ? <AdminPasswordGate /> : <Outlet />}
+          </ErrorBoundary>
         </div>
       </main>
     </div>

@@ -191,6 +191,7 @@ export default function AdminStoryboard() {
           <StageCard
             key={s.stage_key}
             stage={s}
+            orderId={orderId}
             expanded={!!expanded[s.stage_key]}
             onToggle={() => toggle(s.stage_key)}
             innerRef={(el) => (refs.current[s.stage_key] = el)}
@@ -246,7 +247,7 @@ function Timeline({ items, onClick }) {
   );
 }
 
-function StageCard({ stage, expanded, onToggle, innerRef, onReload }) {
+function StageCard({ stage, orderId, expanded, onToggle, innerRef, onReload }) {
   const s = STATUS_STYLE[stage.status] || STATUS_STYLE.pending;
   return (
     <section
@@ -347,7 +348,7 @@ function StageCard({ stage, expanded, onToggle, innerRef, onReload }) {
 
           {/* Output summary — custom rendering per stage */}
           <DetailBlock title="Output">
-            <StageOutput stage={stage} orderId={orderId} onReload={load} />
+            <StageOutput stage={stage} orderId={orderId} onReload={onReload} />
           </DetailBlock>
 
           {/* Events */}
@@ -509,7 +510,7 @@ function OutVideoGeneration({ o, orderId, onReload }) {
     setImporting((m) => ({ ...m, [sceneIndex]: true }));
     try {
       const r = await api.post(
-        `/api/admin/orders/${orderId}/video-clips/import-by-request-id`,
+        `/admin/orders/${orderId}/video-clips/import-by-request-id`,
         { scene_index: sceneIndex, request_id: requestId, force: true },
       );
       const d = r.data || {};

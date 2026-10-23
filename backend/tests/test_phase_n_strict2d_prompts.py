@@ -15,7 +15,7 @@ import pytest
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 ADMIN_EMAIL = "admin@gheras.com"
-ADMIN_PASSWORD = "Admin@1234"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 STAGES = [
     "child_character_i2i",

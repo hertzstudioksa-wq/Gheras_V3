@@ -8,7 +8,7 @@ import requests
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 ADMIN_EMAIL = "admin@gheras.com"
-ADMIN_PASSWORD = "Admin@1234"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DELIVERED_ORDER_ID = "4c357bfc-3092-4eb6-8c2a-105a6662766b"
 
 INTERNAL_ORDER_KEYS = {

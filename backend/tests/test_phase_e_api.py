@@ -15,7 +15,7 @@ BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL")
             or "https://girasai-create.preview.emergentagent.com").rstrip("/")
 
 ADMIN_EMAIL = "admin@gheras.com"
-ADMIN_PASSWORD = "Admin@1234"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 ORDER_REF = "61c44457-2a80-454d-b3bc-5d2625085aba"     # has child reference asset
 ORDER_LEGACY = "4c357bfc-3092-4eb6-8c2a-105a6662766b"  # delivered, no scene_reference_log

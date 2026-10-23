@@ -16,7 +16,7 @@ import requests
 
 BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://girasai-create.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@gheras.com")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Admin@1234")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 EXPECTED_STAGES = {
     "scenario_generation",

@@ -61,7 +61,7 @@ cd ../frontend && yarn install && yarn start
 ```
 
 ## 7. Verify
-- http://localhost:3000 — login admin@gheras.com / Admin@1234
+- http://localhost:3000 — login admin@gheras.com (password from ADMIN_PASSWORD in backend/.env)
 - /admin/secrets shows your keys
 - /admin/stage-control shows 11 stages
 - `cd backend && pytest tests/test_phase_n_*.py -q` — all green

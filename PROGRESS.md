@@ -49,7 +49,7 @@
 
 | حاجة | التفاصيل |
 |------|---------|
-| **Admin login** | admin@gheras.com / Admin@1234 |
+| **Admin login** | admin@gheras.com — كلمة المرور مع مسؤول المشروع (مش في الريبو) |
 | **VPS IP** | 76.13.0.195 |
 | **الموقع** | http://76.13.0.195:3000 |
 | **GitHub** | github.com/hertzstudioksa-wq/Gheras_V3 |

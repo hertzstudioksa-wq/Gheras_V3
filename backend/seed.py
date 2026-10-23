@@ -1,4 +1,5 @@
 """Seed database with initial data — v2."""
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
@@ -6,6 +7,8 @@ from datetime import datetime, timezone
 from db import db
 from auth import hash_password
 from models import UserRole
+
+logger = logging.getLogger(__name__)
 
 
 def _now():
@@ -125,9 +128,14 @@ SETTINGS = [
 
 async def seed_admin():
     email = os.environ.get("ADMIN_EMAIL", "admin@gheras.com")
-    password = os.environ.get("ADMIN_PASSWORD", "Admin@1234")
     existing = await db.users.find_one({"email": email})
     if existing:
+        return
+    # No default password: a published fallback would leave every fresh deploy
+    # with a known admin login. Without ADMIN_PASSWORD we simply skip.
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not password:
+        logger.warning("ADMIN_PASSWORD not set — skipping initial admin creation for %s", email)
         return
     await db.users.insert_one({
         "id": str(uuid.uuid4()),

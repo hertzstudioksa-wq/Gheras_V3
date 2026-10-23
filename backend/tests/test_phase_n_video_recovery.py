@@ -18,7 +18,7 @@ import pytest
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 ADMIN_EMAIL = "admin@gheras.com"
-ADMIN_PASSWORD = "Admin@1234"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 # The order that the main agent's smoke run already imported 5 clips into.
 RECOVERED_ORDER_ID = "359f01b8-356f-46e7-9217-f6d30f57c9d5"

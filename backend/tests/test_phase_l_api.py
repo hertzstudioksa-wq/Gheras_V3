@@ -5,7 +5,7 @@ import pytest
 
 BASE_URL = "https://girasai-create.preview.emergentagent.com"
 ADMIN_EMAIL = "admin@gheras.com"
-ADMIN_PASSWORD = "Admin@1234"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 
 @pytest.fixture(scope="module")

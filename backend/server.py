@@ -93,6 +93,10 @@ logging.basicConfig(
 logger = logging.getLogger("gheras")
 
 
+class _SkipMigration(Exception):
+    """Raised inside a startup migration block that was already applied."""
+
+
 @app.on_event("startup")
 async def on_startup():
     await ensure_indexes()
@@ -146,10 +150,24 @@ async def on_startup():
     except Exception as e:  # noqa: BLE001
         logger.warning(f"pipeline_config migration skipped: {e}")
 
-    # Phase N migration — refresh all 11 stages' model_registry rows that still
-    # hold a pre-Phase-N default to the new canonical mapping. Idempotent: only
-    # updates rows matching a known legacy signature so admin choices are safe.
+    # The two data migrations below rewrite admin-editable config, so they run
+    # once per database (recorded in db.migrations). Re-running them on every
+    # boot used to revert values that admins or presets had chosen on purpose.
+    async def _already_applied(migration_id: str) -> bool:
+        return bool(await db.migrations.find_one({"id": migration_id}, {"_id": 1}))
+
+    async def _mark_applied(migration_id: str) -> None:
+        await db.migrations.update_one(
+            {"id": migration_id},
+            {"$setOnInsert": {"id": migration_id, "applied_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+
+    # Phase N migration — refresh model_registry rows that still hold a
+    # pre-Phase-N default to the new canonical mapping.
     try:
+        if await _already_applied("phase_n_model_registry"):
+            raise _SkipMigration
         from services.config_service import DEFAULT_MODELS
         legacy_signatures = {
             "scenario_generation":         [("anthropic", "claude-sonnet-4-5-20250929")],
@@ -182,12 +200,17 @@ async def on_startup():
                 )
                 logger.info(f"model_registry: Phase N migrated {stage_key} "
                             f"{current} → {new.get('provider')}/{new.get('model_name')} [{new.get('env_key')}]")
+        await _mark_applied("phase_n_model_registry")
+    except _SkipMigration:
+        pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Phase N migration skipped: {e}")
 
     # Phase N — strict cartoon 2D prompt template migration. Bumps v1 → v2
-    # for the 4 visual stages so the new wording lands without manual seeding.
+    # for the visual stages so the new wording lands without manual seeding.
     try:
+        if await _already_applied("phase_n_strict_2d_prompts"):
+            raise _SkipMigration
         from seed import _build_prompt_template_seeds
         latest_seeds_list = await _build_prompt_template_seeds()
         latest_seeds = {s["stage_key"]: s for s in latest_seeds_list}
@@ -232,6 +255,9 @@ async def on_startup():
             bumped += 1
         if bumped:
             logger.info(f"prompt_templates: Phase N strict-2D bumped {bumped} stages")
+        await _mark_applied("phase_n_strict_2d_prompts")
+    except _SkipMigration:
+        pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Phase N prompt migration skipped: {e}")
     try:

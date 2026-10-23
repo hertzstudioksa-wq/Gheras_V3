@@ -226,7 +226,9 @@ async def set_secret_override(env_key: str, payload: dict, admin=Depends(require
     raw = (payload or {}).get("value")
     if not raw or not str(raw).strip():
         raise HTTPException(status_code=400, detail="value is required")
-    if not encryption_available():
+    # New writes need a dedicated key; the MONGO_URL-derived fallback in
+    # secret_overrides_service is kept only so existing rows stay readable.
+    if not os.environ.get("SECRETS_ENCRYPTION_KEY") or not encryption_available():
         raise HTTPException(status_code=503,
                             detail="encryption not available — set SECRETS_ENCRYPTION_KEY in deployment")
     try:

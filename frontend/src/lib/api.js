@@ -1,6 +1,12 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Empty means same-origin: production builds with REACT_APP_BACKEND_URL='' and
+// nginx proxies /api to the backend. Local dev points it at uvicorn (frontend/.env).
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
+if (!BACKEND_URL && process.env.NODE_ENV === "development") {
+  // eslint-disable-next-line no-console
+  console.warn("[api] REACT_APP_BACKEND_URL is empty — using same-origin /api");
+}
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({

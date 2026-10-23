@@ -10,7 +10,7 @@
 
 ## الموقع الأونلاين
 - **الموقع:** http://76.13.0.195:3000
-- **دخول Admin:** admin@gheras.com / Admin@1234
+- **دخول Admin:** admin@gheras.com — كلمة المرور مع مسؤول المشروع (مش في الريبو)
 
 ## GitHub
 - **الريبو:** https://github.com/hertzstudioksa-wq/Gheras_V3

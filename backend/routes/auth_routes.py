@@ -67,6 +67,10 @@ async def change_password(payload: PasswordChange, current=Depends(get_current_u
     user = await db.users.find_one({"id": current["id"]})
     if not user or not verify_password(payload.current_password, user.get("hashed_password", "")):
         raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=400, detail="كلمة المرور الجديدة يجب أن تختلف عن الحالية")
+    if user.get("role") == UserRole.ADMIN.value and len(payload.new_password) < 10:
+        raise HTTPException(status_code=400, detail="كلمة مرور المدير يجب ألا تقل عن 10 أحرف")
     await db.users.update_one(
         {"id": current["id"]},
         {"$set": {

@@ -77,4 +77,9 @@ async def get_optional_user(
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != UserRole.ADMIN.value:
         raise HTTPException(status_code=403, detail="صلاحيات المدير مطلوبة")
+    # Seeded admins start with a temporary password; block admin APIs until it
+    # is changed. /auth/change-password and /auth/me use get_current_user, so
+    # they stay reachable.
+    if user.get("must_change_password"):
+        raise HTTPException(status_code=403, detail="يجب تغيير كلمة المرور قبل استخدام لوحة الإدارة")
     return user

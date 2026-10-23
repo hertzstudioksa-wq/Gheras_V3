@@ -1,6 +1,6 @@
 """Phase N — Live API e2e tests.
 
-Requires REACT_APP_BACKEND_URL + admin seed (admin@gheras.com / Admin@1234).
+Requires REACT_APP_BACKEND_URL + admin seed (ADMIN_EMAIL / ADMIN_PASSWORD env).
 Validates 11-stage matrix, 4 fal capability keys, graceful missing-key handling,
 and no raw secret leakage.
 """
@@ -30,7 +30,7 @@ EXPECTED = {
 @pytest.fixture(scope="module")
 def admin_token():
     r = requests.post(f"{BASE}/api/auth/login",
-                      json={"email": "admin@gheras.com", "password": "Admin@1234"},
+                      json={"email": "admin@gheras.com", "password": os.environ.get("ADMIN_PASSWORD", "")},
                       timeout=15)
     assert r.status_code == 200, r.text[:200]
     body = r.json()

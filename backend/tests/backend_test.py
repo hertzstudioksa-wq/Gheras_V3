@@ -11,7 +11,7 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@gheras.com"
-ADMIN_PASSWORD = "Admin@1234"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 RUN_TAG = uuid.uuid4().hex[:6]
 PARENT_EMAIL = f"parent_{RUN_TAG}@test.com"
 PARENT2_EMAIL = f"parent2_{RUN_TAG}@test.com"

@@ -10,7 +10,7 @@ import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 ADMIN_EMAIL = "admin@gheras.com"
-ADMIN_PASS = "Admin@1234"
+ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "")
 
 DELIVERED_ID = "ebaa164d-4375-4728-9586-bfc325d0a4bf"
 PRODUCTION_READY_ID = "61c44457-2a80-454d-b3bc-5d2625085aba"
