@@ -116,6 +116,33 @@ async def test_anthropic() -> dict:
                        f"{type(e).__name__}: {e}")
 
 
+# ---- Google Gemini — free-tier testing provider ----------------------------
+async def test_gemini() -> dict:
+    """Lists models (no generation spent): validates the key and whether the
+    testing preset's image model is available to it."""
+    secret, source = await get_secret_with_source("GEMINI_API_KEY")
+    if not secret:
+        return _result("gemini", False, False, False, 0, None, "missing",
+                       "GEMINI_API_KEY not configured")
+    from google import genai
+    from services.preset_stacks_service import GEMINI_TEST_IMAGE_MODEL
+
+    started = time.monotonic()
+    try:
+        client = genai.Client(api_key=secret)
+        names = {m.name.removeprefix("models/") async for m in await client.aio.models.list()}
+        latency = int((time.monotonic() - started) * 1000)
+        return _result("gemini", True, True, True, latency, secret, source,
+                       model_reachable=GEMINI_TEST_IMAGE_MODEL in names)
+    except genai.errors.ClientError as e:
+        latency = int((time.monotonic() - started) * 1000)
+        return _result("gemini", False, False, True, latency, secret, source, f"auth/request failed: {e}")
+    except Exception as e:  # noqa: BLE001
+        latency = int((time.monotonic() - started) * 1000)
+        return _result("gemini", False, False, False, latency, secret, source,
+                       f"{type(e).__name__}: {e}")
+
+
 # ---- ElevenLabs -----------------------------------------------------------
 async def test_elevenlabs() -> dict:
     secret, source = await get_secret_with_source("ELEVENLABS_API_KEY")
@@ -294,6 +321,7 @@ async def test_stripe() -> dict:
 PROVIDERS = {
     "openai":            test_openai,
     "anthropic":         test_anthropic,
+    "gemini":            test_gemini,
     "elevenlabs":        test_elevenlabs,
     "elevenlabs_music":  test_elevenlabs_music,
     "fal":               test_fal,

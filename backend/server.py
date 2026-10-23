@@ -286,6 +286,47 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Phase 1 provider migration skipped: {e}")
+
+    # Character sheets asked for a "transparent background"; image models draw
+    # that as a grey checkerboard, which then leaks into every scene that uses
+    # the sheet as reference. New template versions ask for plain white.
+    try:
+        if await _already_applied("character_white_background"):
+            raise _SkipMigration
+        import uuid as _uuid
+        replacements = [
+            ("with TRANSPARENT BACKGROUND", "on a plain pure white background (never a checkerboard or transparency pattern)"),
+            ("Output: clean PNG, transparent background,", "Output: clean PNG on a plain pure white background,"),
+            ("transparent background, clean PNG,", "plain pure white background (never a checkerboard), clean PNG,"),
+        ]
+        for stage in ("child_character_i2i", "extra_character_i2i"):
+            current = await db.prompt_templates.find_one({"stage_key": stage, "active": True}, {"_id": 0})
+            if not current or "transparent" not in (current.get("template_text") or "").lower():
+                continue
+            text = current["template_text"]
+            for old, new in replacements:
+                text = text.replace(old, new)
+            now = datetime.now(timezone.utc).isoformat()
+            await db.prompt_templates.update_one(
+                {"id": current["id"]},
+                {"$set": {"active": False, "deactivated_at": now, "deactivated_reason": "character_white_background"}},
+            )
+            await db.prompt_templates.insert_one({
+                **{k: current[k] for k in ("stage_key", "name", "variables") if k in current},
+                "id": str(_uuid.uuid4()),
+                "template_text": text,
+                "notes": "White background instead of transparent (avoids checkerboard artifacts).",
+                "version": await db.prompt_templates.count_documents({"stage_key": stage}) + 1,
+                "active": True,
+                "created_at": now,
+                "updated_at": now,
+            })
+            logger.info(f"prompt_templates: {stage} → white background version")
+        await _mark_applied("character_white_background")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"character background prompt migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

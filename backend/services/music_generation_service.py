@@ -197,109 +197,46 @@ async def _music_via_fal_elevenlabs(
     duration_seconds: int,
     model_id: Optional[str],
 ) -> tuple[bytes | None, str, dict]:
-    """Phase N — fal.ai-hosted ElevenLabs Music (bypasses Creator+ plan gate).
+    """fal.ai-hosted ElevenLabs Music (key FAL_KEY_MUSIC), instrumental so it
+    sits under the narration. Music is optional background: a failure returns
+    no bytes plus a skip_reason/error, which the storyboard shows."""
+    from services.ai import AIConfigError, AIError, fal
 
-    Endpoint: fal.ai queue `fal-ai/elevenlabs/music` (submit → poll → download).
-    """
-    secret, source = await _get_fal_key_for_music()
-    if not secret:
-        return None, "audio/mpeg", {
-            "provider":         "fal_music",
-            "model":             model_id or "fal-ai/elevenlabs/music",
-            "secret_source":     "missing",
-            "env_key":           "FAL_KEY_MUSIC",
-            "real_call":         False,
-            "duration_seconds":  duration_seconds,
-            "skip_reason":       "missing_key",
-            "error":             "FAL_KEY_MUSIC (or legacy FAL_KEY) not configured",
-        }
     slug = model_id or "fal-ai/elevenlabs/music"
-    url = f"https://queue.fal.run/{slug}"
-    payload = {
-        "prompt":          prompt[:1500],
-        "music_length_ms": duration_seconds * 1000,
-        "output_format":   "mp3_44100_128",
+    arguments = {
+        "prompt":             prompt[:1500],
+        "music_length_ms":    max(3000, min(int(duration_seconds) * 1000, 600000)),
+        "force_instrumental": True,
+        "output_format":      "mp3_44100_128",
     }
-    headers = {"Authorization": f"Key {secret}", "Content-Type": "application/json"}
     started = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=MUSIC_TIMEOUT) as c:
-            r = await c.post(url, headers=headers, json=payload)
-        latency_ms = int((time.monotonic() - started) * 1000)
-        if r.status_code in (200, 201, 202):
-            data = r.json()
-            req_id = data.get("request_id") or data.get("id")
-            # Poll until done (max 180s).
-            import asyncio as _asyncio
-            for _ in range(60):
-                await _asyncio.sleep(3)
-                async with httpx.AsyncClient(timeout=MUSIC_TIMEOUT) as c:
-                    pr = await c.get(
-                        f"https://queue.fal.run/{slug}/requests/{req_id}",
-                        headers={"Authorization": f"Key {secret}"},
-                    )
-                if pr.status_code != 200:
-                    continue
-                pd = pr.json()
-                audio_url = (pd.get("audio") or {}).get("url") or (pd.get("audio_url") or None)
-                if audio_url:
-                    async with httpx.AsyncClient(timeout=MUSIC_TIMEOUT) as c:
-                        ar = await c.get(audio_url)
-                    if ar.status_code == 200:
-                        return ar.content, "audio/mpeg", {
-                            "provider":         "fal_music",
-                            "model":            slug,
-                            "secret_source":    source,
-                            "env_key":          "FAL_KEY_MUSIC",
-                            "real_call":        True,
-                            "duration_seconds": duration_seconds,
-                            "bytes":            len(ar.content),
-                            "latency_ms":       latency_ms,
-                            "skip_reason":      None,
-                            "error":            None,
-                        }
-            return None, "audio/mpeg", {
-                "provider":         "fal_music",
-                "model":            slug,
-                "secret_source":    source,
-                "env_key":          "FAL_KEY_MUSIC",
-                "real_call":        False,
-                "duration_seconds": duration_seconds,
-                "skip_reason":      "poll_timeout",
-                "error":            "poll_timeout",
-            }
-        if r.status_code in (401, 403):
-            return None, "audio/mpeg", {
-                "provider":         "fal_music",
-                "model":            slug,
-                "secret_source":    source,
-                "env_key":          "FAL_KEY_MUSIC",
-                "real_call":        False,
-                "duration_seconds": duration_seconds,
-                "skip_reason":      "auth_failed",
-                "error":            f"HTTP {r.status_code}",
-            }
+        result = await fal.run(stage="music_generation", env_key="FAL_KEY_MUSIC", model=slug,
+                               arguments=arguments, timeout=300.0, poll_interval=3.0)
+        audio_url = (result.get("audio") or {}).get("url")
+        if not audio_url:
+            raise AIError("fal music returned no audio")
+        audio = await fal.download(audio_url)
+    except AIError as e:
         return None, "audio/mpeg", {
             "provider":         "fal_music",
             "model":            slug,
-            "secret_source":    source,
             "env_key":          "FAL_KEY_MUSIC",
-            "real_call":        False,
+            "real_call":        not isinstance(e, AIConfigError),
             "duration_seconds": duration_seconds,
-            "skip_reason":      "provider_unavailable",
-            "error":            f"HTTP {r.status_code}: {r.text[:200]}",
+            "skip_reason":      "missing_key" if isinstance(e, AIConfigError) else "provider_unavailable",
+            "error":            str(e)[:500],
         }
-    except Exception as e:  # noqa: BLE001
-        return None, "audio/mpeg", {
-            "provider":         "fal_music",
-            "model":            slug,
-            "secret_source":    source,
-            "env_key":          "FAL_KEY_MUSIC",
-            "real_call":        False,
-            "duration_seconds": duration_seconds,
-            "skip_reason":      "provider_unavailable",
-            "error":            f"{type(e).__name__}: {e}",
-        }
+    return audio, "audio/mpeg", {
+        "provider":         "fal_music",
+        "model":            slug,
+        "env_key":          "FAL_KEY_MUSIC",
+        "real_call":        True,
+        "duration_seconds": duration_seconds,
+        "bytes":            len(audio),
+        "latency_ms":       int((time.monotonic() - started) * 1000),
+        "error":            None,
+    }
 
 
 async def _music_via_suno(prompt: str, duration_seconds: int, model_id: Optional[str]) -> tuple[bytes | None, str, dict]:

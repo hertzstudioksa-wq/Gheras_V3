@@ -10,9 +10,10 @@ Resolution rules (matches the rest of the platform):
      `mock` (current behavior).
   2. ElevenLabs API key is resolved via `secret_overrides_service.get_secret`
      so the secure encrypted override always wins over `.env`.
-  3. If the chosen provider has no credentials, we degrade to mock and
-     surface that fact in `meta`. We NEVER raise — the orchestrator must
-     keep running.
+  3. A real provider that fails (no key, no credits, bad request, timeout)
+     raises services.ai.AIError. It never silently degrades to mock: a
+     story "with narration" must not be delivered without audio. Only an
+     explicitly configured `mock` provider returns no bytes.
 
 Public entry point:
     generate_tts(text, voice=None, language="ar",
@@ -41,7 +42,12 @@ logger = logging.getLogger("tts_service")
 # Tunables — admin-overridable via model_registry / preset stacks.
 # ---------------------------------------------------------------------------
 DEFAULT_ELEVENLABS_MODEL = "eleven_multilingual_v2"
-DEFAULT_ELEVENLABS_VOICE = "fkqevZRU7Xj52dY1CTkq"     # Phase N — Arabic-friendly default voice
+DEFAULT_ELEVENLABS_VOICE = "fkqevZRU7Xj52dY1CTkq"     # Phase N — Arabic-friendly default voice (direct API)
+
+# fal's ElevenLabs endpoint takes premade voice *names*. Keys are the
+# narrator options parents pick in step 5 (story_options kind=voice).
+FAL_VOICE_BY_OPTION = {"girl": "Matilda", "boy": "Will"}
+FAL_DEFAULT_VOICE = "Matilda"
 
 # Arabic narration speed heuristic (slightly slower than conversational).
 WORDS_PER_SECOND_AR = 2.2
@@ -182,138 +188,48 @@ async def _tts_via_fal_elevenlabs(
     model_id: Optional[str],
     voice_settings: Optional[dict],
 ) -> tuple[bytes | None, str, dict]:
-    """Phase N — fal.ai-hosted ElevenLabs TTS (narration).
+    """fal.ai-hosted ElevenLabs TTS (narration), key FAL_KEY_NARRATION.
 
-    Bypasses direct ElevenLabs plan-gating entirely. Uses FAL_KEY_NARRATION.
-    Endpoint: fal.ai queue `fal-ai/elevenlabs/tts/multilingual-v2`.
+    `voice` is a fal voice name (see FAL_VOICE_BY_OPTION); anything else
+    (e.g. an Arabic label) falls back to FAL_DEFAULT_VOICE. Raises AIError.
     """
-    secret, source = await _get_fal_key_for_narration()
-    if not secret:
-        return None, "audio/mpeg", {
-            "provider":         "fal_tts",
-            "model":             model_id or "fal-ai/elevenlabs/tts/multilingual-v2",
-            "voice":             voice or DEFAULT_ELEVENLABS_VOICE,
-            "language":          language,
-            "duration_seconds":  estimate_duration_seconds(text),
-            "secret_source":     "missing",
-            "env_key":           "FAL_KEY_NARRATION",
-            "fallback_to_mock":  True,
-            "real_call":         False,
-            "error":             "FAL_KEY_NARRATION (or legacy FAL_KEY) not configured",
-            "note":              "Add FAL_KEY_NARRATION in /admin/secrets to enable real narration.",
-        }
+    from services.ai import fal
+
     slug = model_id or "fal-ai/elevenlabs/tts/multilingual-v2"
-    voice_id = voice or DEFAULT_ELEVENLABS_VOICE
+    voice_name = voice if voice in FAL_VOICE_BY_OPTION.values() else FAL_DEFAULT_VOICE
     settings = {**_default_voice_settings(), **(voice_settings or {})}
-    url = f"https://queue.fal.run/{slug}"
-    payload = {
-        "text":  (text or "")[:2500],
-        "voice": voice_id,
-        "stability":         settings.get("stability"),
-        "similarity_boost":  settings.get("similarity_boost"),
-        "style":             settings.get("style"),
-        "use_speaker_boost": settings.get("use_speaker_boost"),
+    arguments = {
+        "text": (text or "")[:2500],
+        "voice": voice_name,
+        "stability": settings.get("stability"),
+        "similarity_boost": settings.get("similarity_boost"),
+        "style": settings.get("style"),
+        "speed": settings.get("speed"),
+        "language_code": "ar" if (language or "ar").startswith("ar") or "عرب" in (language or "") else None,
     }
-    headers = {"Authorization": f"Key {secret}", "Content-Type": "application/json"}
+    arguments = {k: v for k, v in arguments.items() if v is not None}
     started = time.monotonic()
-    try:
-        async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
-            r = await c.post(url, headers=headers, json=payload)
-        latency_ms = int((time.monotonic() - started) * 1000)
-        if r.status_code in (200, 201, 202):
-            data = r.json()
-            # Submit response carries request_id. We need to poll.
-            req_id = data.get("request_id") or data.get("id")
-            if not req_id and data.get("audio", {}).get("url"):
-                # Some fal endpoints return synchronously.
-                audio_url = data["audio"]["url"]
-                async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
-                    ar = await c.get(audio_url)
-                if ar.status_code == 200:
-                    return ar.content, "audio/mpeg", {
-                        "provider":         "fal_tts",
-                        "model":            slug,
-                        "voice":            voice_id,
-                        "language":         language,
-                        "voice_settings":   settings,
-                        "duration_seconds": estimate_duration_seconds(text),
-                        "bytes":            len(ar.content),
-                        "latency_ms":       latency_ms,
-                        "secret_source":    source,
-                        "env_key":          "FAL_KEY_NARRATION",
-                        "fallback_to_mock": False,
-                        "real_call":        True,
-                        "error":            None,
-                    }
-            # Poll loop (up to 90s).
-            for _ in range(30):
-                await __import__("asyncio").sleep(3)
-                async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
-                    pr = await c.get(
-                        f"https://queue.fal.run/{slug}/requests/{req_id}",
-                        headers={"Authorization": f"Key {secret}"},
-                    )
-                if pr.status_code != 200:
-                    continue
-                pd = pr.json()
-                audio_url = (pd.get("audio") or {}).get("url")
-                if audio_url:
-                    async with httpx.AsyncClient(timeout=ELEVENLABS_TIMEOUT) as c:
-                        ar = await c.get(audio_url)
-                    if ar.status_code == 200:
-                        return ar.content, "audio/mpeg", {
-                            "provider":         "fal_tts",
-                            "model":            slug,
-                            "voice":            voice_id,
-                            "language":         language,
-                            "voice_settings":   settings,
-                            "duration_seconds": estimate_duration_seconds(text),
-                            "bytes":            len(ar.content),
-                            "latency_ms":       latency_ms,
-                            "secret_source":    source,
-                            "env_key":          "FAL_KEY_NARRATION",
-                            "fallback_to_mock": False,
-                            "real_call":        True,
-                            "error":            None,
-                        }
-            return None, "audio/mpeg", {
-                "provider":         "fal_tts",
-                "model":            slug,
-                "secret_source":    source,
-                "env_key":          "FAL_KEY_NARRATION",
-                "fallback_to_mock": True,
-                "real_call":        False,
-                "error":            "poll_timeout",
-            }
-        if r.status_code in (401, 403):
-            return None, "audio/mpeg", {
-                "provider":         "fal_tts",
-                "model":            slug,
-                "secret_source":    source,
-                "env_key":          "FAL_KEY_NARRATION",
-                "fallback_to_mock": True,
-                "real_call":        False,
-                "error":            f"HTTP {r.status_code}: auth_failed",
-            }
-        return None, "audio/mpeg", {
-            "provider":         "fal_tts",
-            "model":            slug,
-            "secret_source":    source,
-            "env_key":          "FAL_KEY_NARRATION",
-            "fallback_to_mock": True,
-            "real_call":        False,
-            "error":            f"HTTP {r.status_code}: {r.text[:200]}",
-        }
-    except Exception as e:  # noqa: BLE001
-        return None, "audio/mpeg", {
-            "provider":         "fal_tts",
-            "model":            slug,
-            "secret_source":    source,
-            "env_key":          "FAL_KEY_NARRATION",
-            "fallback_to_mock": True,
-            "real_call":        False,
-            "error":            f"{type(e).__name__}: {e}",
-        }
+    result = await fal.run(stage="narration_generation", env_key="FAL_KEY_NARRATION",
+                           model=slug, arguments=arguments, timeout=240.0, poll_interval=2.0)
+    audio_url = (result.get("audio") or {}).get("url")
+    if not audio_url:
+        from services.ai import AIError
+        raise AIError("fal narration returned no audio")
+    audio = await fal.download(audio_url)
+    return audio, (result.get("audio") or {}).get("content_type") or "audio/mpeg", {
+        "provider":         "fal_tts",
+        "model":            slug,
+        "voice":            voice_name,
+        "language":         language,
+        "voice_settings":   settings,
+        "duration_seconds": estimate_duration_seconds(text),
+        "bytes":            len(audio),
+        "latency_ms":       int((time.monotonic() - started) * 1000),
+        "env_key":          "FAL_KEY_NARRATION",
+        "fallback_to_mock": False,
+        "real_call":        True,
+        "error":            None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -382,10 +298,24 @@ async def _resolve_narration_provider() -> tuple[str, str]:
     provider, model_name, _source = await resolve_model(
         "narration_generation", "mock", "mock-tts-v1",
     )
-    # Normalize provider keys we recognize.
     if provider not in PROVIDERS:
-        provider = "mock"
+        from services.ai import AIConfigError
+        raise AIConfigError(f"No narration executor for provider '{provider}'")
     return provider, model_name
+
+
+async def narration_voice_for_order(order: dict) -> str:
+    """fal voice name for an order: the parent's narrator choice (boy/girl),
+    or — for "auto"/none — a voice matching the child's gender."""
+    from db import db
+
+    data = order.get("data") or {}
+    option_id = (data.get("style") or {}).get("voice_id")
+    option = await db.story_options.find_one({"id": option_id}, {"_id": 0, "value": 1}) if option_id else None
+    value = (option or {}).get("value")
+    if value not in FAL_VOICE_BY_OPTION:
+        value = "boy" if (data.get("child") or {}).get("gender") == "male" else "girl"
+    return FAL_VOICE_BY_OPTION[value]
 
 
 async def generate_tts(
@@ -413,14 +343,10 @@ async def generate_tts(
     fn = PROVIDERS.get(provider, _tts_via_mock)
     audio, mime, meta = await fn(text, voice, language, model_id or model_name, voice_settings)
 
-    # Real-call attempted but failed → fall back to mock so the pipeline
-    # never hard-fails. The original error is preserved in meta for audit.
-    if audio is None and meta.get("fallback_to_mock") and provider != "mock":
-        m_audio, m_mime, m_meta = await _tts_via_mock(text, voice, language, model_name, voice_settings)
-        m_meta["original_provider"] = provider
-        m_meta["original_error"]    = meta.get("error")
-        m_meta["fallback_to_mock"]  = True
-        return m_audio, m_mime, m_meta
+    # A real provider that produced no audio is a failure, not a mock success.
+    if audio is None and provider != "mock":
+        from services.ai import AIError
+        raise AIError(f"narration via {provider} produced no audio: {meta.get('error')}")
     return audio, mime, meta
 
 

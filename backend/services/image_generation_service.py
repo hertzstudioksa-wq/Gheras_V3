@@ -45,6 +45,8 @@ def _build_image_prompt(scene_prompt: str, style_guide: dict, character_note: st
     if prompt_augmentation:
         parts.append(prompt_augmentation.strip())
     parts.append("Children's storybook illustration, wholesome, safe for ages 3-8.")
+    parts.append("Full-bleed scene that fills the whole frame edge to edge: no border, frame, vignette, "
+                 "white margin or checkerboard/transparency pattern.")
     parts.append("Do not draw any text, letters or words in the image.")
     return " ".join(p for p in parts if p)
 

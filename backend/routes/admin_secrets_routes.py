@@ -56,6 +56,17 @@ KNOWN_ENV_KEYS: list[dict] = [
         "test_provider_key": "anthropic",
     },
     {
+        "key": "GEMINI_API_KEY",
+        "label": "Google Gemini (اختبار)",
+        "providers": ["gemini"],
+        "purpose": "بديل مجاني للتجربة: نصوص + صور (preset \"Gemini Free (testing)\"). مش للإنتاج — الطبقة المجانية ممكن جوجل تستخدم بياناتها في التدريب، فممنوع صور أطفال حقيقيين.",
+        "rotation_instructions": (
+            "أنشئ مفتاحاً من aistudio.google.com → Get API key، ضعه في .env تحت GEMINI_API_KEY "
+            "ثم أعد تشغيل خدمة gheras."
+        ),
+        "test_provider_key": "gemini",
+    },
+    {
         "key": "ELEVENLABS_API_KEY",
         "label": "ElevenLabs (TTS + Music)",
         "providers": ["elevenlabs"],
@@ -156,6 +167,12 @@ def _mask(value: str | None) -> str | None:
     return f"***{v[-4:]}"
 
 
+def _can_store_overrides() -> bool:
+    """New overrides need a dedicated key; the MONGO_URL-derived fallback in
+    secret_overrides_service is kept only so existing rows stay readable."""
+    return bool(os.environ.get("SECRETS_ENCRYPTION_KEY")) and encryption_available()
+
+
 @router.get("/status")
 async def get_secrets_status():
     """Per-key status with override-aware fields.
@@ -205,7 +222,7 @@ async def get_secrets_status():
     return {
         "items": items,
         "provider_env_map": dict(PROVIDER_ENV_MAP),
-        "encryption_available": encryption_available(),
+        "encryption_available": _can_store_overrides(),
         "supported_providers_for_test": list(PROVIDERS.keys()),
         "note_ar": (
             "تستطيع إضافة override آمن مشفّر في DB لأي مفتاح — لا يحتاج إعادة تشغيل ولا يكشف القيمة بعد الحفظ. "
@@ -227,9 +244,7 @@ async def set_secret_override(env_key: str, payload: dict, admin=Depends(require
     raw = (payload or {}).get("value")
     if not raw or not str(raw).strip():
         raise HTTPException(status_code=400, detail="value is required")
-    # New writes need a dedicated key; the MONGO_URL-derived fallback in
-    # secret_overrides_service is kept only so existing rows stay readable.
-    if not os.environ.get("SECRETS_ENCRYPTION_KEY") or not encryption_available():
+    if not _can_store_overrides():
         raise HTTPException(status_code=503,
                             detail="encryption not available — set SECRETS_ENCRYPTION_KEY in deployment")
     try:

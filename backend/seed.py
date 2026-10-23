@@ -433,7 +433,7 @@ async def _build_prompt_template_seeds():
                 "Character name: $character_name. Type: $character_type. Visible "
                 "details: $character_visual_description.\n\n"
                 "Generate ONE single full-body standing version centered in frame, "
-                "transparent background, clean PNG, expressive but simple, "
+                "plain pure white background (never a checkerboard), clean PNG, expressive but simple, "
                 "animation-ready, consistent palette: $palette, art_direction: "
                 "$art_direction.\n\n"
                 "FORBIDDEN: photorealism, live-action, realistic skin pores, "

@@ -148,10 +148,14 @@ def _draw_image_fit(c: canvas.Canvas, img_bytes: bytes, x: float, y: float, box_
         dw, dh = iw * ratio, ih * ratio
         cx = x + (box_w - dw) / 2
         cy = y + (box_h - dh) / 2
-        # ReportLab wants a temp file or an ImageReader; use ImageReader via BytesIO
+        # Embed as JPEG (≤1600px): full-size PNGs made a 7-page book ~16 MB.
+        img = img.convert("RGB")
+        img.thumbnail((1600, 1600))
+        jpeg = io.BytesIO()
+        img.save(jpeg, format="JPEG", quality=85, optimize=True)
+        jpeg.seek(0)
         from reportlab.lib.utils import ImageReader
-        c.drawImage(ImageReader(io.BytesIO(img_bytes)), cx, cy, width=dw, height=dh,
-                    preserveAspectRatio=True, mask="auto")
+        c.drawImage(ImageReader(jpeg), cx, cy, width=dw, height=dh, preserveAspectRatio=True)
     except Exception as e:
         logger.warning(f"Failed to draw image: {e}")
 

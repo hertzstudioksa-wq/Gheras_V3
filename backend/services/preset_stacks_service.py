@@ -335,7 +335,57 @@ def _validate_stage_map(sm: dict) -> None:
 
 
 # ---- Seeded presets --------------------------------------------------------
+# Free-tier Gemini models used by the testing preset (text + images). Keep
+# these names in sync with what `GET /models` lists for the key.
+GEMINI_TEST_TEXT_MODEL = "gemini-3.5-flash"  # 2.5-flash returns 404 for new keys (2026-10)
+GEMINI_TEST_IMAGE_MODEL = "gemini-2.5-flash-image"
+
+_AI_STAGES_TEXT = ("scenario_generation", "production_planning")
+_AI_STAGES_IMAGE = ("child_character_i2i", "extra_character_i2i",
+                    "scene_image_generation", "book_page_image_generation")
+
+
+def _gemini_test_map() -> dict:
+    text = {"provider": "gemini", "model_name": GEMINI_TEST_TEXT_MODEL, "env_key": "GEMINI_API_KEY"}
+    image = {"provider": "gemini", "model_name": GEMINI_TEST_IMAGE_MODEL, "env_key": "GEMINI_API_KEY"}
+    return {**{k: dict(text) for k in _AI_STAGES_TEXT}, **{k: dict(image) for k in _AI_STAGES_IMAGE}}
+
+
+FAL_IMAGE_MODEL = "fal-ai/gemini-25-flash-image"
+
+
+def _fal_images_map() -> dict:
+    image = {"provider": "fal_image", "model_name": FAL_IMAGE_MODEL, "env_key": "FAL_KEY_SCENE"}
+    return {k: dict(image) for k in _AI_STAGES_IMAGE}
+
+
+def _gheras_default_map() -> dict:
+    return {k: {f: DEFAULT_MODELS[k][f] for f in ("provider", "model_name", "env_key")}
+            for k in _AI_STAGES_TEXT + _AI_STAGES_IMAGE}
+
+
 SEEDED_PRESETS = [
+    {
+        "name": "Gheras Default (Claude + GPT Image)",
+        "slug": "gheras-default",
+        "description": "Production defaults: Claude Opus for the story text, GPT Image for the child character, scenes and cover. Apply this to undo any testing preset.",
+        "intended_use": "production",
+        "stage_map": _gheras_default_map(),
+    },
+    {
+        "name": "Images via fal (cheaper)",
+        "slug": "fal-images",
+        "description": "Child character, scenes and cover via fal-hosted Gemini image (about $0.02–0.04 per image, key FAL_KEY_SCENE). Text stages are left as they are.",
+        "intended_use": "low_cost",
+        "stage_map": _fal_images_map(),
+    },
+    {
+        "name": "Gemini Free (testing)",
+        "slug": "gemini-free-testing",
+        "description": "Free-tier Gemini for text and images — for end-to-end testing only. Not for real customers: Google may use free-tier data for training, so never use real children's photos with it.",
+        "intended_use": "testing",
+        "stage_map": _gemini_test_map(),
+    },
     {
         "name": "OpenAI Full Stack",
         "slug": "openai-full",

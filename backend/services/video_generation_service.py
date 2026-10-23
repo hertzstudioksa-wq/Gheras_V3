@@ -45,6 +45,7 @@ FAL_QUEUE_BASE = "https://queue.fal.run"
 SUBMIT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 POLL_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 DOWNLOAD_TIMEOUT = httpx.Timeout(120.0, connect=15.0)
+MAX_UNKNOWN_POLLS = 6
 
 
 def _i2v_to_t2v(slug: str) -> str | None:
@@ -133,30 +134,29 @@ async def _kling_poll(
     `data.video_url`, `data.files[i].url`). We probe all of them so a
     successful generation on fal.ai is never lost on our side.
     """
-    app_prefix = _model_app_prefix(model_slug)
-    status_url = f"{FAL_QUEUE_BASE}/{app_prefix}/requests/{request_id}/status"
-    result_url = f"{FAL_QUEUE_BASE}/{app_prefix}/requests/{request_id}"
-    headers = {"Authorization": f"Key {fal_key}"}
+    # fal answers 202 (not 200) while a request is queued/running; the official
+    # client reads those correctly, so status and result go through it.
+    import fal_client
+
+    client = fal_client.AsyncClient(key=fal_key, default_timeout=POLL_TIMEOUT.read or 20.0)
     try:
-        async with httpx.AsyncClient(timeout=POLL_TIMEOUT) as c:
-            sr = await c.get(status_url, headers=headers)
-        if sr.status_code != 200:
-            return "UNKNOWN", {"error": f"status HTTP {sr.status_code}: {sr.text[:200]}"}
-        st = (sr.json() or {}).get("status")
-        if st == "COMPLETED":
-            async with httpx.AsyncClient(timeout=POLL_TIMEOUT) as c:
-                rr = await c.get(result_url, headers=headers)
-            data = rr.json() if rr.status_code == 200 else {}
-            video_url = _extract_video_url_from_fal_response(data)
-            return ("COMPLETED" if video_url else "FAILED",
-                    {"video_url": video_url,
-                     "raw":       data if not video_url else None,
-                     "raw_kept":  data})
-        if st in ("IN_QUEUE", "IN_PROGRESS"):
-            return st, {}
-        return "UNKNOWN", {"raw_status": st}
+        st = await client.status(model_slug, request_id)
+    except Exception as e:  # noqa: BLE001 — transient; the caller polls again
+        return "UNKNOWN", {"error": f"{type(e).__name__}: {e}"}
+    if isinstance(st, fal_client.Queued):
+        return "IN_QUEUE", {}
+    if isinstance(st, fal_client.InProgress):
+        return "IN_PROGRESS", {}
+    try:
+        data = await client.result(model_slug, request_id)
+    except fal_client.FalClientHTTPError as e:
+        # The request finished with an error (e.g. rejected input): terminal.
+        return "FAILED", {"error": f"HTTP {e.status_code}: {e.message[:300]}"}
     except Exception as e:  # noqa: BLE001
         return "UNKNOWN", {"error": f"{type(e).__name__}: {e}"}
+    video_url = _extract_video_url_from_fal_response(data)
+    return ("COMPLETED" if video_url else "FAILED",
+            {"video_url": video_url, "raw": data if not video_url else None, "raw_kept": data})
 
 
 def _extract_video_url_from_fal_response(data: dict | None) -> str | None:
@@ -209,7 +209,7 @@ async def _kling_download(video_url: str) -> bytes | None:
         return None
 
 
-def _build_payload(scene: dict, has_image: bool) -> dict:
+def _build_payload(scene: dict, has_image: bool, endpoint: str = DEFAULT_KLING_MODEL) -> dict:
     """Build the JSON payload fal.ai Kling expects.
 
     Input scene shape (read defensively, never mandatory beyond `prompt`):
@@ -223,13 +223,21 @@ def _build_payload(scene: dict, has_image: bool) -> dict:
     payload: dict = {
         "prompt":          (scene.get("prompt") or "")[:500],
         "duration":        str(scene.get("duration") or DEFAULT_DURATION_SEC),
-        "aspect_ratio":    scene.get("aspect_ratio") or DEFAULT_ASPECT,
         "negative_prompt": scene.get("negative_prompt")
                            or "blurry, distorted, low quality, watermark, text",
         "cfg_scale":       float(scene.get("cfg_scale") or 0.5),
     }
+    v3 = "/v3/" in endpoint
+    if v3:
+        # Narration + music are mixed in assembly; native clip audio would
+        # clash with them and costs 50% more per second.
+        payload["generate_audio"] = False
     if has_image and scene.get("image_url"):
-        payload["image_url"] = scene["image_url"]
+        # Kling v3 I2V names the field start_image_url (v2.x: image_url) and
+        # takes the aspect ratio from the image itself.
+        payload["start_image_url" if v3 else "image_url"] = scene["image_url"]
+    else:
+        payload["aspect_ratio"] = scene.get("aspect_ratio") or DEFAULT_ASPECT
     return payload
 
 
@@ -338,7 +346,7 @@ async def submit_clip(scene: dict) -> tuple[str | None, dict]:
         endpoint = t2v
         clip_strategy = "t2v"
 
-    payload = _build_payload(scene, has_image=has_image)
+    payload = _build_payload(scene, has_image=has_image, endpoint=endpoint)
     req_id, sub_meta = await _kling_submit(secret, endpoint, payload)
     meta = {
         "provider":        "kling",
@@ -438,19 +446,24 @@ async def poll_and_download(
     Phase N: this function does NOT re-submit, so it is safe to call after
     the orchestrator has already submitted + persisted request_ids.
     """
+    # UNKNOWN is a transient poll error: keep polling, but give up on a row
+    # after MAX_UNKNOWN_POLLS in a row so a dead request can't hang the order.
     started = time.monotonic()
+    live = ("IN_QUEUE", "IN_PROGRESS", "UNKNOWN")
     while time.monotonic() - started < max_wait_s:
-        pending = [r for r in submitted
-                   if r["state"] in ("IN_QUEUE", "IN_PROGRESS") and r["request_id"]]
+        pending = [r for r in submitted if r["state"] in live and r["request_id"]]
         if not pending:
             break
 
         async def _tick(row):
             st, info = await poll_clip(row["request_id"], row["model"])
+            row["unknown_streak"] = row.get("unknown_streak", 0) + 1 if st == "UNKNOWN" else 0
+            if row["unknown_streak"] >= MAX_UNKNOWN_POLLS:
+                st = "FAILED"
             row["state"], row["info"] = st, info
 
         await asyncio.gather(*(_tick(r) for r in pending))
-        if all(r["state"] not in ("IN_QUEUE", "IN_PROGRESS") for r in submitted):
+        if all(r["state"] not in live for r in submitted):
             break
         await asyncio.sleep(poll_interval_s)
 

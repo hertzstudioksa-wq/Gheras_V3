@@ -154,10 +154,10 @@ DEFAULT_PIPELINE = {
         "narration_generation":     {"enabled": True,  "max_retries": 2, "fallback_allowed": True,
                                        "audio_aware": True,
                                        "gated_by_output_type": ["video", "both"]},
-        "music_generation":         {"enabled": False, "max_retries": 2, "fallback_allowed": True,
+        "music_generation":         {"enabled": True,  "max_retries": 2, "fallback_allowed": True,
                                        "audio_aware": True,
                                        "gated_by_output_type": ["video", "both"]},
-        "video_generation":         {"enabled": False, "max_retries": 1, "fallback_allowed": True,
+        "video_generation":         {"enabled": True,  "max_retries": 1, "fallback_allowed": True,
                                        "gated_by_output_type": ["video", "both"]},
         "video_assembly":           {"enabled": True,  "max_retries": 2, "fallback_allowed": True,
                                        "local_binary": True,
@@ -171,7 +171,7 @@ DEFAULT_PIPELINE = {
 # Env-var mapping for admin API Status page (keys stored in .env, never in DB).
 PROVIDER_ENV_MAP = {
     "anthropic":  {"env_key": "ANTHROPIC_API_KEY",  "label": "Anthropic Claude (direct)"},
-    "gemini":     {"env_key": "EMERGENT_LLM_KEY",   "label": "Gemini (legacy, no executor)"},
+    "gemini":     {"env_key": "GEMINI_API_KEY",     "label": "Google Gemini (direct — free tier for testing)"},
     "openai":     {"env_key": "OPENAI_API_KEY",     "label": "OpenAI (direct)"},
     "elevenlabs": {"env_key": "ELEVENLABS_API_KEY", "label": "ElevenLabs TTS (direct, legacy)"},
     # Phase N — per-capability fal.ai keys.

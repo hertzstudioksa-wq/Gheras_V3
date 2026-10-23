@@ -52,7 +52,7 @@ DEFAULT_PROMPT = (
     "warm child-friendly premium illustrated cartoon look, clean elegant linework, "
     "soft simplified painterly shading, hand-crafted feel.\n\n"
     "Generate ONE single full-body standing version of the child only, centered "
-    "in the frame, with TRANSPARENT BACKGROUND. The child should be standing in "
+    "in the frame, on a plain pure white background (never a checkerboard or transparency pattern). The child should be standing in "
     "a natural relaxed pose, front-facing or slight 3/4 view, with the full body "
     "clearly visible from head to toe, feet fully shown, arms and hands clearly "
     "separated from the body, legs clearly readable, clean silhouette, no "
@@ -62,7 +62,7 @@ DEFAULT_PROMPT = (
     "live-action look, photographic lighting, semi-real human rendering, "
     "uncanny-valley features, 3D-CGI render, plastic doll look. The character "
     "MUST be reusable as a consistent reference across all later scene images "
-    "and video frames. Output: clean PNG, transparent background, studio-"
+    "and video frames. Output: clean PNG on a plain pure white background, studio-"
     "quality 2D cartoon, expressive but simple, animation-friendly."
 )
 

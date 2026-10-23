@@ -14,6 +14,8 @@ logger = logging.getLogger("production_service")
 
 MODEL_PROVIDER = "anthropic"
 MODEL_NAME = "claude-opus-5-5"
+# Calm storytelling pace for Arabic narration (matches tts_service's estimate).
+NARRATION_WORDS_PER_SECOND = 2.2
 
 
 SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محترف. مهمتك إنتاج **خطة إنتاج كاملة** لقصة مختارة، تتضمّن:
@@ -385,6 +387,18 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
     else:
         logger.info(f"[config] stage=production_planning prompt_source=default reason={reason}")
         prompt = _build_user_prompt(order, scenario, target_scenes)
+
+    # Narration length must fit the duration the parent chose; otherwise a
+    # "60s" story comes out at ~100s (and longer music/TTS bills).
+    seconds = int((order.get("duration") or {}).get("seconds") or 0)
+    if seconds and target_scenes:
+        max_words = max(12, int(seconds / target_scenes * NARRATION_WORDS_PER_SECOND))
+        prompt += (
+            f"\n\n## حد طول السرد (له الأولوية على أي قاعدة أخرى)\n"
+            f"- مدة القصة {seconds} ثانية لـ {target_scenes} مشاهد، لذلك narration_text لكل مشهد "
+            f"يجب ألا يزيد عن {max_words} كلمة (ويُفضّل بين {max(8, max_words - 8)} و{max_words}).\n"
+            f"- المشهد الأخير يمكن أن يصل إلى {max_words + 6} كلمة فقط ليختم القصة."
+        )
 
     # The plan is a large nested JSON (scenes, pages, characters); its shape is
     # enforced by SYSTEM_MSG and validated below rather than by a strict schema.

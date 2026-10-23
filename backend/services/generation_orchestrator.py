@@ -20,8 +20,10 @@ from datetime import datetime, timezone
 from db import db
 from models import OrderStatus, ORDER_STATUS_AR, get_order_output_type
 from storage import put_object, APP_NAME
+from services.ai import AIPermanentError
 from services.image_generation_service import generate_image
 from services.audio_generation_service import generate_audio, estimate_duration_seconds
+from services.tts_service import narration_voice_for_order
 from services.config_service import resolve_prompt
 from services.child_character_service import safe_run as run_child_character_stage, _fetch_source_bytes
 from services.extra_characters_service import safe_run as run_extra_characters_stage
@@ -61,6 +63,10 @@ MAX_ATTEMPTS = 3
 NON_DELIVERABLE_PROVIDERS = {"mock", "fallback", "placeholder"}
 
 
+class PermanentJobError(RuntimeError):
+    """A job failure that retrying cannot fix (e.g. its input asset is missing)."""
+
+
 async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> dict:
     """Phase L — fal.ai Kling per-scene video generation.
 
@@ -97,18 +103,27 @@ async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> d
     ).to_list(50)
     img_by_idx = {int(s.get("scene_index") or 0): s.get("image_url") for s in sis}
 
-    base = (os.environ.get("EXTERNAL_PUBLIC_URL")
-            or os.environ.get("REACT_APP_BACKEND_URL")
-            or "").rstrip("/")
+    from services.ai import fal
 
     payloads: list[dict] = []
+    skipped_scenes: list[int] = []
     for s in scenes:
         idx = int(s.get("scene_index") or 0)
         local_img = img_by_idx.get(idx)
-        # fal.ai needs a publicly fetchable URL; stitch base + relative path.
-        public_img = None
-        if local_img and base:
-            public_img = local_img if local_img.startswith("http") else f"{base}{local_img}"
+        # Kling fetches its input by URL, and our /api/uploads URLs need auth,
+        # so the scene illustration goes to fal's CDN (1-day expiry) first. No
+        # text-only clips: without the illustration the child's likeness is lost.
+        src = await _fetch_source_bytes(local_img) if local_img else None
+        if not src:
+            skipped_scenes.append(idx)
+            continue
+        try:
+            public_img = await fal.upload(env_key="FAL_KEY_VIDEO", data=src[0],
+                                          content_type=src[1] or "image/png", file_name=f"scene{idx}.png")
+        except Exception as e:  # noqa: BLE001 — that scene falls back to its still image in assembly
+            logger.warning(f"[video_generation] scene {idx} upload failed: {e}")
+            skipped_scenes.append(idx)
+            continue
         ip = _safe_dict(s.get("image_prompt")).get("prompt_text") or ""
         vp_obj = _safe_dict_or_str(s.get("video_prompt"))
         vp = vp_obj.get("prompt_text") if isinstance(vp_obj, dict) else (vp_obj or "")
@@ -126,7 +141,10 @@ async def _run_video_generation_stage(order: dict, plan: dict, run_id: str) -> d
             "_scene_id":     s.get("id"),
         })
 
-    logger.info(f"[video_generation] submitting {len(payloads)} clips order={order['id']}")
+    logger.info(f"[video_generation] submitting {len(payloads)} clips order={order['id']} "
+                f"(no clip, still image instead: scenes {skipped_scenes or 'none'})")
+    if not payloads:
+        return {"ran": False, "reason": "no scene images available for clips"}
 
     # Phase N hardening — pre-create video_clips rows in `submitted` state with
     # request_id PERSISTED IMMEDIATELY after submit. This guarantees that if
@@ -516,11 +534,22 @@ async def _save_image_to_storage(order_id: str, kind: str, image_bytes: bytes, m
 # ---------------- Per-job executors ----------------
 async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
     prompt = plan.get("cover_prompt") or f"Book cover for children's story: {plan.get('title','')}"
+    references = []
+    child_asset = await db.child_character_assets.find_one(
+        {"order_id": order["id"], "status": "completed", "generated_image_url": {"$ne": None}}, {"_id": 0})
+    if child_asset:
+        ref = await _fetch_source_bytes(child_asset["generated_image_url"])
+        if ref:
+            references.append({"image_bytes": ref[0], "mime_type": ref[1], "kind": "child",
+                               "name": ((order.get("data") or {}).get("child") or {}).get("name")})
     image_bytes, mime, meta = await generate_image(
         scene_prompt=prompt,
         style_guide=plan.get("style_guide"),
         character_note="",
         session_hint=f"cover-{order['id'][:6]}",
+        references=references or None,
+        prompt_augmentation=("The child on the cover is the child in the reference image: keep the same "
+                             "face, hair and skin tone." if references else ""),
     )
     url = await _save_image_to_storage(order["id"], "cover", image_bytes, mime, order["user_id"])
     # Store in scene_images with scene_plan_id=None marks it as cover
@@ -759,7 +788,7 @@ async def _execute_narration_audio(job: dict, order: dict, plan: dict) -> tuple[
     if not scene:
         raise ValueError(f"scene_plan {job['target_id']} not found")
     text = scene.get("narration_text") or ""
-    voice = (order.get("enriched") or {}).get("voice_name")
+    voice = await narration_voice_for_order(order)
     language = (order.get("enriched") or {}).get("language_name") or "ar"
 
     # Phase N — Smart Narration voice settings.
@@ -844,7 +873,9 @@ async def _execute_book_page_asset(job: dict, order: dict, plan: dict) -> tuple[
         {"_id": 0},
     )
     illustration_url = scene_img.get("image_url") if scene_img else None
-    provider = "reused" if illustration_url else "pending"
+    if not illustration_url:
+        raise PermanentJobError(f"no scene image to reuse for page {page.get('page_number')}")
+    provider = "reused"
     await db.book_assets.insert_one({
         "id": str(uuid.uuid4()),
         "order_id": order["id"],
@@ -858,7 +889,7 @@ async def _execute_book_page_asset(job: dict, order: dict, plan: dict) -> tuple[
         "provider": provider,
         "created_at": _now(),
     })
-    return illustration_url or "(pending reuse)", {"provider": provider}
+    return illustration_url, {"provider": provider}
 
 
 # ---------------- Job dispatcher ----------------
@@ -892,6 +923,10 @@ async def _process_job_with_retry(job: dict, order: dict, plan: dict) -> bool:
             err = f"attempt {attempt} failed: {type(e).__name__}: {e}"
             logger.warning(f"job {job['id']} ({job['job_type']}) {err}")
             await _update_job(job["id"], {"error_message": err})
+            # Missing credits/keys or a missing input won't fix themselves on retry.
+            if isinstance(e, (AIPermanentError, PermanentJobError)):
+                await _update_job(job["id"], {"status": "failed"})
+                return False
             if attempt < MAX_ATTEMPTS:
                 await asyncio.sleep(BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)])
             else:
@@ -949,7 +984,17 @@ async def run_asset_generation(order_id: str, run_id: str):
     if cc_result.get("ran") and cc_result.get("status") != "completed":
         reason = f"child character failed: {cc_result.get('reason')}"
         logger.warning(f"[child_character_i2i] order={order_id} {reason}")
-        await db.orders.update_one({"id": order_id}, {"$set": {"asset_generation_completed_at": _now()}})
+        # The jobs were planned before this stage; close them so they don't sit
+        # in "queued" forever (storyboard, retries and summaries read them).
+        await db.generation_jobs.update_many(
+            {"order_id": order_id, "run_id": run_id, "status": "queued"},
+            {"$set": {"status": "skipped", "error_message": reason[:300], "updated_at": _now()}},
+        )
+        await db.orders.update_one({"id": order_id}, {"$set": {
+            "asset_generation_completed_at": _now(),
+            "asset_generation_summary.queued": 0,
+            "asset_generation_summary.skipped": len(jobs),
+        }})
         await _append_status(order_id, OrderStatus.ASSETS_GENERATING.value, OrderStatus.MEDIA_FAILED.value,
                              "system", reason=reason[:300])
         return
@@ -988,6 +1033,16 @@ async def run_asset_generation(order_id: str, run_id: str):
                       "asset_generation_summary.processing": 0,
                       "updated_at": _now()}},
         )
+
+    # --- music_generation: one background track per story (video orders) ----
+    # Optional by design: on a miss the track row records why, and the video
+    # is assembled without music (visible in the storyboard).
+    if get_order_output_type(order) in ("video", "both"):
+        try:
+            music_result = await _run_music_generation_stage(order, plan, run_id)
+            logger.info(f"[music_generation] order={order_id} result={music_result}")
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"[music_generation] unexpected crash (video continues without music): {e}")
 
     # --- Phase L: video_generation (OPTIONAL, real fal.ai Kling) -----------
     # Runs ONLY when video output is requested AND the stage is enabled in
