@@ -33,6 +33,18 @@ SHEET_RULES = (
 )
 SHEET_SIZE = "1024x1536"  # one tall figure: the face gets the pixels it needs for likeness
 
+# Image quality per stage (owner decision 2026-10-24): character sheets stay at
+# high — every later picture inherits their likeness — while shot keyframes use
+# medium, which looked the same in the bake-off at about a quarter of the cost.
+IMAGE_QUALITY = {
+    "scene_image_generation": "medium",
+    "book_page_image_generation": "medium",
+}
+
+
+def image_quality(stage: str) -> str:
+    return IMAGE_QUALITY.get(stage, "high")
+
 # Neutral style reference: made-up characters drawn in the house style (never a
 # customer's child). Character sheets get it as image 2 so every face in every
 # story lands in the same style.

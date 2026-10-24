@@ -553,6 +553,7 @@ async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str,
         {"production_plan_id": plan["id"], "shots.0": {"$exists": True}}, {"_id": 1}))
     image_bytes, mime, meta = await generate_image(
         size=WIDE if shot_plan else "1024x1024",
+        quality="high",  # the cover is the PDF front page and the video thumbnail
         scene_prompt=prompt,
         style_guide=plan.get("style_guide"),
         character_note="",

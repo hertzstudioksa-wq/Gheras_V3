@@ -48,7 +48,7 @@ async def generate_image(
     if provider == "gemini":
         return await _gemini(stage, model, prompt, references, size, timeout)
     if provider == "fal_image":
-        return await _fal_image(stage, model, prompt, references, size, timeout)
+        return await _fal_image(stage, model, prompt, references, size, timeout, quality)
 
     from openai import APIStatusError, AsyncOpenAI, OpenAIError
 
@@ -128,7 +128,7 @@ async def _gemini(stage, model, prompt, references, size, timeout) -> tuple[byte
     }
 
 
-async def _fal_image(stage, model, prompt, references, size, timeout) -> tuple[bytes, str, dict]:
+async def _fal_image(stage, model, prompt, references, size, timeout, quality="high") -> tuple[bytes, str, dict]:
     """fal-hosted image models (default fal-ai/gemini-25-flash-image). With
     references the "/edit" endpoint is used and the images are first uploaded
     to fal's CDN (1-day expiry) — models fetch inputs by URL."""
@@ -139,7 +139,7 @@ async def _fal_image(stage, model, prompt, references, size, timeout) -> tuple[b
         # OpenAI's models on fal: explicit pixel size, opaque background (a
         # "transparent" request draws a fake checkerboard), high quality.
         w, h = (int(x) for x in size.split("x"))
-        arguments.update({"quality": "high", "background": "opaque",
+        arguments.update({"quality": quality, "background": "opaque",
                           "image_size": {"width": w, "height": h} if "gpt-image-2" in model
                           else _OPENAI_SIZE.get(size, size)})
         if "gpt-image-1" in model and references:

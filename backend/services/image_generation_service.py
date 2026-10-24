@@ -19,6 +19,7 @@ from typing import Tuple
 
 from services.ai.image_client import generate_image as _provider_generate
 from services.config_service import resolve_model
+from services.house_style import image_quality
 
 logger = logging.getLogger("image_generation_service")
 
@@ -62,6 +63,7 @@ async def generate_image(
     stage: str = "scene_image_generation",
     size: str = "1024x1024",
     raw_prompt: bool = False,
+    quality: str | None = None,
 ) -> Tuple[bytes, str, dict]:
     """`raw_prompt=True` sends `scene_prompt` as-is (the shot engine composes
     its own prompt with the house style and frame rules)."""
@@ -81,6 +83,7 @@ async def generate_image(
         prompt=full_prompt,
         references=ref_bytes or None,
         size=size,
+        quality=quality or image_quality(stage),
     )
     return image_bytes, mime, {
         "provider": "ai",
