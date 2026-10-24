@@ -1,81 +1,87 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../../lib/api";
 import { toast } from "sonner";
-import { Save, Settings as SettingsIcon, Plus } from "lucide-react";
+import { Save, Trash2 } from "lucide-react";
+import { api } from "../../lib/api";
+import { AdminPage, ConfirmAction, PageState } from "../../components/admin/AdminKit";
+import { formatDate } from "../../lib/orderStatus";
+
+// System settings (M5b, audit AF-15): only the settings the code reads, each
+// with a label, a type and limits. Old keys nothing reads are listed for cleanup.
 
 export default function AdminSettings() {
-  const [items, setItems] = useState([]);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
   const [edits, setEdits] = useState({});
-  const [newItem, setNewItem] = useState({ key: "", value: "" });
 
-  const reload = () => api.get("/admin/settings").then((r) => setItems(r.data));
-  useEffect(() => { reload(); }, []);
+  const load = () => {
+    setError(null);
+    api.get("/admin/settings").then((r) => setData(r.data)).catch(() => setError("تعذّر تحميل الإعدادات"));
+  };
+  useEffect(load, []);
 
   const save = async (it) => {
-    const v = edits[it.key] !== undefined ? edits[it.key] : it.value;
     try {
-      await api.put("/admin/settings", { key: it.key, value: tryParse(v) });
-      toast.success("تم الحفظ");
+      await api.put("/admin/settings", { key: it.key, value: edits[it.key] });
+      toast.success("اتحفظ");
       setEdits((e) => { const n = { ...e }; delete n[it.key]; return n; });
-      reload();
-    } catch { toast.error("فشل"); }
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل الحفظ"); }
   };
 
-  const addNew = async () => {
-    if (!newItem.key.trim()) return;
+  const remove = async (key) => {
     try {
-      await api.put("/admin/settings", { key: newItem.key.trim(), value: tryParse(newItem.value) });
-      toast.success("أُضيفت");
-      setNewItem({ key: "", value: "" });
-      reload();
-    } catch { toast.error("فشل"); }
+      await api.delete(`/admin/settings/${encodeURIComponent(key)}`);
+      toast.success("اتمسح");
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
   };
 
   return (
-    <div data-testid="admin-settings">
-      <h1 className="font-heading text-3xl font-bold text-[#2D3748] mb-2">إعدادات النظام</h1>
-      <p className="font-body text-[#5A677D] mb-6">قيم مفاتيح ديناميكية للتحكم بسلوك المنصة</p>
-
-      <div className="bg-white rounded-3xl p-6 border border-[#E2D8C9] mb-8">
-        <h3 className="font-heading font-bold text-lg text-[#2D3748] mb-4 flex items-center gap-2">
-          <Plus className="w-5 h-5 text-[#729352]" /> إعداد جديد
-        </h3>
-        <div className="grid md:grid-cols-[1fr_1fr_auto] gap-3">
-          <input placeholder="المفتاح (key)" value={newItem.key} onChange={(e) => setNewItem({ ...newItem, key: e.target.value })} className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-mono" />
-          <input placeholder="القيمة" value={newItem.value} onChange={(e) => setNewItem({ ...newItem, value: e.target.value })} className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body" />
-          <button onClick={addNew} className="btn-primary inline-flex items-center gap-2"><Plus className="w-4 h-4" /> إضافة</button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl border border-[#E2D8C9] divide-y divide-[#E2D8C9]">
-        {items.map((it) => {
-          const current = edits[it.key] !== undefined ? edits[it.key] : (typeof it.value === "string" ? it.value : JSON.stringify(it.value));
-          return (
-            <div key={it.key} className="p-5 flex flex-col md:flex-row md:items-center gap-3" data-testid={`setting-${it.key}`}>
-              <div className="md:w-1/3">
-                <div className="flex items-center gap-2 text-[#5A677D] font-body">
-                  <SettingsIcon className="w-4 h-4" />
-                  <span className="font-mono text-sm">{it.key}</span>
+    <AdminPage title="إعدادات النظام" description="الإعدادات اللي الموقع بيستخدمها فعلاً." testId="admin-settings">
+      <PageState loading={!data && !error} error={error} onRetry={load}>
+        <div className="bg-white rounded-3xl border border-[#E2D8C9] divide-y divide-[#E2D8C9] mb-6">
+          {(data?.items || []).map((it) => {
+            const value = edits[it.key] ?? it.value;
+            const dirty = edits[it.key] !== undefined && String(edits[it.key]) !== String(it.value);
+            return (
+              <div key={it.key} className="p-5 flex flex-col md:flex-row md:items-center gap-4" data-testid={`setting-${it.key}`}>
+                <div className="flex-1">
+                  <div className="font-body font-bold text-[#2D3748]">{it.label_ar}</div>
+                  <div className="font-body text-sm text-[#5A677D]">{it.description_ar}</div>
+                  <div className="font-body text-xs text-[#8A9AB0] mt-1">
+                    من {it.min} لـ {it.max} • الافتراضي {it.default}{it.updated_at ? ` • آخر تعديل ${formatDate(it.updated_at)}` : ""}
+                  </div>
                 </div>
+                <input type="number" min={it.min} max={it.max} value={value}
+                  onChange={(e) => setEdits({ ...edits, [it.key]: e.target.value })}
+                  className="w-28 bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body text-center" />
+                <button onClick={() => save(it)} disabled={!dirty}
+                  className="rounded-full bg-[#87A96B] text-white px-5 py-2 text-sm font-bold font-body inline-flex items-center gap-2 disabled:opacity-40">
+                  <Save className="w-4 h-4" /> حفظ
+                </button>
               </div>
-              <input value={current} onChange={(e) => setEdits({ ...edits, [it.key]: e.target.value })} className="flex-1 bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body" />
-              <button onClick={() => save(it)} className="rounded-full bg-[#87A96B] text-white px-5 py-2 text-sm font-bold font-body inline-flex items-center gap-2">
-                <Save className="w-4 h-4" /> حفظ
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+            );
+          })}
+        </div>
 
-function tryParse(v) {
-  if (typeof v !== "string") return v;
-  const t = v.trim();
-  if (t === "") return "";
-  if (!isNaN(Number(t))) return Number(t);
-  if (t === "true") return true;
-  if (t === "false") return false;
-  try { return JSON.parse(t); } catch { return v; }
+        {data?.unused?.length > 0 && (
+          <div className="bg-white rounded-3xl border border-dashed border-[#E2D8C9] p-5">
+            <h3 className="font-heading font-bold text-[#2D3748] mb-1">مفاتيح قديمة مش مستخدمة</h3>
+            <p className="font-body text-sm text-[#5A677D] mb-3">مفيش حاجة في الموقع بتقراها — ممكن تمسحها.</p>
+            <div className="space-y-2">
+              {data.unused.map((u) => (
+                <div key={u.key} className="flex items-center justify-between gap-3 bg-[#FDFBF7] rounded-2xl px-4 py-2 border border-[#E2D8C9]">
+                  <span className="font-mono text-xs text-[#5A677D]" dir="ltr">{u.key} = {JSON.stringify(u.value)}</span>
+                  <ConfirmAction title={`تمسح ${u.key}؟`} description="المفتاح ده مش مستخدم في أي حتة." confirmLabel="امسح"
+                    onConfirm={() => remove(u.key)} className="text-[#B8612F]" testId={`setting-delete-${u.key}`}>
+                    <Trash2 className="w-4 h-4" />
+                  </ConfirmAction>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </PageState>
+    </AdminPage>
+  );
 }

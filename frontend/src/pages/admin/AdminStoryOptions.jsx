@@ -35,10 +35,12 @@ export default function AdminStoryOptions() {
   };
 
   const del = async (it) => {
-    if (!window.confirm(`حذف "${it.name_ar}"؟`)) return;
-    await api.delete(`/admin/story-options/${it.id}`);
-    toast.success("تم الحذف");
-    reload();
+    if (!window.confirm(`حذف "${it.name_ar}"؟ لو مستخدم في طلبات، الحذف هيترفض — اخفيه بدل كده.`)) return;
+    try {
+      await api.delete(`/admin/story-options/${it.id}`);
+      toast.success("تم الحذف");
+      reload();
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل الحذف"); }
   };
 
   const toggleHidden = async (it) => {

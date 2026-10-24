@@ -133,7 +133,7 @@ export default function AdminAssetLibrary() {
       <div className="bg-[#F8F1E7] border border-[#D4A373]/40 rounded-2xl p-3 mt-4 flex items-start gap-2 text-xs font-body" data-testid="storage-note">
         <AlertTriangle className="w-4 h-4 text-[#8B5A2B] mt-0.5 shrink-0" />
         <span className="text-[#8B5A2B]">
-          <b>ملاحظة شفّافة:</b> التطهير يُلغي إشارة الملف من التطبيق فوراً (الرابط لن يعود يُسلَّم للعملاء). الـ object storage الحالي (Emergent) لا يكشف API حذف عام، لذلك قد يظل الملف موجوداً في طبقة التخزين البعيدة لفترة. يُعتبر "محذوفاً" من ناحية التطبيق.
+          <b>ملاحظة شفّافة:</b> التطهير بيشيل رابط الملف من التطبيق فوراً (العميل مش هيقدر يوصله تاني)، لكن الملف نفسه بيفضل في تخزين السيرفر — مش بيتمسح نهائياً.
         </span>
       </div>
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { toast } from "sonner";
 import { Plus, Edit2, Trash2, X, Save, Sprout } from "lucide-react";
+import { ConfirmAction } from "../../components/admin/AdminKit";
 
 const ICON_OPTIONS = ["sun", "heart", "award", "sparkles", "moon", "rocket", "moon-star", "pen-tool", "sprout"];
 const COLOR_OPTIONS = ["#87A96B", "#D4A373", "#E07A5F", "#8B5A2B", "#729352", "#5A677D"];
@@ -33,8 +34,15 @@ export default function AdminCategories() {
     }
   };
 
+  const toggleCat = async (c) => {
+    try {
+      await api.patch(`/admin/categories/${c.id}`, { name_ar: c.name_ar, slug: c.slug, is_active: c.is_active === false });
+      toast.success(c.is_active === false ? "اتفعّل — ظاهر في الموقع" : "اتوقف — مش ظاهر في الموقع");
+      reload();
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
+  };
+
   const delCat = async (c) => {
-    if (!window.confirm(`حذف "${c.name_ar}" وكل مواضيعه؟`)) return;
     try {
       await api.delete(`/admin/categories/${c.id}`);
       toast.success("تم الحذف");
@@ -84,9 +92,16 @@ export default function AdminCategories() {
               <button onClick={() => setEditing(c)} className="rounded-2xl bg-[#E8F0E1] px-3 py-2 text-sm font-body text-[#4F6B3B]">
                 <Edit2 className="w-4 h-4" />
               </button>
-              <button onClick={() => delCat(c)} className="rounded-2xl bg-[#FCE6D4] px-3 py-2 text-sm font-body text-[#B8612F]">
-                <Trash2 className="w-4 h-4" />
+              <button onClick={() => toggleCat(c)} title={c.is_active === false ? "تفعيل" : "إيقاف (يختفي من الموقع)"}
+                className={`rounded-2xl px-3 py-2 text-xs font-body font-bold ${c.is_active === false ? "bg-[#E8F0E1] text-[#4F6B3B]" : "bg-[#F8F1E7] text-[#8B5A2B]"}`}>
+                {c.is_active === false ? "تفعيل" : "إيقاف"}
               </button>
+              <ConfirmAction title={`تمسح "${c.name_ar}" وكل مواضيعه؟`}
+                description="المسح نهائي. لو التصنيف مستخدم في طلبات، المسح هيترفض — أوقفه بدل كده."
+                confirmLabel="امسح" onConfirm={() => delCat(c)}
+                className="rounded-2xl bg-[#FCE6D4] px-3 py-2 text-sm font-body text-[#B8612F]">
+                <Trash2 className="w-4 h-4" />
+              </ConfirmAction>
             </div>
           </div>
         ))}
@@ -170,7 +185,20 @@ function SubcategoryManager({ category, onClose }) {
       await api.delete(`/admin/subcategories/${s.id}`);
       setSubs(subs.filter((x) => x.id !== s.id));
       toast.success("تم الحذف");
-    } catch { toast.error("فشل"); }
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
+  };
+
+  const patchSub = async (s, patch, ok) => {
+    try {
+      await api.patch(`/admin/subcategories/${s.id}`, { category_id: s.category_id, name_ar: s.name_ar, ...patch });
+      setSubs(subs.map((x) => (x.id === s.id ? { ...x, ...patch } : x)));
+      toast.success(ok);
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
+  };
+
+  const rename = (s) => {
+    const name = window.prompt("الاسم الجديد للموضوع", s.name_ar);
+    if (name && name.trim() && name.trim() !== s.name_ar) patchSub(s, { name_ar: name.trim() }, "اتغيّر الاسم");
   };
 
   return (
@@ -185,10 +213,14 @@ function SubcategoryManager({ category, onClose }) {
         {subs.map((s) => (
           <div key={s.id} className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9]">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-body text-[#2D3748]">{s.name_ar}{s.prompt_fragment ? <span className="text-xs text-[#729352] font-bold"> • توجيه</span> : null}</span>
+              <span className={`font-body ${s.is_active === false ? "text-[#8A9AB0] line-through" : "text-[#2D3748]"}`}>{s.name_ar}{s.prompt_fragment ? <span className="text-xs text-[#729352] font-bold no-underline"> • توجيه</span> : null}</span>
               <div className="flex items-center gap-3">
+                <button onClick={() => rename(s)} className="text-xs font-body font-bold text-[#5A677D]">إعادة تسمية</button>
+                <button onClick={() => patchSub(s, { is_active: s.is_active === false }, s.is_active === false ? "اتفعّل" : "اتوقف")}
+                  className="text-xs font-body font-bold text-[#8B5A2B]">{s.is_active === false ? "تفعيل" : "إيقاف"}</button>
                 <button onClick={() => { setOpenId(openId === s.id ? null : s.id); setFragment(s.prompt_fragment || ""); }} className="text-[#4F6B3B]" title="توجيه للذكاء الاصطناعي"><Edit2 className="w-4 h-4" /></button>
-                <button onClick={() => del(s)} className="text-[#B8612F]"><Trash2 className="w-4 h-4" /></button>
+                <ConfirmAction title={`تمسح موضوع "${s.name_ar}"؟`} description="لو مستخدم في طلبات، المسح هيترفض — أوقفه بدل كده."
+                  confirmLabel="امسح" onConfirm={() => del(s)} className="text-[#B8612F]"><Trash2 className="w-4 h-4" /></ConfirmAction>
               </div>
             </div>
             {openId === s.id && (

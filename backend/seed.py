@@ -117,12 +117,8 @@ PLANS = [
 ]
 
 SETTINGS = [
-    {"key": "free_tier.story_limit", "value": 1},
-    {"key": "brand.primary_color", "value": "#87A96B"},
-    {"key": "site.name", "value": "غِراس"},
-    {"key": "site.tagline", "value": "نَغرِس القيَم بقِصصٍ بَطلُها طِفلُك"},
+    # Only settings the code reads (routes/admin_routes.KNOWN_SETTINGS).
     {"key": "characters.max_count", "value": 3},
-    {"key": "upload.max_mb", "value": 6},
 ]
 
 

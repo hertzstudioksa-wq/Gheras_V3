@@ -748,7 +748,7 @@ function OutProduction({ o }) {
       {/* Phase D.4 — story-level downstream fields */}
       {(o.story_keywords?.length || o.story_music_prompt || o.story_voice_prompt) && (
         <div className="bg-[#F8F1E7] rounded-xl p-3 border border-[#D4A373]/40" data-testid="production-story-level">
-          <div className="text-[11px] font-bold text-[#8B5A2B] mb-1.5">Story-level downstream (Phase D.4)</div>
+          <div className="text-[11px] font-bold text-[#8B5A2B] mb-1.5">بيانات القصة للمراحل اللي بعدها</div>
           {o.story_keywords?.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">
               {o.story_keywords.map((k, i) => (

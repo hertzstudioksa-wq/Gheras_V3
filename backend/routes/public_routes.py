@@ -86,8 +86,12 @@ async def list_plans():
 
 @router.get("/settings")
 async def list_settings():
-    items = await db.settings.find({}, {"_id": 0}).to_list(200)
-    return {it["key"]: it["value"] for it in items}
+    """Only the settings marked public (the rest stay server-side)."""
+    from routes.admin_routes import KNOWN_SETTINGS
+
+    public = {k: meta for k, meta in KNOWN_SETTINGS.items() if meta.get("public")}
+    stored = {s["key"]: s.get("value") async for s in db.settings.find({"key": {"$in": list(public)}}, {"_id": 0})}
+    return {k: stored.get(k, meta["default"]) for k, meta in public.items()}
 
 
 @router.get("/story-price")

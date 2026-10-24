@@ -78,6 +78,30 @@ export function KpiCard({ label, value, hint, tone = "neutral", to }) {
   return to ? <Link to={to} className="block hover:opacity-90">{body}</Link> : body;
 }
 
+/** Page navigator for server-side paged lists. */
+export function Pager({ page, limit, total, onPage }) {
+  const pages = Math.max(1, Math.ceil((total || 0) / limit));
+  if (pages <= 1) return null;
+  const btn = "rounded-xl border border-[#E2D8C9] bg-white px-3 py-1.5 text-sm font-body font-bold text-[#5A677D] disabled:opacity-40";
+  return (
+    <div className="flex items-center justify-center gap-2 mt-4 font-body text-sm text-[#5A677D]" aria-label="الصفحات">
+      <button className={btn} disabled={page <= 1} onClick={() => onPage(page - 1)}>السابق</button>
+      <span>صفحة {page} من {pages} • {total} نتيجة</span>
+      <button className={btn} disabled={page >= pages} onClick={() => onPage(page + 1)}>التالي</button>
+    </div>
+  );
+}
+
+/** Debounced value (search boxes that query the server). */
+export function useDebounced(value, ms = 350) {
+  const [v, setV] = useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
 /**
  * A button that asks before it runs something costly or destructive.
  * tone: "danger" (deletes, overrides) or "cost" (spends provider credit).

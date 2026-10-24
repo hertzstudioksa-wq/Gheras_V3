@@ -25,6 +25,10 @@ ENTITY_TYPES = (
     "pricing_config", "model_registry", "pipeline_config", "prompt_template",
     "bundle", "bundle_purchase", "payment_settings", "payment",
     "env_key", "provider", "preset_stack", "stage_control",
+    # M3–M5
+    "order", "user", "setting", "category", "subcategory", "story_option", "content",
+    "style_preset", "dialect_profile", "engine_settings", "system_prompt", "stage_model", "model_catalog",
+    "asset", "retention_policy",
 )
 ACTIONS = (
     "create", "update", "delete",
@@ -33,6 +37,13 @@ ACTIONS = (
     "secret_override.set", "secret_override.delete", "provider_test.run",
     "preset.create", "preset.update", "preset.delete", "preset.apply",
     "stage.patch", "stage.reset",
+    # M3–M5
+    "order.status_override", "user.update", "setting.update", "setting.delete",
+    "catalog.create", "catalog.update", "catalog.delete", "category.delete", "content.update", "content.delete",
+    "style.create", "style.update", "style.default", "dialect.create", "dialect.update", "pacing.update",
+    "system_prompt.create", "system_prompt.activate", "system_prompt.reset",
+    "prompt_template.create", "prompt_template.activate", "prompt_template.reset",
+    "stage.model", "stage.enabled", "video.premium", "catalog.add",
 )
 
 

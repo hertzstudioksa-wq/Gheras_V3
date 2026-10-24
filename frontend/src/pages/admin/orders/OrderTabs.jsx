@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api, fileSrc } from "../../../lib/api";
 import OrderStatusBadge from "../../../components/gheras/OrderStatusBadge";
+import { ConfirmAction } from "../../../components/admin/AdminKit";
 import { toast } from "sonner";
 import { Eye, Filter, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock, ChevronDown, ChevronUp, Lightbulb, Coins, Film, ImageIcon, FileText as FileTextIcon, Users as UsersIcon, Palette } from "lucide-react";
 
@@ -490,9 +491,12 @@ export function AdminMediaTab({ orderId }) {
                     <td className="px-2 py-2 text-[#B8612F] max-w-xs truncate" title={j.error_message || ""}>{j.error_message || "—"}</td>
                     <td className="px-2 py-2">
                       {j.status === "failed" && (
-                        <button onClick={() => retryJob(j.id)} className="text-[10px] bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5 font-bold" data-testid={`retry-job-${j.id}`}>
+                        <ConfirmAction tone="cost" title="تعيد تشغيل الخطوة دي؟"
+                          description="إعادة التشغيل بتنادي الموديل تاني، يعني بتصرف من الرصيد (صورة ≈ $0.06–0.17، مقطع فيديو ≈ $0.35–1.1)."
+                          confirmLabel="أعِد التشغيل" onConfirm={() => retryJob(j.id)}
+                          className="text-[10px] bg-[#E8F0E1] text-[#4F6B3B] rounded-full px-2 py-0.5 font-bold" testId={`retry-job-${j.id}`}>
                           أعِد
-                        </button>
+                        </ConfirmAction>
                       )}
                     </td>
                   </tr>
@@ -569,7 +573,7 @@ function ChildCharacterCard({ orderId }) {
       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
         <h4 className="font-heading font-bold text-[#2D3748] inline-flex items-center gap-2">
           <UsersIcon className="w-4 h-4 text-[#729352]" />
-          شخصية الطفل (Phase C — I2I)
+          شخصية الطفل
         </h4>
         <div className="flex items-center gap-2">
           <span
@@ -596,14 +600,13 @@ function ChildCharacterCard({ orderId }) {
               {asset.model_name && ` / ${asset.model_name}`}
             </span>
           )}
-          <button
-            onClick={regenerate}
-            disabled={busy}
+          <ConfirmAction tone="cost" title="ترسم شخصية الطفل من جديد؟"
+            description="صورة جديدة بجودة عالية (≈ $0.17). الصور اللي اترسمت قبل كده مش هتتغير لوحدها."
+            confirmLabel="ارسمها من جديد" onConfirm={regenerate} disabled={busy}
             className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-3 py-1 text-xs font-bold inline-flex items-center gap-1 hover:bg-[#F2E8DA] disabled:opacity-50"
-            data-testid="child-character-regen-btn"
-          >
+            testId="child-character-regen-btn">
             <RefreshCw className="w-3 h-3" /> إعادة توليد
-          </button>
+          </ConfirmAction>
         </div>
       </div>
 
@@ -750,9 +753,13 @@ export function AdminProductionTab({ orderId }) {
             إعادات المستخدم: <b>{data.production_regeneration_count} / {data.max_user_production_regenerations}</b>
           </span>
         </div>
-        <button onClick={regenerate} className="rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-4 py-2 text-xs font-bold inline-flex items-center gap-1 hover:bg-[#D4E3C1]" data-testid="admin-regen-production">
+        <ConfirmAction tone="cost" title="تعمل خطة إنتاج جديدة؟"
+          description="خطة جديدة من موديل النصوص (≈ $0.3 على Claude Opus)، والخطة الحالية بتتأرشف. الصور والفيديو اللي اتعملوا من الخطة القديمة مش هيتعادوا لوحدهم."
+          confirmLabel="اعمل خطة جديدة" onConfirm={regenerate}
+          className="rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-4 py-2 text-xs font-bold inline-flex items-center gap-1 hover:bg-[#D4E3C1]"
+          testId="admin-regen-production">
           <RefreshCw className="w-3 h-3" /> إعادة توليد الخطة
-        </button>
+        </ConfirmAction>
       </div>
 
       {!plan ? (

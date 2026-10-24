@@ -201,7 +201,7 @@ export default function AdminStageLab() {
         {stageKey === "scene_image_generation" && (
           <div className="bg-[#F8F1E7] border border-[#D4A373]/40 rounded-2xl p-3 mb-2 space-y-2" data-testid="lab-scene-refs-block">
             <div className="text-xs font-bold text-[#8B5A2B]">
-              معاينة المراجع للمشهد (Phase E) — مرّر معرّف الطلب ورقم المشهد لرؤية ماذا سيُحقَن وماذا سيُتخطّى
+              معاينة المراجع للمشهد — مرّر معرّف الطلب ورقم المشهد لرؤية ماذا سيُحقَن وماذا سيُتخطّى
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <LabInput label="order_id" value={inputs.order_id} onChange={(v) => setInput("order_id", v)} testId="lab-input-order-id" />

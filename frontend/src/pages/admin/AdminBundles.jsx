@@ -150,12 +150,17 @@ function GrantModal({ bundle, onClose, onGranted }) {
   const [reason, setReason] = useState("منح يدوي من admin");
   const [busy, setBusy] = useState(false);
 
+  const [q, setQ] = useState("");
   useEffect(() => {
-    api.get("/admin/users").then((r) => {
-      const list = Array.isArray(r.data) ? r.data : (r.data?.users || []);
-      setUsers(list.map(u => ({ id: u.id, label: `${u.email}${u.name ? " — " + u.name : ""}` })));
-    }).catch(() => toast.error("تعذّر تحميل المستخدمين"));
-  }, []);
+    // Search on the server (the user list is paged).
+    const t = setTimeout(() => {
+      api.get("/admin/users", { params: { q, role: "user", limit: 30 } }).then((r) => {
+        const list = Array.isArray(r.data) ? r.data : (r.data?.items || []);
+        setUsers(list.map(u => ({ id: u.id, label: `${u.email}${u.full_name ? " — " + u.full_name : ""}` })));
+      }).catch(() => toast.error("تعذّر تحميل المستخدمين"));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
   const grant = async () => {
     if (!selected) return toast.error("اختر مستخدماً");
@@ -172,6 +177,9 @@ function GrantModal({ bundle, onClose, onGranted }) {
     <div className="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-[#FDFBF7] rounded-3xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()} data-testid="grant-modal">
         <h2 className="font-heading text-lg font-bold text-[#2D3748] mb-3">منح باقة "{bundle.name}"</h2>
+        <Field label="ابحث عن ولي الأمر">
+          <input className="input w-full" value={q} onChange={(e) => setQ(e.target.value)} placeholder="الاسم أو الإيميل" />
+        </Field>
         <Field label="المستخدم">
           <select className="input w-full" value={selected} onChange={(e) => setSelected(e.target.value)} data-testid="grant-user-select">
             <option value="">— اختر —</option>
