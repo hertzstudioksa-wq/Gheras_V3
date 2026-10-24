@@ -24,14 +24,13 @@ from db import db
 from services.config_service import (
     get_pipeline_config,
     resolve_model,
-    resolve_prompt,
     DEFAULT_MODELS,
 )
+from services import house_style
 from services.child_character_service import (
     _fetch_source_bytes,
     _generate_character,
     _save_generated_png,
-    DEFAULT_PROMPT as CHILD_DEFAULT_PROMPT,
 )
 
 logger = logging.getLogger("extra_characters_service")
@@ -39,29 +38,6 @@ logger = logging.getLogger("extra_characters_service")
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _build_character_prompt(character: dict, fallback_prompt: str) -> str:
-    """Adapt the base child_character_i2i prompt for an extra character.
-
-    We keep the storybook art direction IDENTICAL so all characters in the
-    same story share a unified style. Only the identity hints change.
-    """
-    char_type = (character.get("type") or "person").strip()
-    char_name = (character.get("name") or "").strip()
-    char_role = (character.get("role") or "visible").strip()
-    id_hint_parts = [f"type: {char_type}"]
-    if char_name:
-        id_hint_parts.append(f"name: {char_name}")
-    id_hint_parts.append(f"role in story: {char_role}")
-    id_hint = ", ".join(id_hint_parts)
-    # Prepend a short identity banner, then the shared storybook prompt.
-    return (
-        f"This is a supporting character for a children's storybook ({id_hint}). "
-        "Apply the same storybook transformation rules used for the main child "
-        "character so all characters share one consistent visual style.\n\n"
-        + fallback_prompt
-    )
 
 
 async def _upsert_asset(order_id: str, character_index: int, patch: dict) -> dict:
@@ -123,13 +99,18 @@ async def _run_one(order: dict, character_index: int, character: dict,
         "error_message": None,
     })
 
-    # Prompt — adapted from the child's DEFAULT_PROMPT (or admin override).
-    admin_prompt, prompt_src, _reason = await resolve_prompt(
-        "child_character_i2i",  # deliberately reuse the same admin template
-        {"child_name": character.get("name", ""), "child_age": "", "child_gender": character.get("type", "")},
-    )
-    base = admin_prompt if (prompt_src == "admin" and admin_prompt) else CHILD_DEFAULT_PROMPT
-    prompt = _build_character_prompt(character, base)
+    # Same photo → cartoon sheet prompt as the child (house style + style reference),
+    # with the outfit the story plan gives this relative ("same as in the photo" by default).
+    outfit = None
+    if order.get("production_plan_id"):
+        profile = await db.character_profiles.find_one(
+            {"production_plan_id": order["production_plan_id"], "type": character.get("type")},
+            {"_id": 0, "clothing_style": 1})
+        outfit = (profile or {}).get("clothing_style")
+    who = (f"{character.get('name')}, the child's {character.get('type')}" if character.get("name")
+           else f"the child's {character.get('type') or 'relative'}")
+    prompt = house_style.character_sheet_prompt(who, outfit)
+    prompt_src = "default"
 
     generated_url: str | None = None
     real_meta: dict[str, Any] = {}

@@ -27,6 +27,7 @@ The meta dict is the source of truth for accountability:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any, Optional
@@ -283,7 +284,85 @@ async def _tts_via_mock(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Gemini TTS — natural native-dialect narration steered by a direction prompt.
+# ---------------------------------------------------------------------------
+# Tried in order when a model is rate limited / unavailable (free-tier quotas
+# are per model). Voice names are shared across these models.
+GEMINI_TTS_MODELS = ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"]
+GEMINI_TTS_RATE = 24000  # Gemini returns 16-bit mono PCM at 24 kHz
+
+
+def _pcm_to_wav(pcm: bytes, rate: int = GEMINI_TTS_RATE) -> bytes:
+    import io
+    import wave
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+async def synthesize_gemini(text: str, voice: str, direction: str, model: Optional[str] = None) -> tuple[bytes, dict]:
+    """One Gemini TTS take of `text` read as `direction` asks. Returns (wav_bytes, meta).
+    Raises services.ai.AIError when every model fails."""
+    from google import genai
+    from google.genai import types
+    from services.ai import AIError, classify_http_error, require_key
+
+    client = genai.Client(api_key=await require_key("GEMINI_API_KEY"))
+    models = [model] + [m for m in GEMINI_TTS_MODELS if m != model] if model else list(GEMINI_TTS_MODELS)
+    # Two passes: per-minute limits clear quickly, so wait once before giving up.
+    attempts = [(m, 0) for m in models] + [(models[0], 35)] + [(m, 0) for m in models[1:]]
+    last_error = None
+    for m, wait_s in attempts:
+        if wait_s:
+            logger.warning(f"[tts.gemini] every model rate limited; waiting {wait_s}s before one more pass")
+            await asyncio.sleep(wait_s)
+        started = time.monotonic()
+        try:
+            resp = await client.aio.models.generate_content(
+                model=m,
+                contents=f"{direction}\n{text}",
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))),
+                ),
+            )
+            parts = resp.candidates[0].content.parts if resp.candidates and resp.candidates[0].content else []
+            audio = next((p.inline_data.data for p in parts if p.inline_data and p.inline_data.data), None)
+            if not audio:
+                raise AIError(f"Gemini TTS returned no audio (model {m})")
+            return _pcm_to_wav(audio), {
+                "provider": "gemini_tts", "model": m, "voice": voice,
+                "latency_ms": int((time.monotonic() - started) * 1000), "real_call": True,
+            }
+        except genai.errors.APIError as e:
+            last_error = classify_http_error("narration", "gemini", e.code, str(e))
+            # Rate limits / unknown model are per model: try the next one.
+            if e.code in (404, 429) or (e.code or 0) >= 500:
+                logger.warning(f"[tts.gemini] {m} unavailable ({e.code}); trying next model")
+                continue
+            raise last_error from e
+    raise last_error or AIError("Gemini TTS: no model available")
+
+
+async def _tts_via_gemini(text, voice, language, model_id, voice_settings):
+    """Generic entry (Stage Lab / single lines): MSA storyteller unless told otherwise."""
+    from services.house_style import DIALECTS, DEFAULT_DIALECT
+
+    dialect = DIALECTS[DEFAULT_DIALECT]
+    voice = voice if voice and voice not in FAL_VOICE_BY_OPTION.values() else dialect["voices"]["male"]
+    audio, meta = await synthesize_gemini(text, voice, dialect["tts_direction"], model_id)
+    return audio, "audio/wav", {**meta, "language": language, "error": None, "fallback_to_mock": False}
+
+
 PROVIDERS = {
+    "gemini_tts": _tts_via_gemini,
     "elevenlabs": _tts_via_elevenlabs,
     "fal_tts":    _tts_via_fal_elevenlabs,
     "openai":     _tts_via_openai,
@@ -353,6 +432,9 @@ async def generate_tts(
 async def narration_real_call_available() -> bool:
     """True if the configured narration provider has credentials."""
     provider, _ = await _resolve_narration_provider()
+    if provider == "gemini_tts":
+        secret, _src = await get_secret_with_source("GEMINI_API_KEY")
+        return bool(secret)
     if provider == "elevenlabs":
         secret, _src = await get_secret_with_source("ELEVENLABS_API_KEY")
         return bool(secret)

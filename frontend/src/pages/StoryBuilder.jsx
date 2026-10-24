@@ -46,7 +46,7 @@ const FAV_TYPES = [
 ];
 
 // Duration snap points & mapping (must mirror backend models.duration_meta)
-const DURATION_SNAPS = [30, 45, 60, 90, 120, 150, 180];
+const DURATION_SNAPS = [30, 45, 60, 90];
 const DURATION_META = {
   30:  { label: "30 ثانية",     scene_target: 3, cost_tier: "low" },
   45:  { label: "45 ثانية",     scene_target: 4, cost_tier: "low" },
@@ -81,7 +81,7 @@ const blankData = () => ({
   characters: [],
   personalization: { favorites: {}, toy_image_url: "", custom_notes: "" },
   style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "" },
-  duration: { seconds: 90 },
+  duration: { seconds: 60 },
   audio_background: { mode: "music" },
   delivery: { output_type: "both" },
 });
@@ -774,7 +774,7 @@ export default function StoryBuilder() {
 function DurationPicker({ seconds, onChange }) {
   const snapped = DURATION_SNAPS.includes(seconds)
     ? seconds
-    : DURATION_SNAPS.reduce((a, b) => (Math.abs(b - seconds) < Math.abs(a - seconds) ? b : a), 90);
+    : DURATION_SNAPS.reduce((a, b) => (Math.abs(b - seconds) < Math.abs(a - seconds) ? b : a), 60);
   const meta = DURATION_META[snapped];
   const cost = COST_TIER_META[meta.cost_tier];
   const idx = DURATION_SNAPS.indexOf(snapped);
@@ -957,7 +957,7 @@ function Review({ data, categories, options }) {
   const sub = cat?.subcategories?.find((s) => s.id === data.goal.subcategory_id);
   const findOpt = (kind, id) => (options[kind] || []).find((o) => o.id === id)?.name_ar || "—";
   const durSec = data.duration?.seconds || 90;
-  const durMeta = DURATION_META[durSec] || DURATION_META[90];
+  const durMeta = DURATION_META[durSec] || DURATION_META[60];
   const audioBgMode = data.audio_background?.mode || "music";
   const audioBgLabel = (AUDIO_BG_OPTIONS.find((o) => o.v === audioBgMode) || AUDIO_BG_OPTIONS[0]).l;
   const outputType = data.delivery?.output_type || "both";

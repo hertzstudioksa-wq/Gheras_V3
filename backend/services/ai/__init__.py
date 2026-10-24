@@ -22,6 +22,7 @@ class AIConfigError(AIPermanentError):
 def classify_http_error(stage: str, provider: str, status: int | None, message: str) -> AIError:
     """Map a provider HTTP error to the right AIError subclass."""
     text = f"{provider} call failed ({stage}): HTTP {status}: {message}"
+    message = message if isinstance(message, str) else str(message)  # fal sends 422 details as a list
     lowered = message.lower()
     if status in (401, 403) or "insufficient_quota" in lowered or "no credits" in lowered \
             or "credit balance" in lowered or "limit: 0" in lowered:

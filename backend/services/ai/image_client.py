@@ -10,7 +10,11 @@ from services.ai import AIConfigError, AIError, classify_http_error, gemini_comm
 logger = logging.getLogger("ai.image")
 
 IMAGE_PROVIDERS = {"openai", "gemini", "fal_image"}
-_GEMINI_ASPECT = {"1024x1024": "1:1", "1536x1024": "3:2", "1024x1536": "2:3"}
+# 16:9 video keyframes / character sheets.
+WIDE = "1536x864"
+_GEMINI_ASPECT = {"1024x1024": "1:1", "1536x1024": "3:2", "1024x1536": "2:3", WIDE: "16:9"}
+# GPT Image has no 16:9 size; 3:2 is the closest and assembly crops the centre.
+_OPENAI_SIZE = {WIDE: "1536x1024"}
 
 
 def _as_png(data: bytes) -> bytes:
@@ -58,10 +62,10 @@ async def generate_image(
             if model.startswith("gpt-image-1"):
                 extra["input_fidelity"] = "high"
             resp = await client.images.edit(
-                model=model, image=files, prompt=prompt, size=size, quality=quality, n=1, **extra,
+                model=model, image=files, prompt=prompt, size=_OPENAI_SIZE.get(size, size), quality=quality, n=1, **extra,
             )
         else:
-            resp = await client.images.generate(model=model, prompt=prompt, size=size, quality=quality, n=1, **extra)
+            resp = await client.images.generate(model=model, prompt=prompt, size=_OPENAI_SIZE.get(size, size), quality=quality, n=1, **extra)
     except APIStatusError as e:
         raise classify_http_error(stage, "OpenAI image", e.status_code, str(e)) from e
     except OpenAIError as e:
@@ -131,14 +135,26 @@ async def _fal_image(stage, model, prompt, references, size, timeout) -> tuple[b
     from services.ai import fal
 
     arguments = {"prompt": prompt, "num_images": 1, "output_format": "png"}
-    endpoint = model
+    if "gpt-image" in model:
+        # OpenAI's models on fal: explicit pixel size, opaque background (a
+        # "transparent" request draws a fake checkerboard), high quality.
+        w, h = (int(x) for x in size.split("x"))
+        arguments.update({"quality": "high", "background": "opaque",
+                          "image_size": {"width": w, "height": h} if "gpt-image-2" in model
+                          else _OPENAI_SIZE.get(size, size)})
+        if "gpt-image-1" in model and references:
+            arguments["input_fidelity"] = "high"
+    else:
+        arguments["aspect_ratio"] = _GEMINI_ASPECT.get(size, "1:1")
+        if "nano-banana-pro" in model:
+            arguments["resolution"] = "1K"
+    endpoint = model.removesuffix("/edit")
     if references:
         arguments["image_urls"] = [
             await fal.upload(env_key="FAL_KEY_SCENE", data=_as_png(ref), content_type="image/png", file_name=f"ref{i}.png")
             for i, ref in enumerate(references)
         ]
-        arguments["aspect_ratio"] = _GEMINI_ASPECT.get(size, "1:1")
-        endpoint = model if model.endswith("/edit") else f"{model}/edit"
+        endpoint = f"{endpoint}/edit"
     result = await fal.run(stage=stage, env_key="FAL_KEY_SCENE", model=endpoint, arguments=arguments,
                            timeout=timeout, poll_interval=2.0)
     images = result.get("images") or []

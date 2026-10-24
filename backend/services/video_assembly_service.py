@@ -158,6 +158,186 @@ async def _clip_segment(work_dir: str, idx: int, clip_bytes: bytes, min_dur: flo
     return out, dur
 
 
+# ---------------------------------------------------------------- shot engine
+_FRAME_16_9 = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=24,setsar=1,format=yuv420p"
+MUSIC_VOLUME = 0.2           # soft bed under the narration, like the reference videos
+QA_FREEZE_SECONDS = 1.0      # any frozen span this long fails the video
+QA_MAX_DURATION_DRIFT = 0.35  # vs the length the parent ordered
+# Clips are generated at least as long as their line; if one comes back short it
+# may be slowed this much (slow motion still moves) — beyond that the order fails.
+MAX_SLOWDOWN = 1.6
+
+
+async def _quality_gate(path: str, ordered_seconds: float | None, shots: int) -> dict:
+    """Measure the finished video the way the reference videos were measured.
+    Raises when it would be delivered with frozen frames or the wrong length."""
+    res = await asyncio.to_thread(subprocess.run, [
+        _ffmpeg_bin(), "-hide_banner", "-i", path, "-vf", f"freezedetect=n=0.003:d={QA_FREEZE_SECONDS}",
+        "-an", "-f", "null", "-"], capture_output=True, text=True, timeout=600)
+    frozen = [float(x) for x in re.findall(r"freeze_duration: ([0-9.]+)", res.stderr or "")]
+    total = await _media_duration(path) or 0.0
+    drift = abs(total - ordered_seconds) / ordered_seconds if ordered_seconds else 0.0
+    report = {"duration_seconds": round(total, 2), "ordered_seconds": ordered_seconds,
+              "duration_drift": round(drift, 3), "frozen_spans": frozen, "shots": shots,
+              "mean_shot_seconds": round(total / shots, 2) if shots else None}
+    if frozen:
+        raise RuntimeError(f"quality gate: {len(frozen)} frozen span(s) ≥{QA_FREEZE_SECONDS}s in the video")
+    if drift > QA_MAX_DURATION_DRIFT:
+        raise RuntimeError(f"quality gate: video is {total:.0f}s for a {ordered_seconds}s order")
+    return report
+
+
+async def _store_final_video(order_id: str, user_id: str | None, out_path: str) -> str:
+    with open(out_path, "rb") as f:
+        video_bytes = f.read()
+    video_file_id = str(uuid.uuid4())
+    storage_path = f"{APP_NAME}/orders/{order_id}/generated/final-video/{video_file_id}.mp4"
+    result = await asyncio.to_thread(put_object, storage_path, video_bytes, "video/mp4")
+    await db.files.insert_one({
+        "id": video_file_id, "user_id": user_id, "scope": "final-video",
+        "storage_path": result.get("path", storage_path), "original_filename": "story.mp4",
+        "content_type": "video/mp4", "size": result.get("size", len(video_bytes)),
+        "is_deleted": False, "created_at": None,
+    })
+    return f"/api/uploads/file/{video_file_id}"
+
+
+async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | None) -> tuple[str, str, dict]:
+    """Shot-engine assembly: every shot is its Kling clip trimmed to its
+    narration line (+ a short gap), hard cuts between shots, one music bed under
+    the whole story, loudness-normalised stereo. No frame is ever held."""
+    from services import house_style
+    from services.shot_pipeline import shot_rows, work_dir
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0, "user_id": 1})
+    rows = await shot_rows(order_id, plan["id"])
+    if not rows:
+        raise RuntimeError("no shots to assemble")
+    work = work_dir(f"gheras-shots-{order_id[:8]}-")
+    try:
+        video_parts, narr_parts = [], []
+        slowed, still_motion = 0, 0
+        for i, r in enumerate(rows):
+            tag = f"{r['scene_index']:02d}_{r['shot_index']:02d}"
+            nar_fid = _file_id_from_url(r.get("narration_url"))
+            nar_bytes = await _fetch_file_bytes(nar_fid) if nar_fid else None
+            if not nar_bytes:
+                raise RuntimeError(f"shot {tag} has no narration — refusing to deliver a silent shot")
+            nar_path = os.path.join(work, f"nar_{tag}.audio")
+            with open(nar_path, "wb") as f:
+                f.write(nar_bytes)
+            nar_len = await _media_duration(nar_path) or float(r.get("narration_seconds") or 0)
+            dur = nar_len + house_style.LINE_GAP_SEC + (house_style.END_TAIL_SEC if i == len(rows) - 1 else 0.0)
+            narr_parts.append((nar_path, dur))
+
+            seg = os.path.join(work, f"shot_{tag}.mp4")
+            clip_fid = _file_id_from_url(r.get("clip_url"))
+            clip_bytes = await _fetch_file_bytes(clip_fid) if clip_fid else None
+            if clip_bytes:
+                raw = os.path.join(work, f"raw_{tag}.mp4")
+                with open(raw, "wb") as f:
+                    f.write(clip_bytes)
+                clip_len = await _media_duration(raw) or 0.0
+                vf = _FRAME_16_9
+                if clip_len and clip_len < dur:
+                    factor = dur / clip_len
+                    if factor > MAX_SLOWDOWN:
+                        raise RuntimeError(f"shot {tag}: clip is {clip_len:.1f}s for a {dur:.1f}s line")
+                    vf = f"setpts={factor:.4f}*PTS,{vf}"
+                    slowed += 1
+                res = await _ffmpeg(["-i", raw, "-vf", vf, "-t", f"{dur:.3f}", "-an",
+                                     "-c:v", "libx264", "-preset", "medium", "-crf", "20", seg], timeout=180)
+            else:
+                # No clip after retries: a slow push-in on the keyframe keeps the
+                # picture moving (counted in the report; never a frozen frame).
+                kf_fid = _file_id_from_url(r.get("keyframe_url"))
+                kf = await _fetch_file_bytes(kf_fid) if kf_fid else None
+                if not kf:
+                    raise RuntimeError(f"shot {tag} has neither a clip nor a keyframe")
+                img = os.path.join(work, f"kf_{tag}.png")
+                with open(img, "wb") as f:
+                    f.write(kf)
+                frames = int(dur * 24) + 1
+                res = await _ffmpeg(["-loop", "1", "-i", img, "-vf",
+                                     f"scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440,"
+                                     f"zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                                     f":d={frames}:s=1280x720:fps=24,setsar=1,format=yuv420p",
+                                     "-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "20", seg],
+                                    timeout=180)
+                still_motion += 1
+            if res.returncode != 0:
+                raise RuntimeError(f"ffmpeg shot {tag} failed: {res.stderr[-300:]}")
+            video_parts.append(seg)
+
+        concat_list = os.path.join(work, "concat.txt")
+        with open(concat_list, "w") as f:
+            f.writelines(f"file '{p}'\n" for p in video_parts)
+        picture = os.path.join(work, "picture.mp4")
+        res = await _ffmpeg(["-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", picture], timeout=180)
+        if res.returncode != 0:
+            raise RuntimeError(f"ffmpeg concat failed: {res.stderr[-300:]}")
+        total = sum(d for _, d in narr_parts)
+
+        # Narration: each line padded to its shot, back to back — line k starts
+        # exactly when shot k cuts in.
+        args = ["-i", picture]
+        filters, labels = [], []
+        for k, (p, d) in enumerate(narr_parts):
+            args += ["-i", p]
+            filters.append(f"[{k + 1}:a]aresample=44100,aformat=channel_layouts=mono,"
+                           f"apad=whole_dur={d:.3f},atrim=0:{d:.3f}[n{k}]")
+            labels.append(f"[n{k}]")
+        filters.append(f"{''.join(labels)}concat=n={len(labels)}:v=0:a=1[narr]")
+        music = await db.music_tracks.find_one({"order_id": order_id, "skipped": False, "audio_url": {"$ne": None}},
+                                               {"_id": 0}, sort=[("created_at", -1)])
+        m_fid = _file_id_from_url((music or {}).get("audio_url"))
+        m_bytes = await _fetch_file_bytes(m_fid) if m_fid else None
+        if m_bytes:
+            m_path = os.path.join(work, "music.audio")
+            with open(m_path, "wb") as f:
+                f.write(m_bytes)
+            args += ["-stream_loop", "-1", "-i", m_path]
+            fade = max(0.0, total - 1.5)
+            filters.append(f"[{len(narr_parts) + 1}:a]aresample=44100,volume={MUSIC_VOLUME},atrim=0:{total:.3f},"
+                           f"afade=t=out:st={fade:.3f}:d=1.5[mus]")
+            filters.append("[narr][mus]amix=inputs=2:normalize=0:duration=first[mix]")
+            mix = "[mix]"
+        else:
+            mix = "[narr]"
+        filters.append(f"{mix}loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100,aformat=channel_layouts=stereo[aout]")
+        out_path = os.path.join(work, "final.mp4")
+        res = await _ffmpeg([*args, "-filter_complex", ";".join(filters), "-map", "0:v:0", "-map", "[aout]",
+                             "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-t", f"{total:.3f}",
+                             "-movflags", "+faststart", out_path], timeout=300)
+        if res.returncode != 0:
+            raise RuntimeError(f"ffmpeg audio mix failed: {res.stderr[-300:]}")
+
+        qa = await _quality_gate(out_path, plan.get("duration_seconds"), len(rows))
+        video_url = await _store_final_video(order_id, (order or {}).get("user_id"), out_path)
+        thumb = cover_image_url or rows[0].get("keyframe_url")
+        meta = {
+            "assembly_mode": "shots",
+            "audio_background_mode": (plan.get("audio_background") or {}).get("mode", "music"),
+            "audio_track": "narration+music" if m_bytes else "narration_only",
+            "music_track_id": (music or {}).get("id"),
+            "music_skipped": not m_bytes,
+            "total_duration_seconds": qa["duration_seconds"],
+            "clip_count": len(rows),
+            "real_clips_used": len(rows) - still_motion,
+            "keyframe_motion_shots": still_motion,
+            "slowed_clips": slowed,
+            "slideshow_frames_used": 0,
+            "placeholder_frames": 0,
+            "quality": qa,
+            "encoder": "ffmpeg",
+            "resolution": "1280x720",
+            "real_narration_used": True,
+        }
+        return video_url, thumb, meta
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 async def assemble_video(
     order_id: str,
     plan: dict,
@@ -175,12 +355,15 @@ async def assemble_video(
       * Missing clips fall back to a slideshow image (existing path).
       * `assembly_mode` in meta reflects the truth: real_clips | slideshow | hybrid.
     """
+    if not _ffmpeg_available():
+        raise RuntimeError("ffmpeg is not installed")
+    # Shot plans (M2) assemble per shot; older orders keep the scene path below.
+    if await db.shot_assets.count_documents({"order_id": order_id, "production_plan_id": plan.get("id")}):
+        return await assemble_shot_video(order_id, plan, cover_image_url)
+
     audio_background_mode = (plan.get("audio_background") or {}).get("mode", "music")
     order = await db.orders.find_one({"id": order_id}, {"_id": 0, "user_id": 1})
     user_id = (order or {}).get("user_id")
-
-    if not _ffmpeg_available():
-        raise RuntimeError("ffmpeg is not installed")
 
     # Phase L — pull real video clips for this order, indexed by scene_index.
     clip_rows = await db.video_clips.find(
@@ -211,7 +394,8 @@ async def assemble_video(
     # Segments are built strictly in story order: cover, then every scene as
     # either its provider clip or its still image. Each segment carries an
     # audio track so mixed sources concat cleanly.
-    work_dir = tempfile.mkdtemp(prefix=f"gheras-video-{order_id[:8]}-")
+    from services.shot_pipeline import work_dir as _work_dir
+    work_dir = _work_dir(f"gheras-video-{order_id[:8]}-")
     placeholder_count = 0  # placeholders are never used; kept for meta compatibility
     try:
         # Narration first: the real length of each line drives its scene's length.

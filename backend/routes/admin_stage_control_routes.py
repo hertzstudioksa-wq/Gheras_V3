@@ -58,9 +58,9 @@ def _now() -> str:
 
 # Provider menu shown per stage type. Keep flat — the UI applies the
 # right subset based on the stage's executor_status.
-_TEXT_PROVIDERS  = ["openai", "anthropic", "internal"]
+_TEXT_PROVIDERS  = ["anthropic", "fal_llm", "gemini", "openai", "internal"]
 _IMAGE_PROVIDERS = ["openai", "fal_image", "gemini"]
-_TTS_PROVIDERS   = ["fal_tts", "elevenlabs", "openai", "mock"]
+_TTS_PROVIDERS   = ["gemini_tts", "fal_tts", "elevenlabs", "openai", "mock"]
 _VIDEO_PROVIDERS = ["kling", "sora", "luma", "ffmpeg"]
 _MUSIC_PROVIDERS = ["fal_music", "elevenlabs", "suno", "mock"]
 

@@ -1,5 +1,8 @@
 """Text generation: Anthropic (Claude) primary; OpenAI and Gemini optional
-(Gemini's free tier is used for low-cost end-to-end testing)."""
+(Gemini's free tier is used for low-cost end-to-end testing). `fal_llm` reaches
+any model (Claude, GPT, Gemini...) through fal's OpenRouter endpoint on the
+same fal balance as images and video."""
+import json
 import logging
 from typing import Optional
 
@@ -7,7 +10,8 @@ from services.ai import AIConfigError, AIError, classify_http_error, gemini_comm
 
 logger = logging.getLogger("ai.text")
 
-TEXT_PROVIDERS = {"anthropic", "openai", "gemini"}
+TEXT_PROVIDERS = {"anthropic", "openai", "gemini", "fal_llm"}
+FAL_LLM_ENDPOINT = "openrouter/router"
 
 
 async def generate_text(
@@ -33,7 +37,33 @@ async def generate_text(
         return await direct_openai_chat(system, user, model, timeout=timeout)
     if provider == "gemini":
         return await _gemini(stage, model, system, user, json_schema, max_tokens, timeout)
+    if provider == "fal_llm":
+        return await _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout)
     raise AIConfigError(f"No text executor for provider '{provider}' (stage {stage})")
+
+
+async def _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout) -> str:
+    """OpenRouter via fal. The router has no structured-output switch, so the
+    schema goes into the system prompt and callers keep validating the JSON."""
+    from services.ai import fal
+
+    if json_schema:
+        system = (f"{system}\n\nReturn ONLY one JSON object (no prose, no code fences) that validates "
+                  f"against this JSON Schema:\n{json.dumps(json_schema, ensure_ascii=False)}")
+    result = await fal.run(stage=stage, env_key="FAL_KEY_TEXT", model=FAL_LLM_ENDPOINT, timeout=timeout,
+                           poll_interval=3.0, arguments={"model": model, "system_prompt": system, "prompt": user,
+                                                         "max_tokens": max_tokens, "reasoning": True})
+    if result.get("error"):
+        raise AIError(f"fal LLM error ({stage}, {model}): {result['error']}")
+    if result.get("partial"):
+        raise AIError(f"fal LLM returned a partial answer ({stage}, {model})")
+    text = result.get("output") or ""
+    usage = result.get("usage") or {}
+    logger.info(f"[ai.text] stage={stage} provider=fal_llm model={model} tokens_in={usage.get('prompt_tokens')} "
+                f"tokens_out={usage.get('completion_tokens')} cost={usage.get('cost')}")
+    if not text.strip():
+        raise AIError(f"fal LLM returned no text ({stage}, {model})")
+    return text
 
 
 async def _gemini(stage, model, system, user, json_schema, max_tokens, timeout) -> str:

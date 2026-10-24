@@ -327,6 +327,111 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"character background prompt migration skipped: {e}")
+    # Shot engine (M2): the child's character becomes a two-view reference sheet
+    # in the house style, already wearing the story's outfit.
+    try:
+        if await _already_applied("house_style_character_sheet"):
+            raise _SkipMigration
+        import uuid as _uuid
+        now = datetime.now(timezone.utc).isoformat()
+        await db.prompt_templates.update_many(
+            {"stage_key": "child_character_i2i", "active": True},
+            {"$set": {"active": False, "deactivated_at": now, "deactivated_reason": "house_style_character_sheet"}},
+        )
+        await db.prompt_templates.insert_one({
+            "id": str(_uuid.uuid4()),
+            "stage_key": "child_character_i2i",
+            "name": "Child character sheet (house style)",
+            "variables": ["child_name", "child_age", "child_gender", "art_direction", "child_outfit"],
+            "template_text": (
+                "Turn the child in the uploaded photo into a character design reference sheet for an animated "
+                "children's story. Art style: $art_direction Identity (mandatory): keep the child's real face shape, "
+                "hairstyle, eyes, nose, smile, skin tone, age impression and gender recognizable; keep a hijab if the "
+                "photo has one. Character: $child_name, $child_age years old ($child_gender), wearing $child_outfit. "
+                "Full body front view standing, plus a smaller three-quarter view beside it, plain pure white "
+                "background, no text, no labels."
+            ),
+            "notes": "M2 shot engine: two-view sheet in the house style with the story outfit.",
+            "version": await db.prompt_templates.count_documents({"stage_key": "child_character_i2i"}) + 1,
+            "active": True,
+            "created_at": now,
+            "updated_at": now,
+        })
+        await _mark_applied("house_style_character_sheet")
+        logger.info("prompt_templates: child_character_i2i → house-style character sheet")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"house-style character sheet migration skipped: {e}")
+    # Real-world photos (black-and-white, filtered, cropped, group shots): the
+    # child's sheet gets the shared photo-handling rules too.
+    try:
+        if await _already_applied("character_sheet_photo_rules"):
+            raise _SkipMigration
+        import uuid as _uuid
+        from services.house_style import PHOTO_RULES
+        now = datetime.now(timezone.utc).isoformat()
+        await db.prompt_templates.update_many(
+            {"stage_key": "child_character_i2i", "active": True},
+            {"$set": {"active": False, "deactivated_at": now, "deactivated_reason": "character_sheet_photo_rules"}},
+        )
+        await db.prompt_templates.insert_one({
+            "id": str(_uuid.uuid4()),
+            "stage_key": "child_character_i2i",
+            "name": "Child character sheet (house style + photo rules)",
+            "variables": ["child_name", "child_age", "child_gender", "art_direction", "child_outfit"],
+            "template_text": (
+                "Turn the child in the uploaded photo into a character design reference sheet for an animated "
+                "children's story. Art style: $art_direction Character: $child_name, $child_age years old "
+                f"($child_gender), wearing $child_outfit. {PHOTO_RULES} Full body front view standing, plus a smaller "
+                "three-quarter view beside it, plain pure white background, no text, no labels."
+            ),
+            "notes": "Adds photo handling: black-and-white/filtered photos still give full natural color, cropped "
+                     "photos get a full body, group photos use the main person, formal clothes replaced.",
+            "version": await db.prompt_templates.count_documents({"stage_key": "child_character_i2i"}) + 1,
+            "active": True,
+            "created_at": now,
+            "updated_at": now,
+        })
+        await _mark_applied("character_sheet_photo_rules")
+        logger.info("prompt_templates: child_character_i2i → photo-handling rules")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"character sheet photo-rules migration skipped: {e}")
+    # Owner-approved likeness approach (2026-10-24): their proven GPT 1.5 prompt,
+    # fixed, run on GPT Image 2 with a neutral style reference; one tall figure in
+    # the photo's own outfit unless the story needs other clothes.
+    try:
+        if await _already_applied("character_sheet_gpt2_style_ref"):
+            raise _SkipMigration
+        import uuid as _uuid
+        from services.house_style import character_sheet_prompt
+        text = character_sheet_prompt("$child_name, $child_age years old ($child_gender)", "__OUTFIT__").replace(
+            "dress the character in __OUTFIT__", "$outfit_rule")
+        now = datetime.now(timezone.utc).isoformat()
+        await db.prompt_templates.update_many(
+            {"stage_key": "child_character_i2i", "active": True},
+            {"$set": {"active": False, "deactivated_at": now, "deactivated_reason": "character_sheet_gpt2_style_ref"}},
+        )
+        await db.prompt_templates.insert_one({
+            "id": str(_uuid.uuid4()),
+            "stage_key": "child_character_i2i",
+            "name": "Child character (owner prompt + style reference)",
+            "variables": ["child_name", "child_age", "child_gender", "outfit_rule"],
+            "template_text": text,
+            "notes": "Approved 2026-10-24 after the likeness bake-off: GPT Image 2 + neutral style reference image.",
+            "version": await db.prompt_templates.count_documents({"stage_key": "child_character_i2i"}) + 1,
+            "active": True,
+            "created_at": now,
+            "updated_at": now,
+        })
+        await _mark_applied("character_sheet_gpt2_style_ref")
+        logger.info("prompt_templates: child_character_i2i → owner prompt + style reference")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"character sheet style-ref migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

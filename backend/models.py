@@ -135,8 +135,9 @@ class StylePayload(BaseModel):
     voice_id: Optional[str] = None
 
 
-# Allowed duration snap points (seconds)
-DURATION_SNAPS = [30, 45, 60, 90, 120, 150, 180]
+# Allowed duration snap points (seconds). Fully animated video costs per second, so
+# stories stop at 90 s (owner decision 2026-10-23); longer legacy values snap to 90.
+DURATION_SNAPS = [30, 45, 60, 90]
 
 
 def duration_meta(seconds: int) -> dict:

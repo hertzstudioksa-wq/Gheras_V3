@@ -60,8 +60,13 @@ async def generate_image(
     support_true_refs: bool = True,
     prompt_augmentation: str = "",
     stage: str = "scene_image_generation",
+    size: str = "1024x1024",
+    raw_prompt: bool = False,
 ) -> Tuple[bytes, str, dict]:
-    full_prompt = _build_image_prompt(scene_prompt, style_guide or {}, character_note, prompt_augmentation)
+    """`raw_prompt=True` sends `scene_prompt` as-is (the shot engine composes
+    its own prompt with the house style and frame rules)."""
+    full_prompt = (scene_prompt if raw_prompt else
+                   _build_image_prompt(scene_prompt, style_guide or {}, character_note, prompt_augmentation))
     provider, model_name, model_src = await resolve_model(stage, IMAGE_MODEL_PROVIDER, IMAGE_MODEL_NAME)
     ref_bytes = [r["image_bytes"] for r in (references or []) if r.get("image_bytes")] if support_true_refs else []
     logger.info(
@@ -75,6 +80,7 @@ async def generate_image(
         model=model_name,
         prompt=full_prompt,
         references=ref_bytes or None,
+        size=size,
     )
     return image_bytes, mime, {
         "provider": "ai",

@@ -29,6 +29,7 @@ from services.config_service import (
     get_pipeline_config,
     DEFAULT_MODELS,
 )
+from services import house_style
 from services.ai.image_client import generate_image as generate_provider_image
 from storage import put_object, APP_NAME
 
@@ -36,42 +37,14 @@ logger = logging.getLogger("child_character_service")
 
 # Default fallback prompt (used when no active admin template exists OR the
 # template has missing/broken variables).
-DEFAULT_PROMPT = (
-    "STRICT STYLE — soft pastel 2D children's storybook cartoon. Create a highly "
-    "stylized 2D illustrated character based on the uploaded child photo. "
-    "Convert the photo into a clearly illustrated cartoon character — NOT "
-    "photorealistic, NOT semi-real, NOT a filter, NOT live-action, NOT 3D-render-"
-    "looking. The output must read instantly as a hand-drawn / digitally painted "
-    "storybook character suitable for ages 3-9.\n\n"
-    "Identity preservation (mandatory): keep the same recognizable face shape, "
-    "hairstyle, hair volume and flow, eyebrow shape, eye shape, nose, smile, "
-    "cheeks, skin tone, age impression, gender, and overall sweet expression. "
-    "Respect hijab if present in the source photo (do not remove it; keep the "
-    "same general color/style). Keep the same outfit family (similar palette).\n\n"
-    "Visual language: soft pastel colors, gentle shading, charming proportions, "
-    "warm child-friendly premium illustrated cartoon look, clean elegant linework, "
-    "soft simplified painterly shading, hand-crafted feel.\n\n"
-    "Generate ONE single full-body standing version of the child only, centered "
-    "in the frame, on a plain pure white background (never a checkerboard or transparency pattern). The child should be standing in "
-    "a natural relaxed pose, front-facing or slight 3/4 view, with the full body "
-    "clearly visible from head to toe, feet fully shown, arms and hands clearly "
-    "separated from the body, legs clearly readable, clean silhouette, no "
-    "overlapping limbs, no cropped parts, no props, no background, no scenery, "
-    "no extra characters, no duplicate pose, no text.\n\n"
-    "FORBIDDEN: photorealism, realistic skin pores, realistic hair strands, "
-    "live-action look, photographic lighting, semi-real human rendering, "
-    "uncanny-valley features, 3D-CGI render, plastic doll look. The character "
-    "MUST be reusable as a consistent reference across all later scene images "
-    "and video frames. Output: clean PNG on a plain pure white background, studio-"
-    "quality 2D cartoon, expressive but simple, animation-friendly."
-)
+DEFAULT_PROMPT = house_style.character_sheet_prompt("the person in the photo")
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _build_context(order: dict, plan: dict | None) -> dict[str, Any]:
+def _build_context(order: dict, plan: dict | None, outfit: str = "") -> dict[str, Any]:
     """Flat, string-safe context for $-Template substitution."""
     data = order.get("data", {}) or {}
     child = data.get("child", {}) or {}
@@ -85,13 +58,21 @@ def _build_context(order: dict, plan: dict | None) -> dict[str, Any]:
         "art_direction": style.get("art_direction", "") or "warm children's storybook",
         "palette":       style.get("palette", "") or "soft pastels",
         "lighting":      style.get("lighting", "") or "soft natural light",
+        # The photo's outfit unless the story needs specific clothes (pajamas...).
+        "child_outfit":  outfit or "same as in the photo",
+        "outfit_rule":   house_style.outfit_rule(outfit),
     }
 
 
 async def _resolve_prompt_safely(order: dict, plan: dict | None) -> tuple[str, str]:
     """Return (rendered_prompt, source). `source` is 'admin' or 'default'."""
+    outfit = ""
+    if plan:
+        profile = await db.character_profiles.find_one(
+            {"production_plan_id": plan.get("id"), "type": "child"}, {"_id": 0, "clothing_style": 1})
+        outfit = (profile or {}).get("clothing_style") or ""
     try:
-        ctx = _build_context(order, plan)
+        ctx = _build_context(order, plan, outfit)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[child_character_i2i] context_error {type(e).__name__}: {e}")
         return DEFAULT_PROMPT, "default"
@@ -133,7 +114,9 @@ async def _generate_character(source_bytes: bytes, prompt: str, provider: str, m
         provider=provider,
         model=model_name,
         prompt=prompt,
-        references=[source_bytes],
+        # The neutral style reference rides along so every character lands in the house style.
+        references=[source_bytes] + ([house_style.style_reference()] if house_style.style_reference() else []),
+        size=house_style.SHEET_SIZE,
     )
     return {"image_bytes": image_bytes, "mime_type": mime, "meta": meta}
 

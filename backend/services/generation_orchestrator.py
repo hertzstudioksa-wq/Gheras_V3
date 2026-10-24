@@ -35,6 +35,8 @@ from services.music_generation_service import (
     generate_music, music_real_call_available,
 )
 from services.config_service import get_pipeline_config
+from services import shot_pipeline
+from services.ai.image_client import WIDE
 
 logger = logging.getLogger("generation_orchestrator")
 
@@ -348,6 +350,9 @@ async def _run_music_generation_stage(order: dict, plan: dict, run_id: str) -> d
         {"_id": 0, "estimated_duration_seconds": 1},
     ).to_list(50)
     total_dur = int(sum((s.get("estimated_duration_seconds") or 6) for s in scenes)) + 5
+    shot_len = await shot_pipeline.story_seconds(order["id"], plan["id"])
+    if shot_len:
+        total_dur = int(shot_len) + 2  # the real narrated length of a shot story
 
     story_keywords = (plan.get("story_keywords") or [])[:6]
     emotional_arc = plan.get("emotional_arc") or plan.get("story_summary")
@@ -464,9 +469,11 @@ async def _plan_jobs(order: dict) -> list[dict]:
         "target_id": plan["id"],
         "meta": {"plan_id": plan["id"]},
     })
-    # scene images (1 per scene) — always (shared by video frames and book pages)
+    # Shot plans: one keyframe per shot, drawn scene by scene (the first shot
+    # also illustrates the book page). Legacy plans: one image per scene.
+    image_job = "scene_keyframes" if shot_pipeline.has_shots(scenes) else "scene_image"
     for s in scenes:
-        jobs.append({"job_type": "scene_image", "target_id": s["id"], "meta": {"scene_index": s["scene_index"]}})
+        jobs.append({"job_type": image_job, "target_id": s["id"], "meta": {"scene_index": s["scene_index"]}})
     # narration audio (1 per scene) — only when video is requested.
     # (Wave 1 PDF is text + image; narration is only consumed by the video.)
     if needs_video:
@@ -542,7 +549,10 @@ async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str,
         if ref:
             references.append({"image_bytes": ref[0], "mime_type": ref[1], "kind": "child",
                                "name": ((order.get("data") or {}).get("child") or {}).get("name")})
+    shot_plan = bool(await db.scene_plans.find_one(
+        {"production_plan_id": plan["id"], "shots.0": {"$exists": True}}, {"_id": 1}))
     image_bytes, mime, meta = await generate_image(
+        size=WIDE if shot_plan else "1024x1024",
         scene_prompt=prompt,
         style_guide=plan.get("style_guide"),
         character_note="",
@@ -787,6 +797,8 @@ async def _execute_narration_audio(job: dict, order: dict, plan: dict) -> tuple[
     scene = await db.scene_plans.find_one({"id": job["target_id"]}, {"_id": 0})
     if not scene:
         raise ValueError(f"scene_plan {job['target_id']} not found")
+    if scene.get("shots"):
+        return await shot_pipeline.execute_scene_narration(job, order, plan)
     text = scene.get("narration_text") or ""
     voice = await narration_voice_for_order(order)
     language = (order.get("enriched") or {}).get("language_name") or "ar"
@@ -896,6 +908,7 @@ async def _execute_book_page_asset(job: dict, order: dict, plan: dict) -> tuple[
 JOB_EXECUTORS = {
     "cover_image": _execute_cover_image,
     "scene_image": _execute_scene_image,
+    "scene_keyframes": shot_pipeline.execute_scene_keyframes,
     "narration_audio": _execute_narration_audio,
     "book_page_asset": _execute_book_page_asset,
 }
@@ -1013,8 +1026,17 @@ async def run_asset_generation(order_id: str, run_id: str):
     except Exception as e:  # noqa: BLE001
         logger.exception(f"[extra_character_i2i] unexpected crash (ignored): {e}")
 
+    # Shot plans: draw a reference sheet for every cast member without one (e.g.
+    # the mother) so they look the same in every shot.
+    if any(j["job_type"] == "scene_keyframes" for j in jobs):
+        try:
+            sheets = await shot_pipeline.ensure_character_sheets(order, plan)
+            logger.info(f"[shots] order={order_id} character sheets: {sorted(sheets)}")
+        except Exception as e:  # noqa: BLE001 — keyframes still run (and fail loudly on a dead key)
+            logger.warning(f"[shots] order={order_id} character sheets failed: {e}")
+
     # Process in order: cover first, then scene_images, then narration, then book assets
-    priority = {"cover_image": 0, "scene_image": 1, "narration_audio": 2, "book_page_asset": 3}
+    priority = {"cover_image": 0, "scene_image": 1, "scene_keyframes": 1, "narration_audio": 2, "book_page_asset": 3}
     jobs.sort(key=lambda j: (priority.get(j["job_type"], 9), j.get("meta", {}).get("scene_index", 0)))
 
     completed = 0
@@ -1049,7 +1071,11 @@ async def run_asset_generation(order_id: str, run_id: str):
     # pipeline_config AND fal.ai key resolves. Always safe — failures
     # degrade silently to the slideshow assembly path.
     try:
-        await _run_video_generation_stage(order, plan, run_id)
+        if any(j["job_type"] == "scene_keyframes" for j in jobs):
+            clips = await shot_pipeline.run_shot_clips(order, plan, run_id)
+            logger.info(f"[shots] order={order_id} clips={clips}")
+        else:
+            await _run_video_generation_stage(order, plan, run_id)
     except Exception as e:  # noqa: BLE001
         logger.exception(f"[video_generation] unexpected crash (ignored): {e}")
 
@@ -1059,7 +1085,7 @@ async def run_asset_generation(order_id: str, run_id: str):
     #   * pdf   only → cover + scene_images + book_assets
     #   * both       → cover + scene_images + narration + book_assets
     output_type = get_order_output_type(order)
-    mandatory_types: set[str] = {"cover_image", "scene_image"}
+    mandatory_types: set[str] = {"cover_image", "scene_image", "scene_keyframes"}
     if output_type in ("video", "both"):
         mandatory_types.add("narration_audio")
     if output_type in ("pdf", "both"):

@@ -25,6 +25,12 @@ async def resolve_key(env_key: str) -> str:
 
     value = await get_secret(env_key) or await get_secret("FAL_KEY")
     if not value:
+        # One fal account usually backs every capability key; use any of them.
+        for other in ("FAL_KEY_SCENE", "FAL_KEY_VIDEO", "FAL_KEY_NARRATION", "FAL_KEY_MUSIC"):
+            value = await get_secret(other)
+            if value:
+                break
+    if not value:
         raise AIConfigError(f"{env_key} (or FAL_KEY) is not configured")
     return value
 

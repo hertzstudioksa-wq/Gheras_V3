@@ -351,7 +351,7 @@ def _gemini_test_map() -> dict:
     return {**{k: dict(text) for k in _AI_STAGES_TEXT}, **{k: dict(image) for k in _AI_STAGES_IMAGE}}
 
 
-FAL_IMAGE_MODEL = "fal-ai/gemini-25-flash-image"
+FAL_IMAGE_MODEL = "fal-ai/nano-banana-pro"  # approved in the M1 lab spike
 
 
 def _fal_images_map() -> dict:

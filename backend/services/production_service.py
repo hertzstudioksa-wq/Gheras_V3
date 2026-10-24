@@ -14,8 +14,6 @@ logger = logging.getLogger("production_service")
 
 MODEL_PROVIDER = "anthropic"
 MODEL_NAME = "claude-opus-5-5"
-# Calm storytelling pace for Arabic narration (matches tts_service's estimate).
-NARRATION_WORDS_PER_SECOND = 2.2
 
 
 SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محترف. مهمتك إنتاج **خطة إنتاج كاملة** لقصة مختارة، تتضمّن:
@@ -29,7 +27,7 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - النصوص الموجّهة للقراءة/الصوت: **بالعربية** (narration_text, book_text, story_summary...).
 - برومبتات الصور/الأنيميشن: **بالإنجليزية** (image_prompt_text, animation start/end, style_reference, visual_description). انقل أسماء الأطفال صوتياً (مثل Yusuf, Sara).
 - لا عنف، لا أذى، لا خوف مفرط. النهاية دائماً إيجابية.
-- consistency: استخدم نفس style_guide في كل المشاهد. نفس أوصاف الشخصيات في كل مرة.
+- consistency: نفس أوصاف الشخصيات وملابسها في كل مشهد ولقطة.
 - الطفل يظهر **بوجهه ومظهره الثابت** في كل مشهد. أشر إليه دائماً بـ "the child Yusuf (same appearance as reference image)".
 
 ## الـ arc_beats المستخدمة
@@ -43,12 +41,7 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
     "story_summary": "ملخص عربي 4-6 أسطر",
     "main_message": "الرسالة التربوية الواحدة المركزية",
     "emotional_arc": "وصف انجليزي قصير للمنحنى العاطفي (1-2 lines EN)",
-    "style_guide": {
-      "palette": "English palette description (e.g. warm earth tones with soft golden highlights)",
-      "lighting": "English lighting description",
-      "art_direction": "English art direction (e.g. whimsical watercolor illustration, soft edges, Pixar-like warmth)"
-    },
-    "cover_prompt": "English prompt for the book cover illustration — include child's name transliterated, mood, and visual anchor",
+    "cover_prompt": "English prompt for the book cover illustration — include child's name transliterated, mood, and visual anchor (no art-style words: the studio applies a fixed house style)",
     "story_keywords": ["English keywords, 8-15 short tags capturing themes, emotions, recurring objects, environment — child-safe"],
     "story_music_prompt": "English one-paragraph music direction for the whole story (mood, tempo feel, instrumentation family, child-friendly)",
     "story_music_keywords": ["warm", "gentle", "playful"],
@@ -81,8 +74,8 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
       "background_setting": "English background description",
       "continuity_notes": "English notes for continuity with previous/next scene",
       "image_prompt": {
-        "prompt_text": "Full English image generation prompt — MUST start with: 'Use the same child from the reference image.' Then describe the scene, environment, lighting, emotion, composition. Include style_guide art_direction keywords.",
-        "style_reference": "Short English style tag matching production_plan.style_guide.art_direction",
+        "prompt_text": "Full English image generation prompt — MUST start with: 'Use the same child from the reference image.' Then describe the scene, environment, lighting, emotion, composition. No art-style words.",
+        "style_reference": "",
         "character_reference_note": "Use the reference image of the child Yusuf exactly as provided. Preserve face, hair, and clothing consistency."
       },
       "animation_prompt": {
@@ -96,7 +89,17 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
       "music_prompt": "English music-direction for this scene only — mood, tempo feel, texture. 1-2 sentences.",
       "music_keywords": ["English", "3-6 tags", "for this scene only"],
       "camera_motion_hint": "English short camera/motion cue (e.g. slow push-in, static hold, gentle whip-pan)",
-      "estimated_duration_seconds": 15
+      "estimated_duration_seconds": 15,
+      "shots": [
+        {
+          "shot_index": 1,
+          "narration_line": "جملة سرد واحدة قصيرة (باللهجة المطلوبة) تُقال أثناء هذه اللقطة بالضبط",
+          "shot_type": "wide | medium | close-up | insert | over-the-shoulder | back view",
+          "characters": ["child", "mother"],
+          "keyframe_prompt": "English: the FIRST frame of this shot — who is where, pose, facial expression, composition, background, lighting. Name characters (e.g. Sara, her mother) and keep their outfits from characters[]. No art-style words.",
+          "motion_prompt": "English: what visibly MOVES during the shot — concrete character actions (verbs), expression changes, environment motion (light, curtains, leaves), plus exactly one camera move."
+        }
+      ]
     }
   ],
   "book_pages": [
@@ -109,12 +112,25 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
   ]
 }
 
+## قواعد اللقطات (shots) — الأهم في الخطة
+الفيديو يُبنى من لقطات متحركة قصيرة (كل لقطة ~5 ثوانٍ) مثل أفلام الأطفال المصوّرة، وكل لقطة يُقال عليها سطر سرد واحد.
+- عدد shots في كل مشهد = العدد المحدد لهذا المشهد في رسالة المستخدم بالضبط.
+- narration_line: جملة واحدة كاملة قصيرة تصف ما يحدث في نفس اللقطة (لا تحكي حدثاً لا نراه). الحد الأقصى للكلمات في رسالة المستخدم.
+- narration_text للمشهد = سطور اللقطات متتالية (يمكن تركه فارغاً، سيُجمَع تلقائياً).
+- نوّع shot_type مثل السينما: لقطة واسعة تؤسس المكان، ثم متوسطة وقريبة على المشاعر، وinsert لغرض مهم. لا تكرر نفس النوع في لقطتين متتاليتين.
+- motion_prompt: حركة حقيقية واضحة للشخصيات (تمشي، تحضن، تلتفت، تبتسم، تمد يدها...) — ليس مجرد زووم على صورة ثابتة.
+- keyframe_prompt: يصف أول إطار فقط. كل شخصية تظهر فيه يجب أن تكون في characters للقطة. لا تصف ملابس الشخصيات التي clothing_style لها "same as in the photo" (ملابسها تأتي من صورتها المرجعية).
+- اللقطات داخل المشهد الواحد في نفس المكان والإضاءة والملابس (استمرارية).
+- آخر لقطتين في القصة تختمان القصة بوضوح ودفء (لحظة الفرح/الطمأنينة بعد الحل).
+
 ## قواعد صارمة
 - عدد scenes = target_scene_count بالضبط.
 - عدد book_pages = عدد scenes (1 لكل مشهد).
 - characters: الطفل إلزامي (type=child). أضف أي شخصية بارزة ذُكرت في بيانات الطلب.
 - characters_in_scene: استخدم type (child/mother/...) وليس name — سيتم ربطها داخلياً.
-- visual_description، style_guide، prompts كلها بالإنجليزية.
+- الشخصيات ذات role = mentioned تُذكر بالاسم في السرد فقط ولا تظهر بصرياً: لا تضعها في characters_in_scene ولا في characters أي لقطة، ولا تصفها في keyframe_prompt.
+- الطفل وأي شخصية لها reference_image_url (صورة حقيقية): اكتب clothing_style = "same as in the photo" — ملابس الصورة هي ما يجعل الأهل يتعرّفون على الشخصية. غيّرها فقط إذا احتاجت القصة ملابس معيّنة (بيجامة وقت النوم، ملابس سباحة، زي تنكري...) واكتب حينها الملابس الجديدة صراحةً.
+- visual_description و prompts كلها بالإنجليزية. لا تكتب أي وصف لستايل الرسم (ألوان مائية، 3D، Pixar...) — الستايل ثابت يطبّقه الاستوديو.
 - narration_text و book_text و scene_goal و title بالعربية.
 - **كل مشهد يجب أن يحمل narration_text و book_text فريدين ومختلفين جذرياً عن المشاهد الأخرى** — لا تكرار! كل مشهد يمثّل بيت قصصي مختلف (مقدمة / مشكلة / تصعيد / لحظة تعلّم / حل / نهاية).
 - اقرأ الـ arc_template واكتب محتوى يعكس كل arc_beat بدقة. التكرار يفسد القصة.
@@ -122,14 +138,13 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 
 ## قواعد جودة المشهد الأخير (Final scene — CRITICAL)
 - المشهد الأخير يجب أن يُغلق القصة عاطفياً: خاتمة واضحة، إظهار الدرس/القيمة بوضوح، لحظة تأمّل أو فرح، تغيّر ملموس في الطفل.
-- narration_text للمشهد الأخير: **لا يقل عن 3 جمل متدفّقة** (يفضّل 4)، دافئ، لا يُترك مبتوراً.
+- سطور لقطات المشهد الأخير دافئة وتختم القصة، لا تُترك مبتورة.
 - book_text للمشهد الأخير: جملتان كاملتان على الأقل، تختم القصة برسالة مُقنعة.
 - video_prompt و music_prompt للمشهد الأخير: يعكسان **الهدوء بعد الحل** أو **الفرح بعد التجاوز**، ليس بداية جديدة.
 - ممنوع: "وانتهت القصة" أو أي نهاية قصيرة ضعيفة من سطر واحد.
 
 ## قواعد جودة الكثافة (يخص المدد الطويلة)
 - لو target_scene_count ≥ 7: كل مشهد يجب أن يحمل **لحظة فعل حقيقية أو تحوّل داخلي** — لا تكرر نفس الفكرة بألفاظ مختلفة.
-- narration_text لأي مشهد: **2-4 جمل متدفّقة**. لا أقل من جملتين حتى في المشاهد القصيرة.
 - استخدم key_objects و اللعبة المفضّلة (إن وُجدت) كخيط مرئي متكرر عبر المشاهد لخلق ترابط.
 - estimated_duration_seconds لكل مشهد ≈ duration_seconds / target_scene_count (± قليلاً).
 
@@ -302,6 +317,7 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**{" (أو أي عدد داخل النطاق " + f"{brange[0]}–{brange[1]}" + " إن كان أنسب للسرد)" if brange else ""}، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
 
 
+from services import house_style
 from services.config_service import resolve_model, resolve_prompt
 from services.ai.text_client import generate_text
 
@@ -388,17 +404,20 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
         logger.info(f"[config] stage=production_planning prompt_source=default reason={reason}")
         prompt = _build_user_prompt(order, scenario, target_scenes)
 
-    # Narration length must fit the duration the parent chose; otherwise a
-    # "60s" story comes out at ~100s (and longer music/TTS bills).
-    seconds = int((order.get("duration") or {}).get("seconds") or 0)
-    if seconds and target_scenes:
-        max_words = max(12, int(seconds / target_scenes * NARRATION_WORDS_PER_SECOND))
-        prompt += (
-            f"\n\n## حد طول السرد (له الأولوية على أي قاعدة أخرى)\n"
-            f"- مدة القصة {seconds} ثانية لـ {target_scenes} مشاهد، لذلك narration_text لكل مشهد "
-            f"يجب ألا يزيد عن {max_words} كلمة (ويُفضّل بين {max(8, max_words - 8)} و{max_words}).\n"
-            f"- المشهد الأخير يمكن أن يصل إلى {max_words + 6} كلمة فقط ليختم القصة."
-        )
+    # Shots and dialect drive the video: one ~5 s animated shot per narration
+    # line, so the story lasts what the parent chose and nothing is held still.
+    seconds = int((order.get("duration") or {}).get("seconds") or 0) or 60
+    counts = house_style.shot_counts(seconds, target_scenes)
+    dialect = house_style.DIALECTS[await house_style.dialect_for_order(order)]
+    per_scene = "\n".join(f"- المشهد {i + 1}: {n} لقطات" for i, n in enumerate(counts))
+    prompt += (
+        f"\n\n## اللقطات واللهجة (لها الأولوية على أي قاعدة أخرى)\n"
+        f"- مدة القصة {seconds} ثانية = {sum(counts)} لقطة تقريباً (لقطة كل ~{house_style.SHOT_SECONDS} ثوانٍ):\n"
+        f"{per_scene}\n"
+        f"- كل narration_line لا تزيد عن {house_style.max_line_words()} كلمات (يُفضّل 6–9).\n"
+        f"- لهجة السرد ({dialect['name_ar']}): {dialect['writing']}\n"
+        f"- book_text و title وباقي النصوص العربية بالفصحى المبسّطة."
+    )
 
     # The plan is a large nested JSON (scenes, pages, characters); its shape is
     # enforced by SYSTEM_MSG and validated below rather than by a strict schema.
@@ -437,6 +456,16 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
         # Legacy: old orders without bucket info — keep exact-match.
         if scenes_len != target_scenes:
             raise ValueError(f"Expected {target_scenes} scenes, got {scenes_len}")
+    # Every scene must come as animated shots with a narration line each; a
+    # plan without them would fall back to one long held image per scene.
+    shot_total = 0
+    for s in payload.get("scenes") or []:
+        lines = [sh for sh in (s.get("shots") or []) if str(sh.get("narration_line") or "").strip()]
+        if len(lines) < 2:
+            raise ValueError(f"scene {s.get('scene_index')} has {len(lines)} shots with narration (need ≥2)")
+        shot_total += len(lines)
+    if abs(shot_total - sum(counts)) > max(2, sum(counts) // 5):
+        raise ValueError(f"plan has {shot_total} shots, expected about {sum(counts)} for {seconds}s")
     return payload
 
 
@@ -444,6 +473,27 @@ async def generate_production_plan(order: dict, scenario: dict, target_scenes: i
     # No template fallback (it produced generic, gender-blind plans that looked
     # personalised). A failure propagates and the order is marked failed.
     return (await _generate_via_claude(order, scenario, target_scenes), "ai", None)
+
+
+def _normalise_shots(raw) -> list[dict]:
+    """Clean the LLM's shots list: keep shots that have a narration line, renumber 1..n."""
+    shots = []
+    for sh in raw or []:
+        if not isinstance(sh, dict):
+            continue
+        line = str(sh.get("narration_line") or "").strip()
+        if not line:
+            continue
+        chars = sh.get("characters") or []
+        shots.append({
+            "shot_index": len(shots) + 1,
+            "narration_line": line,
+            "shot_type": str(sh.get("shot_type") or "medium").strip(),
+            "characters": [str(c).strip() for c in chars if str(c).strip()] if isinstance(chars, list) else [],
+            "keyframe_prompt": str(sh.get("keyframe_prompt") or "").strip(),
+            "motion_prompt": str(sh.get("motion_prompt") or "").strip(),
+        })
+    return shots
 
 
 def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
@@ -507,7 +557,9 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         for t in s.get("characters_in_scene", []) or []:
             cpid = type_to_id.get(t)
             chars_in.append({"character_profile_id": cpid, "role_in_scene": t})
-        narration = str(s.get("narration_text") or "").strip()
+        shots = _normalise_shots(s.get("shots"))
+        narration = (" ".join(sh["narration_line"] for sh in shots) if shots
+                     else str(s.get("narration_text") or "").strip())
         wc = len([w for w in narration.split() if w])
         words_total += wc
         scenes.append({
@@ -544,7 +596,9 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             "music_prompt":        s.get("music_prompt") or "",
             "music_keywords":      s.get("music_keywords") or [],
             "camera_motion_hint":  s.get("camera_motion_hint") or "",
-            "estimated_duration_seconds": s.get("estimated_duration_seconds"),
+            "estimated_duration_seconds": (round(wc / house_style.WORDS_PER_SECOND, 1) if shots
+                                           else s.get("estimated_duration_seconds")),
+            "shots": shots,
             "word_count": wc,
             "is_archived": False,
             "created_at": now,
@@ -558,8 +612,11 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
     # Phase D.5 — final-scene quality guard. The LLM prompt enforces this on
     # its side, but we defensively guarantee the last scene never ships as a
     # weak one-liner even if the upstream model/fallback slips.
+    # Shot plans carry their narration line by line (appending text would leave
+    # a sentence without a shot), so only legacy plans get the narration top-up.
     _child_name = ((order.get("data") or {}).get("child") or {}).get("name") or ""
-    _enforce_final_scene_quality(scenes, child_name=_child_name)
+    if not any(s["shots"] for s in scenes):
+        _enforce_final_scene_quality(scenes, child_name=_child_name)
 
     book_pages: list[dict] = []
     # Map scene_index → scene.id for scene_reference
@@ -593,7 +650,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         "story_summary": plan_payload.get("story_summary"),
         "main_message": plan_payload.get("main_message"),
         "emotional_arc": plan_payload.get("emotional_arc"),
-        "style_guide": plan_payload.get("style_guide") or {},
+        # Fixed house style (the LLM no longer picks one per story).
+        "style_guide": dict(house_style.STYLE_GUIDE),
         "cover_prompt": plan_payload.get("cover_prompt"),
         # Phase D.4 — story-level downstream generator fields
         "story_keywords":        plan_payload.get("story_keywords") or [],
@@ -602,7 +660,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         "story_voice_prompt":    plan_payload.get("story_voice_prompt") or "",
         "safety_check": plan_payload.get("safety_check") or "ok",
         "target_scene_count": len(scenes),
-        "estimated_image_count": len(scenes) + 1,  # +1 for the cover
+        # one keyframe per shot (or per scene on legacy plans) + the cover
+        "estimated_image_count": (sum(len(s["shots"]) for s in scenes) or len(scenes)) + 1,
         "total_word_count": words_total,
         "duration_seconds": (order.get("duration") or {}).get("seconds"),
         "duration_label": (order.get("duration") or {}).get("label"),

@@ -113,3 +113,6 @@ docs/audit/
 npm-temp-work/
 # Local media storage (dev default for STORAGE_DIR)
 .media/
+
+# Owner reference videos (copyrighted samples, never committed)
+/final_video_*.mp4
