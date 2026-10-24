@@ -35,7 +35,9 @@ logger = logging.getLogger("book_renderer")
 
 BACKEND = Path(__file__).resolve().parent.parent
 TEMPLATES = BACKEND / "templates"
-FONTS = {"baloo": BACKEND / "assets" / "fonts" / "BalooBhaijaan2.ttf",
+FONTS = {"baloo_semibold": BACKEND / "assets" / "fonts" / "BalooBhaijaan2-SemiBold.ttf",
+         "baloo_bold": BACKEND / "assets" / "fonts" / "BalooBhaijaan2-Bold.ttf",
+         "baloo_extrabold": BACKEND / "assets" / "fonts" / "BalooBhaijaan2-ExtraBold.ttf",
          "amiri": BACKEND / "fonts" / "Amiri-Regular.ttf",
          "amiri_bold": BACKEND / "fonts" / "Amiri-Bold.ttf"}
 LOGO = BACKEND / "assets" / "brand" / "gheras-logo.png"
