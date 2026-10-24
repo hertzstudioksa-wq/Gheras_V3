@@ -75,9 +75,11 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
         "fallback_model": "fal-ai/elevenlabs/tts/multilingual-v2",
         "env_key": "GEMINI_API_KEY",
     },
+    # Kling 2.5 turbo: close to v3 pro in the bake-off at $0.07/s vs $0.112/s
+    # (owner decision 2026-10-24). v3 pro stays available as the "premium" preset.
     "video_generation": {
         "provider": "kling",
-        "model_name": "fal-ai/kling-video/v3/pro/image-to-video",
+        "model_name": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
         "fallback_provider": "mock",
         "fallback_model": "mock-video-v1",
         "env_key": "FAL_KEY_VIDEO",
@@ -104,6 +106,22 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
         "env_key": None,
     },
 }
+
+# Video quality tiers the parent chooses in the story builder (and pays for).
+# "balanced" follows the admin's video_generation model (default Kling 2.5 turbo);
+# "premium" always renders with Kling v3 pro (character elements, any clip length).
+VIDEO_TIERS = {
+    "balanced": {"label_ar": "متوازن", "model_name": None, "cost_per_second_usd": 0.07},
+    "premium":  {"label_ar": "فاخر", "model_name": "fal-ai/kling-video/v3/pro/image-to-video",
+                 "cost_per_second_usd": 0.112},
+}
+DEFAULT_VIDEO_TIER = "balanced"
+
+
+def video_tier_of(order: dict | None) -> str:
+    tier = (((order or {}).get("data") or {}).get("delivery") or {}).get("video_tier")
+    return tier if tier in VIDEO_TIERS else DEFAULT_VIDEO_TIER
+
 
 STAGE_DISPLAY_NAMES = {
     "scenario_generation":   {"ar": "توليد السيناريوهات",        "en": "Scenario Generation"},

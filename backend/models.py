@@ -229,6 +229,8 @@ OUTPUT_TYPES = ("video", "pdf", "both")
 
 class DeliveryPayload(BaseModel):
     output_type: str = "both"  # one of OUTPUT_TYPES; default keeps legacy full pipeline
+    # Video quality the parent picked (and pays for): see config_service.VIDEO_TIERS.
+    video_tier: str = "balanced"
 
 
 class StoryData(BaseModel):

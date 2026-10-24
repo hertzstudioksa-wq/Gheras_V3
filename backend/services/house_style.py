@@ -149,6 +149,19 @@ def clip_seconds(narration_seconds: float) -> int:
     return int(min(CLIP_MAX_SEC, max(CLIP_MIN_SEC, math.ceil(need))))
 
 
+# Kling 2.x clips come only as 5 or 10 s. A 5 s clip may be slowed this much to
+# cover a slightly longer line (gentle slow motion still moves) before we pay for 10 s.
+FIVE_SECOND_STRETCH = 1.2
+
+
+def clip_seconds_for(model: str, narration_seconds: float) -> int:
+    """Clip length to request from a given video model for a narration line."""
+    if "/v3/" in model:
+        return clip_seconds(narration_seconds)  # any length 3–15 s
+    need = narration_seconds + LINE_GAP_SEC + 0.15
+    return 5 if need <= 5 * FIVE_SECOND_STRETCH else 10
+
+
 # --- Dialects -----------------------------------------------------------------
 # tts_direction stays one short line: Gemini TTS reads long instructions aloud.
 # key = story_options(kind=language).value chosen by the parent.

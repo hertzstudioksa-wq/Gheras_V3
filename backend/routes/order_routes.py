@@ -1,5 +1,6 @@
 """Order endpoints — v4 with scenario batches, duration, regeneration limit."""
 import uuid
+from services.story_pricing import quote as story_quote
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 
@@ -114,6 +115,10 @@ async def create_order(payload: OrderCreate, background: BackgroundTasks, curren
     # Duration — normalize & compute meta
     raw_seconds = int((data.get("duration") or {}).get("seconds") or 90)
     dur_meta = duration_meta(raw_seconds)
+    # The price the parent saw for their length / deliverable / video tier.
+    delivery = data.get("delivery") or {}
+    price_quote = story_quote(dur_meta["seconds"], delivery.get("output_type") or "both",
+                              delivery.get("video_tier") or "balanced")
 
     order_id = str(uuid.uuid4())
     enriched = await _enrich(data)
@@ -129,6 +134,7 @@ async def create_order(payload: OrderCreate, background: BackgroundTasks, curren
         "data": data,
         "enriched": enriched,
         "duration": dur_meta,
+        "price_quote": price_quote,
         "status": OrderStatus.PENDING.value,
         "admin_note": None,
         "ai_prompt_snapshot": prompt,

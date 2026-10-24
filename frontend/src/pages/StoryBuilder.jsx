@@ -56,12 +56,6 @@ const DURATION_META = {
   150: { label: "دقيقتان ونصف", scene_target: 8, cost_tier: "high" },
   180: { label: "ثلاث دقائق",   scene_target: 9, cost_tier: "high" },
 };
-const COST_TIER_META = {
-  low:    { label: "اقتصادي",  color: "bg-[#E8F0E1] text-[#4F6B3B] border-[#87A96B]/40" },
-  medium: { label: "متوازن",   color: "bg-[#F8F1E7] text-[#8B5A2B] border-[#D4A373]/40" },
-  high:   { label: "مميّز",    color: "bg-[#FCE6D4] text-[#B8612F] border-[#E07A5F]/40" },
-};
-
 const AUDIO_BG_OPTIONS = [
   { v: "music",         l: "موسيقى هادئة",              i: Music },
   { v: "human_rhythm",  l: "إيقاع صوتي بشري",           i: Mic },
@@ -83,7 +77,7 @@ const blankData = () => ({
   style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "" },
   duration: { seconds: 60 },
   audio_background: { mode: "music" },
-  delivery: { output_type: "both" },
+  delivery: { output_type: "both", video_tier: "balanced" },
 });
 
 const LS_KEY = "gheras_story_draft_v2";
@@ -168,6 +162,8 @@ export default function StoryBuilder() {
   const updateAudioBg = (mode) => setData((d) => ({ ...d, audio_background: { mode } }));
   const updateOutputType = (output_type) =>
     setData((d) => ({ ...d, delivery: { ...(d.delivery || {}), output_type } }));
+  const updateVideoTier = (video_tier) =>
+    setData((d) => ({ ...d, delivery: { ...(d.delivery || {}), video_tier } }));
 
   const toggleFav = (key) => {
     const cur = data.personalization.favorites?.[key] || { selected: false, name: "" };
@@ -695,7 +691,7 @@ export default function StoryBuilder() {
               <p className="font-body text-[#5A677D] mb-6">كيف تحب أن تُروى القصة لطفلك؟</p>
 
               <DurationPicker
-                seconds={data.duration?.seconds || 90}
+                seconds={data.duration?.seconds || 60}
                 onChange={updateDuration}
               />
 
@@ -707,6 +703,13 @@ export default function StoryBuilder() {
               <OutputTypePicker
                 value={data.delivery?.output_type || "both"}
                 onChange={updateOutputType}
+              />
+
+              <VideoTierPicker
+                seconds={data.duration?.seconds || 60}
+                outputType={data.delivery?.output_type || "both"}
+                value={data.delivery?.video_tier || "balanced"}
+                onChange={updateVideoTier}
               />
 
               <OptionGroup label="نوع القصة" icon={Palette} items={options.type} value={data.style.type_id} onChange={(v) => updateStyle({ type_id: v })} testId="style-type" required />
@@ -776,8 +779,9 @@ function DurationPicker({ seconds, onChange }) {
     ? seconds
     : DURATION_SNAPS.reduce((a, b) => (Math.abs(b - seconds) < Math.abs(a - seconds) ? b : a), 60);
   const meta = DURATION_META[snapped];
-  const cost = COST_TIER_META[meta.cost_tier];
   const idx = DURATION_SNAPS.indexOf(snapped);
+  // Lowest price for this length (video tier "balanced"); the tier picker below shows both.
+  const fromPrice = useStoryPrices(snapped, "both").find((t) => t.video_tier === "balanced")?.price_sar;
 
   return (
     <div className="mb-6" data-testid="duration-picker">
@@ -825,12 +829,12 @@ function DurationPicker({ seconds, onChange }) {
             {meta.scene_target} مشاهد
           </div>
         </div>
-        <div className={`rounded-2xl px-4 py-3 border ${cost.color}`}>
+        <div className="rounded-2xl px-4 py-3 border bg-[#E8F0E1] text-[#4F6B3B] border-[#87A96B]/40">
           <div className="text-[11px] opacity-80 font-body mb-1 inline-flex items-center gap-1">
-            <Coins className="w-3 h-3" /> تصنيف التكلفة
+            <Coins className="w-3 h-3" /> السعر يبدأ من
           </div>
-          <div className="font-heading font-bold" data-testid="duration-cost-tier">
-            {cost.label}
+          <div className="font-heading font-bold" data-testid="duration-from-price">
+            {fromPrice ? `${fromPrice} ر.س` : "…"}
           </div>
         </div>
       </div>
@@ -923,6 +927,77 @@ function OutputTypePicker({ value, onChange }) {
   );
 }
 
+// Video quality the parent picks, with the price for the chosen length and deliverable.
+const VIDEO_TIER_COPY = {
+  balanced: { title: "متوازن", desc: "حركة سلسة وجودة عالية — الاختيار الأنسب لمعظم القصص" },
+  premium: { title: "فاخر", desc: "أعلى ثبات لملامح طفلك وحركة سينمائية أنعم" },
+};
+
+function useStoryPrices(seconds, outputType) {
+  const [tiers, setTiers] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api
+      .get("/public/story-price", { params: { seconds, output_type: outputType } })
+      .then((r) => alive && setTiers(r.data?.tiers || []))
+      .catch(() => alive && setTiers([]));
+    return () => {
+      alive = false;
+    };
+  }, [seconds, outputType]);
+  return tiers;
+}
+
+function VideoTierPicker({ seconds, outputType, value, onChange }) {
+  const tiers = useStoryPrices(seconds, outputType);
+  if (outputType === "pdf") {
+    const pdf = tiers[0];
+    return pdf ? (
+      <p className="mb-6 font-body text-sm text-[#4F6B3B]" data-testid="pdf-price">
+        سعر الكتاب: <span className="font-bold">{pdf.price_sar} ر.س</span>
+      </p>
+    ) : null;
+  }
+  return (
+    <div className="mb-6" data-testid="video-tier-picker">
+      <label className="text-sm font-bold text-[#2D3748] mb-3 font-body inline-flex items-center gap-2">
+        <Sparkles className="w-4 h-4 text-[#729352]" />
+        جودة الفيديو
+      </label>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+        {["balanced", "premium"].map((tier) => {
+          const selected = value === tier;
+          const price = tiers.find((t) => t.video_tier === tier)?.price_sar;
+          return (
+            <button
+              key={tier}
+              type="button"
+              onClick={() => onChange(tier)}
+              className={`text-right rounded-2xl px-4 py-3 border-2 transition ${
+                selected
+                  ? "bg-[#E8F0E1] border-[#87A96B] shadow-sm"
+                  : "bg-[#FDFBF7] border-[#E2D8C9] hover:border-[#87A96B]/60"
+              }`}
+              data-testid={`video-tier-${tier}`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className={`font-body text-sm font-bold ${selected ? "text-[#4F6B3B]" : "text-[#2D3748]"}`}>
+                  {VIDEO_TIER_COPY[tier].title}
+                </span>
+                <span className="font-heading text-lg font-bold text-[#2D3748]">
+                  {price ? `${price} ر.س` : "…"}
+                </span>
+              </div>
+              <div className="text-xs text-[#8A9AB0] font-body mt-1">{VIDEO_TIER_COPY[tier].desc}</div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-[#8A9AB0] font-body mt-2">السعر حسب مدة القصة ونوع التسليم، غير شامل ضريبة القيمة المضافة.</p>
+    </div>
+  );
+}
+
 function OptionGroup({ label, icon: Icon, items, value, onChange, testId, required }) {
   if (!items?.length) return null;
   return (
@@ -962,6 +1037,9 @@ function Review({ data, categories, options }) {
   const audioBgLabel = (AUDIO_BG_OPTIONS.find((o) => o.v === audioBgMode) || AUDIO_BG_OPTIONS[0]).l;
   const outputType = data.delivery?.output_type || "both";
   const outputTypeLabel = (OUTPUT_TYPE_OPTIONS.find((o) => o.v === outputType) || OUTPUT_TYPE_OPTIONS[0]).l;
+  const videoTier = data.delivery?.video_tier || "balanced";
+  const tiers = useStoryPrices(durSec, outputType);
+  const price = (outputType === "pdf" ? tiers[0] : tiers.find((t) => t.video_tier === videoTier))?.price_sar;
 
   return (
     <div data-testid="step-6-content">
@@ -980,6 +1058,8 @@ function Review({ data, categories, options }) {
         <Field label="مدة الفيديو" value={`${durMeta.label} • ~${durMeta.scene_target} مشاهد`} />
         <Field label="الخلفية الصوتية" value={audioBgLabel} />
         <Field label="نوع التسليم" value={outputTypeLabel} />
+        {outputType !== "pdf" && <Field label="جودة الفيديو" value={VIDEO_TIER_COPY[videoTier].title} />}
+        <Field label="السعر" value={price ? `${price} ر.س (غير شامل الضريبة)` : "…"} />
       </div>
 
       <div className="bg-[#E8F0E1] rounded-2xl p-4 border border-[#87A96B]/30 mb-4">

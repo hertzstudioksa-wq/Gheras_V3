@@ -33,12 +33,12 @@ from services import house_style
 from services.ai import AIPermanentError, fal
 from services.ai.image_client import WIDE
 from services.child_character_service import _fetch_source_bytes
-from services.config_service import get_pipeline_config, resolve_model
+from services.config_service import VIDEO_TIERS, get_pipeline_config, resolve_model, video_tier_of
 from services.image_generation_service import generate_image
 
 logger = logging.getLogger("shot_pipeline")
 
-KLING_DEFAULT = "fal-ai/kling-video/v3/pro/image-to-video"
+KLING_DEFAULT = "fal-ai/kling-video/v2.5-turbo/pro/image-to-video"
 CLIP_CONCURRENCY = 4
 MAX_ELEMENTS = 3  # character sheets passed to Kling per shot
 # Scratch space on the data drive (C: is small on dev machines).
@@ -462,7 +462,7 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
     ] if p)
     args = {
         "prompt": prompt[:2400],
-        "duration": str(house_style.clip_seconds((row.get("narration_seconds") or 0) + tail)),
+        "duration": str(house_style.clip_seconds_for(model, (row.get("narration_seconds") or 0) + tail)),
         "negative_prompt": house_style.VIDEO_NEGATIVE,
         "cfg_scale": 0.5,
     }
@@ -484,6 +484,9 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
     if not ((cfg.get("stages") or {}).get("video_generation") or {}).get("enabled", False):
         return {"ran": False, "reason": "video_generation disabled in pipeline_config"}
     provider, model, _src = await resolve_model("video_generation", "kling", KLING_DEFAULT)
+    tier = video_tier_of(order)
+    if VIDEO_TIERS[tier]["model_name"]:  # the parent paid for the premium renderer
+        provider, model = "kling", VIDEO_TIERS[tier]["model_name"]
     if provider != "kling":
         return {"ran": False, "reason": f"video provider '{provider}' has no shot executor"}
 
@@ -539,6 +542,6 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
     saved = sum(1 for ok in results if ok)
     await db.orders.update_one({"id": order["id"]}, {"$set": {"video_generation_summary": {
         "mode": "shots", "total": len(rows), "saved": saved, "failed": len(rows) - saved,
-        "model": model, "run_id": run_id, "ran_at": _now(),
+        "model": model, "tier": tier, "run_id": run_id, "ran_at": _now(),
     }}})
     return {"ran": True, "saved": saved, "total": len(rows)}

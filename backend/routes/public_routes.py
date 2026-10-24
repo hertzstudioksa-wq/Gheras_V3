@@ -44,3 +44,13 @@ async def list_plans():
 async def list_settings():
     items = await db.settings.find({}, {"_id": 0}).to_list(200)
     return {it["key"]: it["value"] for it in items}
+
+
+@router.get("/story-price")
+async def story_price(seconds: int = 60, output_type: str = "both"):
+    """Price per video tier for the builder (same quote the order stores)."""
+    from models import duration_meta
+    from services.story_pricing import tier_quotes
+
+    seconds = duration_meta(seconds)["seconds"]  # snap to an allowed length
+    return {"seconds": seconds, "output_type": output_type, "tiers": tier_quotes(seconds, output_type)}
