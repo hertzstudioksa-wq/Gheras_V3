@@ -94,7 +94,7 @@ async def list_settings():
 async def story_price(seconds: int = 60, output_type: str = "both"):
     """Price per video tier for the builder (same quote the order stores)."""
     from models import duration_meta
-    from services.story_pricing import tier_quotes
+    from services.story_pricing import current_tier_quotes
 
     seconds = duration_meta(seconds)["seconds"]  # snap to an allowed length
-    return {"seconds": seconds, "output_type": output_type, "tiers": tier_quotes(seconds, output_type)}
+    return {"seconds": seconds, "output_type": output_type, "tiers": await current_tier_quotes(seconds, output_type)}

@@ -33,12 +33,12 @@ from services import engine_config, house_style
 from services.ai import AIPermanentError, fal
 from services.ai.image_client import WIDE
 from services.child_character_service import _fetch_source_bytes
-from services.config_service import VIDEO_TIERS, get_pipeline_config, resolve_model, video_tier_of
+from services.config_service import get_pipeline_config, video_tier_of
+from services.model_catalog import video_model_for_tier
 from services.image_generation_service import generate_image
 
 logger = logging.getLogger("shot_pipeline")
 
-KLING_DEFAULT = "fal-ai/kling-video/v2.5-turbo/pro/image-to-video"
 CLIP_CONCURRENCY = 4
 MAX_ELEMENTS = 3  # character sheets passed to Kling per shot
 # Scratch space on the data drive (C: is small on dev machines).
@@ -509,10 +509,8 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
     cfg = await get_pipeline_config()
     if not ((cfg.get("stages") or {}).get("video_generation") or {}).get("enabled", False):
         return {"ran": False, "reason": "video_generation disabled in pipeline_config"}
-    provider, model, _src = await resolve_model("video_generation", "kling", KLING_DEFAULT)
-    tier = video_tier_of(order)
-    if VIDEO_TIERS[tier]["model_name"]:  # the parent paid for the premium renderer
-        provider, model = "kling", VIDEO_TIERS[tier]["model_name"]
+    # The parent's tier picks the renderer they paid for (premium = the admin's premium model).
+    provider, model = await video_model_for_tier(video_tier_of(order))
     if provider != "kling":
         return {"ran": False, "reason": f"video provider '{provider}' has no shot executor"}
 

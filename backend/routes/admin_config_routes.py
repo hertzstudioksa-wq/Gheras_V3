@@ -74,12 +74,22 @@ async def list_models():
 
 
 @router.patch("/models/{stage_key}")
-async def update_model(stage_key: str, payload: ModelUpdate):
+async def update_model(stage_key: str, payload: ModelUpdate, admin: dict = Depends(require_admin)):
     if stage_key not in DEFAULT_MODELS:
         raise HTTPException(status_code=400, detail="stage_key غير معروفة")
     patch = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not patch:
         raise HTTPException(status_code=400, detail="لا يوجد تعديل")
+    # M4: a stage may only use a model from the catalog (same check as the engine page).
+    if patch.get("provider") or patch.get("model_name"):
+        from services import model_catalog
+        from services.config_service import resolve_model
+        cur_provider, cur_model, _src = await resolve_model(stage_key, "", "")
+        try:
+            await model_catalog.set_stage_model(stage_key, patch.get("provider") or cur_provider,
+                                                patch.get("model_name") or cur_model, admin)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     patch["updated_at"] = _now()
     existing = await db.model_registry.find_one({"stage_key": stage_key})
     if not existing:

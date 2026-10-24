@@ -155,6 +155,16 @@ async def patch_stage(stage_key: str, payload: StagePatch, admin=Depends(require
     patch = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not patch:
         raise HTTPException(status_code=400, detail="لا يوجد تعديل")
+    # M4: a stage may only use a model from the catalog (same check as the engine page).
+    if patch.get("provider") or patch.get("model_name"):
+        from services import model_catalog
+        from services.config_service import resolve_model
+        cur_provider, cur_model, _src = await resolve_model(stage_key, "", "")
+        try:
+            await model_catalog.set_stage_model(stage_key, patch.get("provider") or cur_provider,
+                                                patch.get("model_name") or cur_model, admin)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     # Provider sanity — must belong to the curated menu (or be the default).
     if patch.get("provider"):
         allowed = set(PROVIDER_CHOICES_BY_STAGE.get(stage_key, []))

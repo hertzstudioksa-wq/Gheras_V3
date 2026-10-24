@@ -192,6 +192,21 @@ async def _get_fal_key_for_music() -> tuple[str | None, str]:
     return await get_secret_with_source("FAL_KEY")
 
 
+def _fal_music_arguments(slug: str, prompt: str, duration_seconds: int) -> dict:
+    """Request body for each music model on fal (the model catalog lists these)."""
+    seconds = max(3, int(duration_seconds))
+    if slug.startswith("cassetteai/"):
+        return {"prompt": prompt[:1500], "duration": min(seconds, 180)}
+    if "stable-audio" in slug:
+        return {"prompt": prompt[:1500], "seconds_total": min(seconds, 190)}
+    return {  # ElevenLabs Music
+        "prompt":             prompt[:1500],
+        "music_length_ms":    max(3000, min(seconds * 1000, 600000)),
+        "force_instrumental": True,
+        "output_format":      "mp3_44100_128",
+    }
+
+
 async def _music_via_fal_elevenlabs(
     prompt: str,
     duration_seconds: int,
@@ -203,17 +218,13 @@ async def _music_via_fal_elevenlabs(
     from services.ai import AIConfigError, AIError, fal
 
     slug = model_id or "fal-ai/elevenlabs/music"
-    arguments = {
-        "prompt":             prompt[:1500],
-        "music_length_ms":    max(3000, min(int(duration_seconds) * 1000, 600000)),
-        "force_instrumental": True,
-        "output_format":      "mp3_44100_128",
-    }
+    arguments = _fal_music_arguments(slug, prompt, duration_seconds)
     started = time.monotonic()
     try:
         result = await fal.run(stage="music_generation", env_key="FAL_KEY_MUSIC", model=slug,
                                arguments=arguments, timeout=300.0, poll_interval=3.0)
-        audio_url = (result.get("audio") or {}).get("url")
+        audio_url = next((((result or {}).get(k) or {}).get("url") for k in ("audio", "audio_file", "music")
+                          if isinstance((result or {}).get(k), dict) and result[k].get("url")), None)
         if not audio_url:
             raise AIError("fal music returned no audio")
         audio = await fal.download(audio_url)

@@ -441,6 +441,45 @@ async def on_startup():
         await seed_engine_config()
     except Exception as e:  # noqa: BLE001
         logger.warning(f"engine config seeding skipped: {e}")
+    # M4: the model catalog (models a stage may use + their unit prices).
+    try:
+        from services.model_catalog import seed_catalog
+        n = await seed_catalog()
+        if n:
+            logger.info(f"model catalog: seeded {n} models")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"model catalog seeding skipped: {e}")
+    # M4: presets may only set catalog models. Archive the ones that point at
+    # removed keys (EMERGENT_LLM_KEY) or untested models, bring "Gheras Default"
+    # up to the current defaults, and drop stale "applied by preset" labels.
+    try:
+        if await _already_applied("presets_catalog_cleanup"):
+            raise _SkipMigration
+        from services.config_service import DEFAULT_MODELS
+        from services.model_catalog import CAPABILITY_OF_STAGE, preset_is_valid
+        now = datetime.now(timezone.utc).isoformat()
+        default_map = {s: {k: DEFAULT_MODELS[s][k] for k in ("provider", "model_name", "env_key")}
+                       for s in CAPABILITY_OF_STAGE}
+        await db.preset_stacks.update_one(
+            {"slug": "gheras-default"},
+            {"$set": {"stage_map": default_map, "is_archived": False, "updated_at": now,
+                      "description": "الإعدادات المعتمدة لكل المراحل (Claude عبر fal للنصوص، GPT Image 2 للصور، "
+                                     "Gemini للصوت، Kling 2.5 Turbo للفيديو، ElevenLabs للموسيقى)."}})
+        archived = []
+        async for p in db.preset_stacks.find({"slug": {"$ne": "gheras-default"}, "is_archived": {"$ne": True}},
+                                             {"_id": 0}):
+            if not await preset_is_valid(p):
+                await db.preset_stacks.update_one(
+                    {"id": p["id"]}, {"$set": {"is_archived": True, "is_active": False, "updated_at": now,
+                                               "archived_reason": "uses models outside the model catalog (M4)"}})
+                archived.append(p.get("slug"))
+        await db.model_registry.update_many({}, {"$set": {"applied_by_preset_id": None, "applied_by_preset_name": None}})
+        await _mark_applied("presets_catalog_cleanup")
+        logger.info(f"presets: archived {archived}; gheras-default refreshed")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"presets catalog cleanup skipped: {e}")
     # M3: the child sheet template takes the parent's art style preset
     # ($style_text / $sheet_rules) instead of the house style baked into its text.
     # An admin-rewritten template (without the baked text) is left alone.

@@ -77,6 +77,11 @@ async def preview(preset_id: str):
 
 @router.post("/{preset_id}/apply")
 async def apply(preset_id: str, admin=Depends(require_admin)):
+    # M4: only presets made entirely of catalog models can be applied.
+    from services.model_catalog import preset_is_valid
+    preset = await svc.get_preset(preset_id)
+    if preset and not await preset_is_valid(preset):
+        raise HTTPException(status_code=400, detail="المجموعة فيها موديلات مش في الكتالوج")
     try:
         return await svc.apply_preset(preset_id, admin.get("id"), admin.get("email"))
     except ValueError as e:

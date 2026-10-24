@@ -5,6 +5,10 @@
   /api/admin/engine/pacing             speaking rate, shot length, gaps, image quality per stage
   /api/admin/engine/system-prompts     versioned system prompts of the text stages
   /api/admin/orders/{id}/prompt-preview  exactly what each stage sends for an order
+  /api/admin/engine/stages             each stage's catalog model, key, switch; test; reset (M4)
+  /api/admin/engine/video-premium      the model the "فاخر" video tier renders with (M4)
+  /api/admin/engine/presets/{id}/apply ready-made model sets made only of catalog models (M4)
+  /api/admin/engine/catalog            the model catalog: what each model costs and can do (M4)
 
 Every edit bumps the layer's version, keeps the previous copy in a *_versions
 collection and writes an audit row; plans record the versions they used.
@@ -369,7 +373,8 @@ async def reset_system_prompt(stage: str, admin: dict = Depends(require_admin)):
 async def prompt_preview(order_id: str):
     from services import shot_pipeline
     from services.child_character_service import _resolve_prompt_safely
-    from services.config_service import resolve_model, video_tier_of, VIDEO_TIERS
+    from services.config_service import resolve_model, video_tier_of
+    from services.model_catalog import video_model_for_tier
     from services.production_service import build_planning_request, target_scene_count
     from services.scenario_service import build_scenario_request
 
@@ -432,10 +437,7 @@ async def prompt_preview(order_id: str):
             used = {(r["scene_index"], r["shot_index"]): r
                     for r in await shot_pipeline.shot_rows(order["id"], plan["id"])}
             child_name = ((order.get("data") or {}).get("child") or {}).get("name") or ""
-            provider, model, _ = await resolve_model("video_generation", "kling", shot_pipeline.KLING_DEFAULT)
-            tier = video_tier_of(order)
-            if VIDEO_TIERS[tier]["model_name"]:
-                model = VIDEO_TIERS[tier]["model_name"]
+            provider, model = await video_model_for_tier(video_tier_of(order))
             rows = []
             for sc in scenes:
                 for sh in sc.get("shots") or []:
@@ -465,3 +467,231 @@ async def prompt_preview(order_id: str):
 
         await stage("shots", shots())
     return out
+
+
+# ============================================================================
+# STAGES & MODELS (M4) — which catalog model each stage uses
+# ============================================================================
+class StageModelPatch(BaseModel):
+    provider: Optional[str] = None
+    model_name: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@router.get("/engine/stages")
+async def engine_stages():
+    from services import model_catalog
+    from services.preset_stacks_service import list_presets
+
+    premium = await model_catalog.premium_video_model()
+    presets = []
+    for p in await list_presets():
+        if p.get("is_archived") or not await model_catalog.preset_is_valid(p):
+            continue
+        presets.append({"id": p["id"], "name": p.get("name"), "description": p.get("description"),
+                        "intended_use": p.get("intended_use"), "is_active": bool(p.get("is_active")),
+                        "stages": sorted((p.get("stage_map") or {}).keys())})
+    return {
+        "stages": await model_catalog.stage_rows(),
+        "premium_video": {"model_name": premium, "entry": await model_catalog.find_model("kling", premium)},
+        "presets": presets,
+        "catalog": await model_catalog.list_catalog(include_inactive=False),
+        "capability_labels": model_catalog.CAPABILITY_LABELS,
+        "statuses": model_catalog.STATUSES,
+    }
+
+
+async def _stage_row(stage: str) -> dict | None:
+    from services import model_catalog
+
+    return next((r for r in await model_catalog.stage_rows() if r["stage_key"] == stage), None)
+
+
+@router.patch("/engine/stages/{stage}")
+async def patch_engine_stage(stage: str, payload: StageModelPatch, admin: dict = Depends(require_admin)):
+    from services import model_catalog
+
+    try:
+        if payload.enabled is not None:
+            await model_catalog.set_stage_enabled(stage, payload.enabled, admin)
+        if payload.provider and payload.model_name:
+            await model_catalog.set_stage_model(stage, payload.provider, payload.model_name, admin)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return await _stage_row(stage)
+
+
+@router.post("/engine/stages/{stage}/reset")
+async def reset_engine_stage(stage: str, admin: dict = Depends(require_admin)):
+    from services import model_catalog
+    from services.config_service import DEFAULT_MODELS
+
+    if stage not in model_catalog.CAPABILITY_OF_STAGE:
+        raise HTTPException(status_code=404, detail="مرحلة غير معروفة")
+    d = DEFAULT_MODELS[stage]
+    try:
+        await model_catalog.set_stage_model(stage, d["provider"], d["model_name"], admin)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return await _stage_row(stage)
+
+
+# Key / connection checks (no generation, nothing billed).
+_DIRECT_TESTS = {"anthropic": "anthropic", "openai": "openai", "gemini": "gemini", "gemini_tts": "gemini",
+                 "elevenlabs": "elevenlabs"}
+
+
+@router.post("/engine/stages/{stage}/test")
+async def test_engine_stage(stage: str):
+    from services.provider_test_service import _test_fal_key, test_provider
+
+    row = await _stage_row(stage)
+    if not row or not row["selectable"]:
+        raise HTTPException(status_code=404, detail="مرحلة غير معروفة أو محلية")
+    provider, key = row["provider"], row["key"]
+    if provider in _DIRECT_TESTS:
+        result = await test_provider(_DIRECT_TESTS[provider])
+    elif (key.get("env_key") or "").startswith("FAL_KEY"):
+        # The key fal would actually use (a capability key falls back to the others).
+        result = await _test_fal_key(key.get("shared_from") or key["env_key"], provider)
+    else:
+        raise HTTPException(status_code=400, detail="مفيش اختبار للمزوّد ده")
+    return {"stage": stage, "provider": provider, "model_name": row["model_name"],
+            "ok": bool(result.get("ok")), "latency_ms": result.get("latency_ms"),
+            "error": result.get("error"), "key_source": key["source"]}
+
+
+class PremiumVideoIn(BaseModel):
+    model_name: str
+
+
+@router.put("/engine/video-premium")
+async def set_video_premium(payload: PremiumVideoIn, admin: dict = Depends(require_admin)):
+    from services import model_catalog
+
+    try:
+        entry = await model_catalog.set_premium_video_model(payload.model_name, admin)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"model_name": payload.model_name, "entry": entry}
+
+
+@router.post("/engine/presets/{preset_id}/apply")
+async def apply_engine_preset(preset_id: str, admin: dict = Depends(require_admin)):
+    """Apply a ready-made model set, only if every model is in the catalog and every key is there."""
+    from services import model_catalog
+    from services.preset_stacks_service import apply_preset, get_preset
+
+    p = await get_preset(preset_id)
+    if not p or p.get("is_archived"):
+        raise HTTPException(status_code=404, detail="المجموعة غير موجودة")
+    if not await model_catalog.preset_is_valid(p):
+        raise HTTPException(status_code=400, detail="المجموعة فيها موديلات مش في الكتالوج")
+    missing = set()
+    for m in (p.get("stage_map") or {}).values():
+        env_key = model_catalog.env_key_for(m["provider"])
+        if not (await model_catalog.key_status(env_key))["configured"]:
+            missing.add(env_key)
+    if missing:
+        raise HTTPException(status_code=400, detail=f"مفاتيح ناقصة: {', '.join(sorted(missing))}")
+    result = await apply_preset(preset_id, admin.get("id"), admin.get("email"))
+    return {"ok": True, "applied_stages": result.get("applied_stages")}
+
+
+# ============================================================================
+# MODEL CATALOG (M4)
+# ============================================================================
+Capability = Literal["text", "image", "tts", "video", "music"]
+Status = Literal["recommended", "available", "testing_only", "retired"]
+Unit = Literal["1m_tokens", "image", "second", "minute"]
+
+
+class Price(BaseModel):
+    unit: Unit
+    usd: Optional[float] = Field(default=None, ge=0, le=100)
+    input_usd: Optional[float] = Field(default=None, ge=0, le=1000)
+    output_usd: Optional[float] = Field(default=None, ge=0, le=1000)
+    by_quality: Optional[dict[Literal["low", "medium", "high"], float]] = None
+    source: Optional[Literal["invoice", "list", "estimate"]] = None
+
+
+class CatalogIn(BaseModel):
+    capability: Capability
+    provider: str = Field(pattern=r"^[a-z_]{2,30}$")
+    model_name: str = Field(min_length=2, max_length=160, pattern=r"^[A-Za-z0-9._/:-]+$")
+    label: str = Field(min_length=2, max_length=80)
+    status: Status = "available"
+    price: Price
+    notes_ar: str = Field(default="", max_length=600)
+
+
+class CatalogPatch(BaseModel):
+    label: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    status: Optional[Status] = None
+    price: Optional[Price] = None
+    notes_ar: Optional[str] = Field(default=None, max_length=600)
+    active: Optional[bool] = None
+
+
+async def _models_in_use() -> dict[str, list[str]]:
+    """Maps "provider|model" to the stages (or the premium tier) using it now."""
+    from services import model_catalog
+
+    used: dict[str, list[str]] = {}
+    for r in await model_catalog.stage_rows():
+        if r["selectable"]:
+            used.setdefault(f"{r['provider']}|{r['model_name']}", []).append(r["name_ar"])
+    used.setdefault(f"kling|{await model_catalog.premium_video_model()}", []).append("الفيديو الفاخر")
+    return used
+
+
+@router.get("/engine/catalog")
+async def get_catalog():
+    from services import model_catalog
+
+    return {
+        "items": await model_catalog.list_catalog(),
+        "in_use": await _models_in_use(),
+        "executors": {k: sorted(v) for k, v in model_catalog.EXECUTORS.items()},
+        "capability_labels": model_catalog.CAPABILITY_LABELS,
+        "statuses": model_catalog.STATUSES,
+        "units": model_catalog.UNITS,
+    }
+
+
+@router.post("/engine/catalog")
+async def add_catalog_model(payload: CatalogIn, admin: dict = Depends(require_admin)):
+    from services import model_catalog
+
+    if payload.provider not in model_catalog.EXECUTORS[payload.capability]:
+        raise HTTPException(status_code=400, detail=(
+            f"مفيش كود بيشغّل {payload.provider} لـ{model_catalog.CAPABILITY_LABELS[payload.capability]}. "
+            f"المتاح: {', '.join(sorted(model_catalog.EXECUTORS[payload.capability]))}"))
+    if await model_catalog.find_model(payload.provider, payload.model_name):
+        raise HTTPException(status_code=409, detail="الموديل موجود في الكتالوج")
+    doc = {**payload.model_dump(), "id": str(uuid.uuid4()), "active": True, "seeded": False,
+           "created_at": _now(), "updated_at": _now()}
+    await db.model_catalog.insert_one(doc)
+    await _audit(admin, "model_catalog", doc["id"], "catalog.add", f"موديل جديد في الكتالوج: {payload.label}")
+    return await db.model_catalog.find_one({"id": doc["id"]}, {"_id": 0})
+
+
+@router.patch("/engine/catalog/{model_id}")
+async def update_catalog_model(model_id: str, payload: CatalogPatch, admin: dict = Depends(require_admin)):
+    before = await db.model_catalog.find_one({"id": model_id}, {"_id": 0})
+    if not before:
+        raise HTTPException(status_code=404, detail="الموديل غير موجود")
+    patch = payload.model_dump(exclude_unset=True)
+    if not patch:
+        raise HTTPException(status_code=400, detail="لا يوجد تعديل")
+    if patch.get("active") is False or patch.get("status") == "retired":
+        users = (await _models_in_use()).get(f"{before['provider']}|{before['model_name']}")
+        if users:
+            raise HTTPException(status_code=400,
+                                detail=f"الموديل مستخدم دلوقتي في: {'، '.join(users)} — غيّره هناك الأول")
+    patch["updated_at"] = _now()
+    await db.model_catalog.update_one({"id": model_id}, {"$set": patch})
+    await _audit(admin, "model_catalog", model_id, "catalog.update", f"تعديل {before.get('label')} في الكتالوج",
+                 before={k: before.get(k) for k in patch if k != "updated_at"},
+                 after={k: v for k, v in patch.items() if k != "updated_at"})
+    return await db.model_catalog.find_one({"id": model_id}, {"_id": 0})

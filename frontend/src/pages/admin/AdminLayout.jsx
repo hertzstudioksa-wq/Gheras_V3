@@ -5,8 +5,8 @@ import ErrorBoundary from "../../components/ErrorBoundary";
 import AdminPasswordGate from "./AdminPasswordGate";
 import {
   LayoutDashboard, Users, BookOpen, Sprout, FileText, Wand2,
-  CreditCard, Settings, LogOut, Palette, Cpu, Workflow, ShieldCheck,
-  Coins, Beaker, Lock, Package, ScrollText, Library, Hourglass, Layers, SlidersHorizontal,
+  CreditCard, Settings, LogOut, Palette,
+  Coins, Beaker, Lock, Package, ScrollText, Library, Hourglass, SlidersHorizontal,
 } from "lucide-react";
 
 const LOGO_URL = "/gheras-logo.png";
@@ -18,11 +18,8 @@ const items = [
   { to: "/admin/categories", label: "التصنيفات", icon: Sprout, tid: "admin-nav-cats" },
   { to: "/admin/styles", label: "خيارات نمط القصة", icon: Palette, tid: "admin-nav-styles" },
   { to: "/admin/content", label: "محتوى الصفحة", icon: FileText, tid: "admin-nav-content" },
-  { to: "/admin/engine", label: "طبقات المحرك", icon: SlidersHorizontal, tid: "admin-nav-engine" },
+  { to: "/admin/engine", label: "محرك الإنتاج", icon: SlidersHorizontal, tid: "admin-nav-engine" },
   { to: "/admin/prompts", label: "برومبتات AI", icon: Wand2, tid: "admin-nav-prompts" },
-  { to: "/admin/models", label: "إعدادات النماذج", icon: Cpu, tid: "admin-nav-models" },
-  { to: "/admin/pipeline", label: "إعدادات خط الإنتاج", icon: Workflow, tid: "admin-nav-pipeline" },
-  { to: "/admin/stage-control", label: "مركز التحكم بالمراحل", icon: Layers, tid: "admin-nav-stage-control" },
   { to: "/admin/lab", label: "مختبر المراحل", icon: Beaker, tid: "admin-nav-lab" },
   { to: "/admin/pricing", label: "التسعير الداخلي", icon: Coins, tid: "admin-nav-pricing" },
   { to: "/admin/bundles", label: "الباقات", icon: Package, tid: "admin-nav-bundles" },
@@ -31,8 +28,6 @@ const items = [
   { to: "/admin/assets", label: "مكتبة الأصول", icon: Library, tid: "admin-nav-assets" },
   { to: "/admin/retention", label: "سياسة الاحتفاظ", icon: Hourglass, tid: "admin-nav-retention" },
   { to: "/admin/secrets", label: "المفاتيح والمزوّدين", icon: Lock, tid: "admin-nav-secrets" },
-  { to: "/admin/presets", label: "Preset Stacks", icon: Layers, tid: "admin-nav-presets" },
-  { to: "/admin/api-status", label: "حالة API", icon: ShieldCheck, tid: "admin-nav-api" },
   { to: "/admin/plans", label: "الأسعار والباقات (legacy)", icon: CreditCard, tid: "admin-nav-plans" },
   { to: "/admin/settings", label: "الإعدادات", icon: Settings, tid: "admin-nav-settings" },
 ];

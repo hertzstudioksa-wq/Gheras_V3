@@ -28,15 +28,10 @@ import AdminStoryOptions from "./pages/admin/AdminStoryOptions";
 import AdminContent from "./pages/admin/AdminContent";
 import AdminPrompts from "./pages/admin/AdminPrompts";
 import AdminEngine from "./pages/admin/AdminEngine";
-import AdminModels from "./pages/admin/AdminModels";
-import AdminPipeline from "./pages/admin/AdminPipeline";
-import AdminApiStatus from "./pages/admin/AdminApiStatus";
 import AdminPlans from "./pages/admin/AdminPlans";
 import AdminPricing from "./pages/admin/AdminPricing";
 import AdminStageLab from "./pages/admin/AdminStageLab";
 import AdminSecrets from "./pages/admin/AdminSecrets";
-import AdminPresets from "./pages/admin/AdminPresets";
-import AdminStageControl from "./pages/admin/AdminStageControl";
 import AdminBundles from "./pages/admin/AdminBundles";
 import AdminAuditLog from "./pages/admin/AdminAuditLog";
 import AdminPaymentSettings from "./pages/admin/AdminPaymentSettings";
@@ -128,9 +123,9 @@ function App() {
               <Route path="content" element={<AdminContent />} />
               <Route path="engine" element={<AdminEngine />} />
               <Route path="prompts" element={<AdminPrompts />} />
-              <Route path="models" element={<AdminModels />} />
-              <Route path="pipeline" element={<AdminPipeline />} />
-              <Route path="api-status" element={<AdminApiStatus />} />
+              <Route path="models" element={<Navigate to="/admin/engine?tab=stages" replace />} />
+              <Route path="pipeline" element={<Navigate to="/admin/engine?tab=stages" replace />} />
+              <Route path="api-status" element={<Navigate to="/admin/secrets" replace />} />
               <Route path="plans" element={<AdminPlans />} />
               <Route path="pricing" element={<AdminPricing />} />
               <Route path="bundles" element={<AdminBundles />} />
@@ -140,8 +135,8 @@ function App() {
               <Route path="retention" element={<AdminRetention />} />
               <Route path="lab" element={<AdminStageLab />} />
               <Route path="secrets" element={<AdminSecrets />} />
-              <Route path="presets" element={<AdminPresets />} />
-              <Route path="stage-control" element={<AdminStageControl />} />
+              <Route path="presets" element={<Navigate to="/admin/engine?tab=stages" replace />} />
+              <Route path="stage-control" element={<Navigate to="/admin/engine?tab=stages" replace />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
 

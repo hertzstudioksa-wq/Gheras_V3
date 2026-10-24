@@ -85,7 +85,7 @@ export default function OrderPromptPreview({ orderId }) {
       <div className="flex items-start justify-between gap-3 mb-3">
         <p className="font-body text-xs text-[#5A677D] max-w-xl">
           النص اللي هيتبعت لكل موديل لو المرحلة اتشغلت دلوقتي بالإعدادات الحالية. تعدّل الأجزاء دي من{" "}
-          <Link to="/admin/engine" className="text-[#4F6B3B] font-bold underline">طبقات المحرك</Link>.
+          <Link to="/admin/engine?tab=styles" className="text-[#4F6B3B] font-bold underline">محرك الإنتاج</Link>.
         </p>
         <button onClick={load} disabled={loading} className="inline-flex items-center gap-1 text-xs font-body font-bold text-[#5A677D] hover:text-[#2D3748] shrink-0">
           <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} /> تحديث

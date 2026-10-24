@@ -23,21 +23,22 @@ from db import db
 # Used whenever the admin hasn't overridden config in the DB yet. Matches the
 # existing service implementations exactly so behavior is unchanged.
 DEFAULT_MODELS: dict[str, dict[str, Any]] = {
-    # Phase 1 (2026-10) — direct providers only; every entry here has a
-    # working executor in services/ai. Text: Claude. Images: GPT Image.
+    # Every entry has a working executor and a model_catalog row (M4). Text:
+    # Claude Opus 5.5 through fal's OpenRouter (same fal balance as the media;
+    # approved 2026-10-24). Images: GPT Image 2 through fal.
     "scenario_generation": {
-        "provider": "anthropic",
-        "model_name": "claude-opus-5-5",
+        "provider": "fal_llm",
+        "model_name": "anthropic/claude-opus-5.5",
         "fallback_provider": None,
         "fallback_model": None,
-        "env_key": "ANTHROPIC_API_KEY",
+        "env_key": "FAL_KEY_TEXT",
     },
     "production_planning": {
-        "provider": "anthropic",
-        "model_name": "claude-opus-5-5",
+        "provider": "fal_llm",
+        "model_name": "anthropic/claude-opus-5.5",
         "fallback_provider": None,
         "fallback_model": None,
-        "env_key": "ANTHROPIC_API_KEY",
+        "env_key": "FAL_KEY_TEXT",
     },
     "child_character_i2i": {
         "provider": "fal_image",
@@ -109,7 +110,9 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
 
 # Video quality tiers the parent chooses in the story builder (and pays for).
 # "balanced" follows the admin's video_generation model (default Kling 2.5 turbo);
-# "premium" always renders with Kling v3 pro (character elements, any clip length).
+# "premium" renders with the admin's premium model (model_catalog.premium_video_model,
+# default Kling v3 pro: character elements, any clip length). The per-second costs
+# here are fallbacks; prices use the catalog's.
 VIDEO_TIERS = {
     "balanced": {"label_ar": "متوازن", "model_name": None, "cost_per_second_usd": 0.07},
     "premium":  {"label_ar": "فاخر", "model_name": "fal-ai/kling-video/v3/pro/image-to-video",
