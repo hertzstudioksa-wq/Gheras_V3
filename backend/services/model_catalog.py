@@ -70,10 +70,28 @@ CATALOG_SEED = [
      "label": "Claude Opus 5.5 (Anthropic مباشرة)", "status": "available",
      "price": {"unit": "1m_tokens", "input_usd": 4.0, "output_usd": 20.0, "source": _LIST},
      "notes_ar": "نفس الموديل من غير وسيط. محتاج ANTHROPIC_API_KEY."},
+    # Text bake-off 2026-10-24 (same fictional order, real pipeline code; costs are fal's per story,
+    # scenarios + plan): all three passed validation; scores are the owner-facing reading of the stories.
+    {"capability": "text", "provider": "fal_llm", "model_name": "anthropic/claude-haiku-5.5",
+     "label": "Claude Haiku 5.5 (عبر fal)", "status": "available",
+     "price": {"unit": "1m_tokens", "input_usd": 0.10, "output_usd": 0.50, "source": _LIST},
+     "notes_ar": "في المقارنة: ≈ $0.01 للقصة (تقييم 8/10). مصري طبيعي وحيوي ووصف صور قوي، بس كتب نص الكتاب بالعامية "
+                 "بدل الفصحى، وخلّى اللعبة شخصية ليها شيت (صورة زيادة)."},
+    {"capability": "text", "provider": "fal_llm", "model_name": "openai/gpt-6-luna",
+     "label": "GPT-6 Luna (عبر fal)", "status": "available",
+     "price": {"unit": "1m_tokens", "input_usd": 0.10, "output_usd": 0.50, "source": _LIST},
+     "notes_ar": "في المقارنة: ≈ $0.005 للقصة (تقييم 8/10). قصة نضيفة ومترابطة ومصري سليم ونص الكتاب فصحى مظبوطة؛ "
+                 "النهاية أهدى من Opus، ولبّس الأب بنطلون جنب البيسين."},
+    {"capability": "text", "provider": "fal_llm", "model_name": "google/gemini-3.8-flash",
+     "label": "Gemini 3.8 Flash (عبر fal)", "status": "available",
+     "price": {"unit": "1m_tokens", "input_usd": 0.825, "output_usd": 4.125, "source": _LIST},
+     "notes_ar": "في المقارنة: ≈ $0.05 للقصة (تقييم 7.5/10). Gemini المدفوع من غير حساب جوجل منفصل؛ بعض الكلمات "
+                 "مش طبيعية لطفل وتشكيل متلخبط في العامية — أغلى من Haiku وLuna وأضعف منهم."},
     {"capability": "text", "provider": "gemini", "model_name": "gemini-3.5-flash",
      "label": "Gemini 3.5 Flash (مجاني)", "status": "testing_only",
      "price": {"unit": "1m_tokens", "input_usd": 0.0, "output_usd": 0.0, "source": _LIST},
-     "notes_ar": "للتجربة بس: الطبقة المجانية بحدود يومية، وجوجل ممكن تستخدم بياناتها في التدريب — ممنوع مع صور أطفال حقيقية."},
+     "notes_ar": "للتجربة بس: الطبقة المجانية بحدود يومية، وجوجل ممكن تستخدم بياناتها في التدريب — ممنوع مع بيانات أطفال "
+                 "حقيقية. في المقارنة: تقييم 6.5/10، ورجّع «مشغول» (503) مرتين قبل ما يرد."},
     # ---- images
     {"capability": "image", "provider": "fal_image", "model_name": "openai/gpt-image-2",
      "label": "GPT Image 2 (عبر fal)", "status": "recommended",

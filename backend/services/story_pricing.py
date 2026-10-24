@@ -1,8 +1,9 @@
 """Customer price for a story by length, deliverable and video tier.
 
 Cost = what one story uses (counts measured on the Yaman test order against
-fal's invoice, 2026-10-24) × the unit prices of the models the stages use
-right now (model catalog, M4), then a retry buffer, payment fees and the target
+fal's invoice and in the text bake-off, 2026-10-24) × the unit prices of the
+models the stages use right now (model catalog, M4: text per token, images per
+picture at the configured quality, video per second, music per minute), then a retry buffer, payment fees and the target
 margin, rounded up to a price ending in 9. Switching a stage to a pricier model
 in the admin therefore raises the price the parent sees. The admin pricing page
 (M6) will make the margin/buffer/fees editable; until then they live here.
@@ -19,7 +20,10 @@ USD_TO_SAR = 3.75
 IMAGE_HIGH = 0.17      # character sheets + cover (GPT Image 2 high)
 IMAGE_MEDIUM = 0.06    # shot keyframes (GPT Image 2 medium)
 MUSIC_PER_MINUTE = 0.60
-TEXT_PER_STORY = 0.35  # scenarios + production plan (Claude via fal)
+TEXT_PER_STORY = 0.35  # scenarios + production plan (Claude via fal), when a model has no token price
+# Tokens one story spends per text stage (input, output). Measured in the text
+# bake-off (2026-10-24, upper end across models: the plan's output includes reasoning).
+TEXT_TOKENS = {"scenario_generation": (1700, 2500), "production_planning": (6500, 17000)}
 CAST_SHEETS = 3        # child + one relative + one other (horse, pet...) on average
 # Clip seconds paid per story second: line gaps, the end tail and 5/10 s rounding.
 CLIP_SECONDS_FACTOR = 1.33
@@ -30,6 +34,7 @@ TARGET_MARGIN = 0.50
 MIN_PRICE_SAR = 39
 
 DEFAULT_PRICES = {
+    "text": TEXT_PER_STORY,
     "image_sheet": IMAGE_HIGH,
     "image_shot": IMAGE_MEDIUM,
     "music_per_minute": MUSIC_PER_MINUTE,
@@ -61,7 +66,17 @@ async def current_prices() -> dict:
     def pick(value, fallback):
         return value if isinstance(value, (int, float)) else fallback
 
+    # Text: each stage's model price × the tokens that stage spends per story.
+    text = 0.0
+    for stage, (tokens_in, tokens_out) in TEXT_TOKENS.items():
+        price = ((await stage_entry(stage)) or {}).get("price") or {}
+        if isinstance(price.get("input_usd"), (int, float)) and isinstance(price.get("output_usd"), (int, float)):
+            text += (tokens_in * price["input_usd"] + tokens_out * price["output_usd"]) / 1_000_000
+        else:  # unpriced model: its share of the measured Claude cost
+            text += TEXT_PER_STORY * (0.15 if stage == "scenario_generation" else 0.85)
+
     return {
+        "text": round(text, 4),
         "image_sheet": pick(model_catalog.unit_price(await stage_entry("child_character_i2i"),
                                                      quality.get("child_character_i2i", "high")), IMAGE_HIGH),
         "image_shot": pick(model_catalog.unit_price(await stage_entry("scene_image_generation"),
@@ -77,7 +92,7 @@ def cost_usd(seconds: int, output_type: str = "both", tier: str = DEFAULT_VIDEO_
              prices: dict | None = None) -> float:
     p = prices or DEFAULT_PRICES
     shots = max(1, round(seconds / (p.get("shot_seconds") or SHOT_SECONDS)))
-    cost = TEXT_PER_STORY + (CAST_SHEETS + 1) * p["image_sheet"] + shots * p["image_shot"]
+    cost = p.get("text", TEXT_PER_STORY) + (CAST_SHEETS + 1) * p["image_sheet"] + shots * p["image_shot"]
     if output_type in ("video", "both"):
         per_second = p["video_per_second"].get(tier, p["video_per_second"][DEFAULT_VIDEO_TIER])
         cost += seconds * CLIP_SECONDS_FACTOR * per_second
