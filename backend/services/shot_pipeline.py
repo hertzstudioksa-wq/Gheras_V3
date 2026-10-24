@@ -229,6 +229,39 @@ def motion_prompt(motion: str | None, mapping: list[str], style: dict) -> str:
     ] if p)
 
 
+async def cover_request(order: dict, plan: dict) -> tuple[str, list[dict], list[str]]:
+    """The cover (also the video thumbnail) is drawn like a keyframe of the whole
+    cast: every character sheet rides along as a reference, so relatives look
+    like their photos instead of being invented from the cover text.
+    Returns (prompt, references, cast types)."""
+    child_name = ((order.get("data") or {}).get("child") or {}).get("name") or ""
+    sheets = await load_character_sheets(order, plan)
+    profiles = await _profiles(plan)
+    style = await engine_config.style_for_order(order)
+    cast_types = sorted(sheets, key=lambda t: (t != "child", t))[:MAX_ELEMENTS + 1]
+    refs, notes = [], []
+    for t in cast_types:
+        got = await _fetch_source_bytes(sheets[t]["url"])
+        if got:
+            refs.append({"image_bytes": got[0], "mime_type": got[1]})
+            notes.append(f"{sheets[t]['label']}'s character sheet")
+    cast = "; ".join(_cast_line(profiles[t], child_name, bool(sheets[t].get("from_photo")))
+                     for t in cast_types if t in profiles)
+    idea = plan.get("cover_prompt") or f"A warm storybook cover scene for “{plan.get('title', '')}”."
+    prompt = " ".join(p for p in [
+        "Storybook cover illustration.",
+        idea,
+        f"Characters, matching their reference sheets exactly: {cast}." if cast else "",
+        ("Reference images, in order: " + "; ".join(f"{i + 1}) {n}" for i, n in enumerate(notes)) + ". "
+         "Draw every character exactly like their sheet (face, hair, beard, glasses, clothes, colors); "
+         "where the scene description says otherwise, the sheet wins.") if notes else "",
+        "Leave calm sky or background space in the upper part of the frame for the book title.",
+        f"Art style: {style['style_text']}",
+        style["frame_rules"],
+    ] if p)
+    return prompt, refs, cast_types
+
+
 # ---------------------------------------------------------------- keyframes
 async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
     """Draw the scene's shot keyframes in order (each sees the previous one). A

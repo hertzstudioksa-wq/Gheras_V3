@@ -695,7 +695,7 @@ async def _stage_scene_image_generation(order: dict, pipeline_cfg: dict,
                 "skipped_reasons":          ref_log.get("skipped_reasons") or [],
             },
         })
-    cover_img = next((i for i in images if i.get("kind") == "cover"), None)
+    cover_img = max((i for i in images if i.get("kind") == "cover"), key=lambda i: i.get("created_at") or "", default=None)
     cover_info = None
     if cover_img:
         cover_info = {

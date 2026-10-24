@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>{{ title }}</title>
+<style>
+@font-face { font-family: "Baloo"; src: url("{{ fonts.baloo }}") format("truetype"); font-weight: 400 800; }
+@font-face { font-family: "Amiri"; src: url("{{ fonts.amiri }}") format("truetype"); font-weight: 400; }
+@font-face { font-family: "Amiri"; src: url("{{ fonts.amiri_bold }}") format("truetype"); font-weight: 700; }
+@page { size: 297mm 210mm; margin: 0; }
+:root {
+  --accent: {{ palette.accent }};
+  --accent2: {{ palette.accent2 }};
+  --accent3: {{ palette.accent3 }};
+  --deep: {{ palette.deep }};
+  --soft: {{ palette.soft }};
+  --paper: #FFF9F0;
+  --ink: #2A2238;
+}
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+html, body { margin: 0; padding: 0; background: #e9e4dc; }
+body { font-family: "Amiri", serif; color: var(--ink); }
+.page {
+  width: 297mm; height: 210mm; position: relative; overflow: hidden;
+  break-after: page; page-break-after: always; background: var(--paper);
+}
+.page:last-child { break-after: auto; page-break-after: auto; }
+img { display: block; }
+.bleed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- shared decoration ---------- */
+.dots { position: absolute; inset: 0; opacity: .5;
+  background: radial-gradient(color-mix(in srgb, var(--accent) 35%, transparent) 1.2px, transparent 1.6px) 0 0 / 8mm 8mm; }
+.blob { position: absolute; border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%; }
+.star { position: absolute; width: 9mm; height: 9mm; }
+.star svg { width: 100%; height: 100%; }
+.title-font { font-family: "Baloo", "Amiri", sans-serif; }
+.pageno {
+  position: absolute; bottom: 7mm; left: 50%; transform: translateX(-50%);
+  width: 11mm; height: 11mm; border-radius: 50%; background: var(--accent); color: #fff;
+  font-family: "Baloo"; font-weight: 800; font-size: 15px; display: grid; place-items: center;
+  box-shadow: 0 2px 0 var(--deep);
+}
+.chip {
+  display: inline-block; font-family: "Baloo"; font-weight: 700; font-size: 17px; line-height: 1;
+  padding: 2.2mm 5mm 2.6mm; border-radius: 999px; background: var(--accent); color: #fff;
+}
+.story-text { font-size: {{ text_size }}px; line-height: 1.95; margin: 0; }
+.story-text .first { font-family: "Baloo"; font-weight: 800; color: var(--accent); font-size: 1.25em; }
+
+/* ---------- cover ---------- */
+.cover-shade { position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(20,12,40,.55) 0%, rgba(20,12,40,.15) 32%, rgba(0,0,0,0) 48%, rgba(0,0,0,0) 78%, rgba(20,12,40,.45) 100%); }
+.cover-title { position: absolute; top: 12mm; left: 0; right: 0; text-align: center; }
+.cover-title .chip { background: #fff; color: var(--deep); font-size: 19px; box-shadow: 0 2px 0 rgba(0,0,0,.15); }
+.cover-title h1 {
+  margin: 4mm 0 0; font-family: "Baloo"; font-weight: 800; font-size: 76px; line-height: 1.15; color: #fff;
+  text-shadow: 0 0 1px var(--deep), 2px 2px 0 var(--deep), -2px 2px 0 var(--deep), 2px -2px 0 var(--deep),
+               -2px -2px 0 var(--deep), 0 5px 0 var(--deep), 0 10px 26px rgba(0,0,0,.45);
+}
+.brand { position: absolute; bottom: 8mm; right: 10mm; display: flex; align-items: center; gap: 3mm;
+  background: rgba(255,255,255,.92); border-radius: 999px; padding: 1.6mm 5mm 1.6mm 2mm;
+  font-family: "Baloo"; font-weight: 800; color: var(--deep); font-size: 20px; }
+.brand img { width: 11mm; height: 11mm; object-fit: contain; }
+.cover .made-for { position: absolute; bottom: 9mm; left: 10mm; color: #fff; font-family: "Baloo";
+  font-weight: 600; font-size: 17px; text-shadow: 0 2px 6px rgba(0,0,0,.5); }
+
+/* ---------- cast ---------- */
+.section-title { position: relative; text-align: center; margin: 14mm 0 0; font-family: "Baloo"; font-weight: 800;
+  font-size: 50px; color: var(--deep); }
+.section-title::after { content: ""; display: block; width: 46mm; height: 3.2mm; margin: 1mm auto 0; border-radius: 9px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3)); }
+.cast-row { position: relative; display: flex; justify-content: center; gap: 12mm; margin-top: 10mm; }
+.cast-card { margin: 0; width: 60mm; text-align: center; }
+.portrait { width: 60mm; height: 60mm; border-radius: 50%; background-color: #fff; background-repeat: no-repeat;
+  background-size: cover; background-position: center;
+  border: 2.4mm solid #fff; box-shadow: 0 0 0 1.4mm var(--accent), 0 6mm 10mm rgba(42,34,56,.18); }
+.cast-card:nth-child(2) .portrait { box-shadow: 0 0 0 1.4mm var(--accent2), 0 6mm 10mm rgba(42,34,56,.18); }
+.cast-card:nth-child(3) .portrait { box-shadow: 0 0 0 1.4mm var(--accent3), 0 6mm 10mm rgba(42,34,56,.18); }
+.cast-card figcaption { margin-top: 5mm; }
+.cast-card b { display: block; font-family: "Baloo"; font-weight: 800; font-size: 27px; color: var(--deep); line-height: 1.1; }
+.cast-card span { font-family: "Baloo"; font-weight: 600; font-size: 16px; color: #7b7290; }
+.dedication { position: absolute; bottom: 14mm; left: 34mm; right: 34mm; text-align: center;
+  background: #fff; border-radius: 9mm; padding: 6mm 12mm; box-shadow: 0 4mm 10mm rgba(42,34,56,.10);
+  border: 1mm dashed color-mix(in srgb, var(--accent) 55%, white); }
+.dedication .to { font-family: "Baloo"; font-weight: 800; font-size: 25px; color: var(--accent); margin: 0 0 1mm; }
+.dedication p { margin: 0; font-size: 19px; line-height: 1.8; }
+
+/* ---------- scene: hero (full-bleed art, text card) ---------- */
+.hero .text-card { position: absolute; bottom: 12mm; right: 14mm; width: 128mm; background: rgba(255,249,240,.95);
+  border-radius: 10mm; padding: 7mm 9mm 8mm; box-shadow: 0 5mm 14mm rgba(20,12,40,.30); }
+.hero .text-card .chip { position: absolute; top: -5mm; right: 9mm; }
+.hero .text-card h3 { margin: 2mm 0 2mm; font-family: "Baloo"; font-weight: 800; font-size: 25px; color: var(--deep); }
+.hero .pageno { left: 22mm; transform: none; }
+
+/* ---------- scene: split (art one side, text column) ---------- */
+.split .art { position: absolute; top: 0; right: 0; bottom: 0; width: 63%; }
+.split .art img { width: 100%; height: 100%; object-fit: cover; }
+/* Paper-coloured scallops drawn over the art's edge as vector shapes (masks and
+   gradients leave hairlines in print). */
+.split .scallops { position: absolute; top: 0; left: -1.5mm; width: 21mm; height: 210mm; z-index: 1; fill: var(--paper); }
+.split .col { position: absolute; top: 14mm; bottom: 20mm; left: 12mm; width: 31%; display: flex; flex-direction: column; justify-content: center; }
+.split .big-no { font-family: "Baloo"; font-weight: 800; font-size: 86px; line-height: .9; color: transparent;
+  -webkit-text-stroke: 2px var(--accent); }
+.split h3 { margin: 1mm 0 4mm; font-family: "Baloo"; font-weight: 800; font-size: 30px; line-height: 1.2; color: var(--deep); }
+.split .thumbs { margin-top: 9mm; display: flex; gap: 5mm; }
+.split .thumbs img { width: 38mm; height: 24mm; object-fit: cover; border-radius: 4mm; border: 1.6mm solid #fff;
+  box-shadow: 0 2mm 5mm rgba(42,34,56,.20); }
+.split .thumbs img:nth-child(1) { transform: rotate(3deg); }
+.split .thumbs img:nth-child(2) { transform: rotate(-4deg); }
+
+/* ---------- scene: collage (photo board + speech bubble) ---------- */
+.collage .board { position: absolute; top: 12mm; left: 14mm; right: 14mm; height: 112mm; }
+.collage .main { position: absolute; top: 0; right: 0; width: 64%; height: 100%; object-fit: cover; border-radius: 6mm;
+  border: 2.2mm solid #fff; box-shadow: 0 4mm 10mm rgba(42,34,56,.22); transform: rotate(-1.2deg); }
+.collage .side { position: absolute; left: 0; width: 33%; height: 48%; object-fit: cover; border-radius: 5mm;
+  border: 2mm solid #fff; box-shadow: 0 3mm 8mm rgba(42,34,56,.2); }
+.collage .side.s1 { top: 0; transform: rotate(2.5deg); }
+.collage .side.s2 { bottom: 0; transform: rotate(-2deg); }
+.collage .tape { position: absolute; width: 26mm; height: 8mm; background: color-mix(in srgb, var(--accent2) 45%, transparent);
+  top: -3mm; right: 26%; transform: rotate(-6deg); border-radius: 1mm; }
+.collage .bubble { position: absolute; bottom: 19mm; left: 26mm; right: 26mm; background: #fff; border-radius: 12mm;
+  padding: 7mm 12mm; box-shadow: 0 4mm 10mm rgba(42,34,56,.12); border: 1.2mm solid var(--soft); }
+.collage .bubble::before { content: ""; position: absolute; top: -9mm; right: 40mm; border: 5mm solid transparent;
+  border-bottom: 9mm solid #fff; }
+.collage .bubble h3 { margin: 0 0 1mm; font-family: "Baloo"; font-weight: 800; font-size: 24px; color: var(--accent); }
+.collage .pageno { bottom: 4mm; }
+
+/* ---------- scene: band (wide art with a wavy edge, text below) ---------- */
+.band .art { position: absolute; top: 0; left: 0; right: 0; height: 128mm; }
+.band .art img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 28%;
+  -webkit-mask: radial-gradient(16mm 11mm at 50% 100%, transparent 98%, #000 100%) 0 0 / 34mm 100% repeat-x;
+          mask: radial-gradient(16mm 11mm at 50% 100%, transparent 98%, #000 100%) 0 0 / 34mm 100% repeat-x; }
+.band .chip { position: absolute; top: 9mm; right: 12mm; box-shadow: 0 2px 0 var(--deep); }
+.band .below { position: absolute; top: 134mm; left: 30mm; right: 30mm; bottom: 20mm; display: flex; flex-direction: column;
+  justify-content: center; text-align: center; }
+.band .below h3 { margin: 0 0 1mm; font-family: "Baloo"; font-weight: 800; font-size: 27px; color: var(--deep); }
+.band .quote { position: absolute; font-family: "Baloo"; font-weight: 800; font-size: 120px; line-height: 1;
+  color: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* ---------- certificate ---------- */
+.certificate { background: radial-gradient(circle at 50% 40%, #fff 0%, var(--paper) 70%); }
+.cert-frame { position: absolute; inset: 10mm; border-radius: 10mm; border: 2.5mm solid var(--accent);
+  box-shadow: inset 0 0 0 2.5mm #fff, inset 0 0 0 3.6mm var(--accent2); }
+.cert-inner { position: absolute; inset: 22mm 30mm; text-align: center; display: flex; flex-direction: column; align-items: center; }
+.cert-inner .kicker { font-family: "Baloo"; font-weight: 700; font-size: 22px; color: var(--accent2); }
+.cert-inner h2 { margin: 0; font-family: "Baloo"; font-weight: 800; font-size: 56px; color: var(--deep); line-height: 1.2; }
+.cert-inner .for { margin-top: 4mm; font-size: 22px; }
+.cert-inner .name { font-family: "Baloo"; font-weight: 800; font-size: 70px; line-height: 1.15; color: var(--accent);
+  text-shadow: 0 3px 0 color-mix(in srgb, var(--deep) 25%, transparent); }
+.cert-inner .why { font-size: 24px; line-height: 1.8; max-width: 200mm; margin: 2mm 0 0; }
+.cert-portrait { position: absolute; bottom: 19mm; left: 50%; transform: translateX(-50%); text-align: center; }
+.cert-portrait .ph { width: 40mm; height: 40mm; border-radius: 50%; margin: 0 auto; background-repeat: no-repeat;
+  background-color: #fff; background-size: cover; background-position: center;
+  border: 2mm solid #fff; box-shadow: 0 0 0 1.2mm var(--accent), 0 4mm 8mm rgba(42,34,56,.15); }
+.cert-portrait .date { margin-top: 2.5mm; font-family: "Baloo"; font-weight: 600; font-size: 15px; color: #7b7290; }
+.cert-inner .value { font-family: "Baloo"; font-weight: 800; color: var(--deep); }
+.medal { position: absolute; bottom: 20mm; left: 26mm; width: 40mm; height: 40mm; }
+.cert-sign { position: absolute; bottom: 20mm; right: 34mm; text-align: center; font-family: "Baloo"; color: #7b7290; font-size: 15px; }
+.cert-sign b { display: block; font-size: 22px; color: var(--deep); }
+
+/* ---------- back cover ---------- */
+.back { background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 22%, var(--paper)) 0%, var(--paper) 55%,
+  color-mix(in srgb, var(--accent3) 22%, var(--paper)) 100%); }
+.the-end { position: absolute; top: 18mm; left: 0; right: 0; text-align: center; font-family: "Baloo"; font-weight: 800;
+  font-size: 96px; color: var(--deep); line-height: 1; }
+.the-end small { display: block; font-size: 22px; font-weight: 600; color: var(--accent); margin-top: 3mm; }
+.polaroids { position: absolute; top: 74mm; left: 0; right: 0; display: flex; justify-content: center; gap: 5mm; }
+.polaroid { background: #fff; padding: 2.4mm 2.4mm 7mm; box-shadow: 0 3mm 8mm rgba(42,34,56,.18); border-radius: 1.5mm; }
+.polaroid img { width: 46mm; height: 31mm; object-fit: cover; border-radius: .8mm; }
+.polaroid:nth-child(odd) { transform: rotate(-4deg); }
+.polaroid:nth-child(even) { transform: rotate(3.5deg) translateY(4mm); }
+.back .brand { right: 50%; transform: translateX(50%); bottom: 14mm; }
+.back .lesson-box { position: absolute; top: 132mm; left: 50mm; right: 50mm; text-align: center; font-size: 21px;
+  line-height: 1.8; background: rgba(255,255,255,.75); border-radius: 8mm; padding: 4mm 10mm; }
+.back .lesson-box b { font-family: "Baloo"; font-weight: 800; color: var(--accent); }
+.back .made { position: absolute; bottom: 30mm; left: 0; right: 0; text-align: center; font-family: "Baloo";
+  font-weight: 600; font-size: 19px; color: #7b7290; }
+</style>
+</head>
+<body>
+{% set star %}<svg viewBox="0 0 24 24"><path d="M12 1.8l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 16.7 5.9 20.2l1.5-6.8L2.2 8.8l6.9-.7z"/></svg>{% endset %}
+
+<!-- ===== Cover ===== -->
+<section class="page cover">
+  {% if cover %}<img class="bleed" src="{{ cover }}" alt="">{% endif %}
+  <div class="cover-shade"></div>
+  <div class="cover-title">
+    <span class="chip">قصة بطلها {{ child.name }}</span>
+    <h1>{{ title }}</h1>
+  </div>
+  <div class="made-for">صُنعت بحب لـ{{ child.name }}</div>
+  <div class="brand">{% if logo %}<img src="{{ logo }}" alt="">{% endif %}غِراس</div>
+</section>
+
+<!-- ===== Story heroes ===== -->
+{% if cast %}
+<section class="page cast">
+  <div class="dots"></div>
+  <div class="blob" style="width:70mm;height:60mm;top:-18mm;left:-14mm;background:color-mix(in srgb,var(--accent) 22%,transparent)"></div>
+  <div class="blob" style="width:80mm;height:64mm;bottom:-24mm;right:-18mm;background:color-mix(in srgb,var(--accent3) 22%,transparent)"></div>
+  <div class="star" style="top:20mm;right:40mm;fill:var(--accent2)">{{ star }}</div>
+  <div class="star" style="top:46mm;left:36mm;fill:var(--accent);width:6mm;height:6mm">{{ star }}</div>
+  <h2 class="section-title">أبطال الحكاية</h2>
+  <div class="cast-row">
+    {% for c in cast %}
+    <figure class="cast-card">
+      <div class="portrait" style="background-image:url('{{ c.image }}')"></div>
+      <figcaption><b>{{ c.name }}</b><span>{{ c.role }}</span></figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  <div class="dedication">
+    <p class="to">إلى {{ child.name }}، بطل هذه الحكاية ✦</p>
+    <p>{{ summary }}</p>
+  </div>
+</section>
+{% endif %}
+
+<!-- ===== Story pages ===== -->
+{% for p in pages %}
+{% if p.layout == "hero" %}
+<section class="page hero">
+  <img class="bleed" src="{{ p.images[0] }}" alt="">
+  <div class="text-card">
+    <span class="chip">المشهد {{ p.number_ar }}</span>
+    {% if p.title %}<h3>{{ p.title }}</h3>{% endif %}
+    <p class="story-text"><span class="first">{{ p.first_word }}</span> {{ p.rest }}</p>
+  </div>
+  <div class="pageno">{{ p.page_ar }}</div>
+</section>
+{% elif p.layout == "split" %}
+<section class="page split">
+  <div class="dots" style="opacity:.35"></div>
+  <div class="art"><img src="{{ p.images[0] }}" alt="">
+    <svg class="scallops" viewBox="0 0 21 210" preserveAspectRatio="none" aria-hidden="true">
+      <rect x="0" y="0" width="1.6" height="210"/>
+      {% for k in range(5) %}<ellipse cx="1.5" cy="{{ 26 + 52 * k }}" rx="19.5" ry="26"/>{% endfor %}
+    </svg></div>
+  <div class="col">
+    <div class="big-no">{{ p.number_ar }}</div>
+    {% if p.title %}<h3>{{ p.title }}</h3>{% endif %}
+    <p class="story-text"><span class="first">{{ p.first_word }}</span> {{ p.rest }}</p>
+    {% if p.images|length > 1 %}<div class="thumbs">{% for im in p.images[1:3] %}<img src="{{ im }}" alt="">{% endfor %}</div>{% endif %}
+  </div>
+  <div class="star" style="bottom:12mm;left:44%;fill:var(--accent3)">{{ star }}</div>
+  <div class="pageno" style="left:6%;transform:none">{{ p.page_ar }}</div>
+</section>
+{% elif p.layout == "band" %}
+<section class="page band">
+  <div class="dots" style="opacity:.35"></div>
+  <div class="art"><img src="{{ p.images[0] }}" alt=""></div>
+  <span class="chip">المشهد {{ p.number_ar }}</span>
+  <div class="quote" style="top:126mm;right:14mm">“</div>
+  <div class="quote" style="bottom:2mm;left:14mm">”</div>
+  <div class="below">
+    {% if p.title %}<h3>{{ p.title }}</h3>{% endif %}
+    <p class="story-text"><span class="first">{{ p.first_word }}</span> {{ p.rest }}</p>
+  </div>
+  <div class="pageno">{{ p.page_ar }}</div>
+</section>
+{% else %}
+<section class="page collage">
+  <div class="dots" style="opacity:.4"></div>
+  <div class="blob" style="width:60mm;height:50mm;bottom:-20mm;left:-16mm;background:color-mix(in srgb,var(--accent2) 18%,transparent)"></div>
+  <div class="board">
+    <img class="main" src="{{ p.images[0] }}" alt="">
+    {% if p.images|length > 1 %}<img class="side s1" src="{{ p.images[1] }}" alt="">{% endif %}
+    {% if p.images|length > 2 %}<img class="side s2" src="{{ p.images[2] }}" alt="">{% elif p.images|length > 1 %}<img class="side s2" src="{{ p.images[0] }}" alt="" style="object-position:20% 50%">{% endif %}
+    <div class="tape"></div>
+  </div>
+  <div class="bubble">
+    {% if p.title %}<h3>{{ p.title }}</h3>{% endif %}
+    <p class="story-text"><span class="first">{{ p.first_word }}</span> {{ p.rest }}</p>
+  </div>
+  <div class="star" style="top:8mm;left:10mm;fill:var(--accent)">{{ star }}</div>
+  <div class="pageno">{{ p.page_ar }}</div>
+</section>
+{% endif %}
+{% endfor %}
+
+<!-- ===== Certificate ===== -->
+<section class="page certificate">
+  <div class="cert-frame"></div>
+  <div class="star" style="top:18mm;right:22mm;fill:var(--accent2)">{{ star }}</div>
+  <div class="star" style="top:18mm;left:22mm;fill:var(--accent3)">{{ star }}</div>
+  <div class="cert-inner">
+    <div class="kicker">✦ غِراس تقدّم ✦</div>
+    <h2>شهادة بطل الحكاية</h2>
+    <div class="for">تُمنح هذه الشهادة {{ "للبطلة" if child.female else "للبطل" }}</div>
+    <div class="name">{{ child.name }}</div>
+    <p class="why">{{ "لأنها تعلّمت" if child.female else "لأنه تعلّم" }} معنى <span class="value">{{ value }}</span>:
+      {{ lesson }}</p>
+  </div>
+  <svg class="medal" viewBox="0 0 100 100">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{{ palette.accent }}"/><stop offset="1" stop-color="{{ palette.accent3 }}"/></linearGradient></defs>
+    <path d="M30 60 L18 96 L34 88 L42 100 L50 66 Z" fill="{{ palette.accent2 }}"/><path d="M70 60 L82 96 L66 88 L58 100 L50 66 Z" fill="{{ palette.accent2 }}"/>
+    <circle cx="50" cy="42" r="34" fill="url(#g)"/><circle cx="50" cy="42" r="26" fill="none" stroke="#fff" stroke-width="2.5" stroke-dasharray="4 3"/>
+    <path transform="translate(32 24) scale(1.5)" d="M12 1.8l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 16.7 5.9 20.2l1.5-6.8L2.2 8.8l6.9-.7z" fill="#fff"/>
+  </svg>
+  {% if child_portrait %}<div class="cert-portrait">
+    <div class="ph" style="background-image:url('{{ child_portrait.image }}')"></div>
+    <div class="date">{{ date_ar }}</div>
+  </div>{% endif %}
+  <div class="cert-sign"><b>غِراس</b>نغرس القيم بقصص بطلها طفلك</div>
+</section>
+
+<!-- ===== Back cover ===== -->
+<section class="page back">
+  <div class="the-end">النهاية<small>شكراً لأنك قرأت حكاية {{ child.name }} ✦</small></div>
+  <div class="polaroids">{% for im in strip %}<div class="polaroid"><img src="{{ im }}" alt=""></div>{% endfor %}</div>
+  {% if lesson %}<div class="lesson-box"><b>ما تعلّمناه:</b> {{ lesson }}</div>{% endif %}
+  <div class="star" style="top:24mm;right:36mm;fill:var(--accent2)">{{ star }}</div>
+  <div class="star" style="top:40mm;left:40mm;fill:var(--accent3);width:6mm;height:6mm">{{ star }}</div>
+  <div class="made">هذه القصة صُنعت خصيصاً لـ{{ child.name }}</div>
+  <div class="brand">{% if logo %}<img src="{{ logo }}" alt="">{% endif %}غِراس</div>
+</section>
+</body>
+</html>

@@ -540,6 +540,17 @@ async def _save_image_to_storage(order_id: str, kind: str, image_bytes: bytes, m
 
 # ---------------- Per-job executors ----------------
 async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
+    shot_plan = bool(await db.scene_plans.find_one(
+        {"production_plan_id": plan["id"], "shots.0": {"$exists": True}}, {"_id": 1}))
+    if shot_plan:
+        # The whole cast with their sheets (a cover drawn from the child's sheet
+        # alone invented the other characters' faces).
+        prompt, references, _cast = await shot_pipeline.cover_request(order, plan)
+        image_bytes, mime, meta = await generate_image(
+            scene_prompt=prompt, references=references or None, size=WIDE, quality="high", raw_prompt=True,
+            session_hint=f"cover-{order['id'][:6]}")
+        return await _store_cover(job, order, plan, image_bytes, mime, meta)
+
     prompt = plan.get("cover_prompt") or f"Book cover for children's story: {plan.get('title','')}"
     references = []
     child_asset = await db.child_character_assets.find_one(
@@ -549,10 +560,8 @@ async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str,
         if ref:
             references.append({"image_bytes": ref[0], "mime_type": ref[1], "kind": "child",
                                "name": ((order.get("data") or {}).get("child") or {}).get("name")})
-    shot_plan = bool(await db.scene_plans.find_one(
-        {"production_plan_id": plan["id"], "shots.0": {"$exists": True}}, {"_id": 1}))
     image_bytes, mime, meta = await generate_image(
-        size=WIDE if shot_plan else "1024x1024",
+        size="1024x1024",
         quality="high",  # the cover is the PDF front page and the video thumbnail
         scene_prompt=prompt,
         style_guide=plan.get("style_guide"),
@@ -562,10 +571,12 @@ async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str,
         prompt_augmentation=("The child on the cover is the child in the reference image: keep the same "
                              "face, hair and skin tone." if references else ""),
     )
+    return await _store_cover(job, order, plan, image_bytes, mime, meta)
+
+
+async def _store_cover(job: dict, order: dict, plan: dict, image_bytes: bytes, mime: str, meta: dict) -> tuple[str, dict]:
     url = await _save_image_to_storage(order["id"], "cover", image_bytes, mime, order["user_id"])
-    # Store in scene_images with scene_plan_id=None marks it as cover
-    # Actually we'll use a separate field in the plan snapshot or a dedicated record.
-    # Keep it clean: put cover into scene_images with scene_plan_id=null and a kind marker.
+    # The cover lives in scene_images with scene_plan_id=None and kind="cover".
     await db.scene_images.insert_one({
         "id": str(uuid.uuid4()),
         "order_id": order["id"],

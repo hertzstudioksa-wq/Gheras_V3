@@ -160,6 +160,26 @@ def _draw_image_fit(c: canvas.Canvas, img_bytes: bytes, x: float, y: float, box_
         logger.warning(f"Failed to draw image: {e}")
 
 
+async def _store_pdf(order_id: str, user_id: str | None, pdf_bytes: bytes) -> str:
+    """Object storage + files row; returns the served URL."""
+    pdf_file_id = str(uuid.uuid4())
+    storage_path = f"{APP_NAME}/orders/{order_id}/generated/final-pdf/{pdf_file_id}.pdf"
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, lambda: put_object(storage_path, pdf_bytes, "application/pdf"))
+    await db.files.insert_one({
+        "id": pdf_file_id,
+        "user_id": user_id,
+        "scope": "final-pdf",
+        "storage_path": result.get("path", storage_path),
+        "original_filename": "story.pdf",
+        "content_type": "application/pdf",
+        "size": result.get("size", len(pdf_bytes)),
+        "is_deleted": False,
+        "created_at": None,
+    })
+    return f"/api/uploads/file/{pdf_file_id}"
+
+
 async def assemble_pdf(
     order_id: str,
     plan: dict,
@@ -169,11 +189,27 @@ async def assemble_pdf(
     """
     Returns (pdf_url, page_count, metadata).
     book_assets: book_assets rows sorted by page_number.
-    """
-    _ensure_font()
 
+    The magazine-style book (services.book_renderer: HTML printed by a headless
+    Chromium) is used whenever a browser is available; the plain ReportLab book
+    below is the fallback so delivery never depends on the browser.
+    """
     order = await db.orders.find_one({"id": order_id}, {"_id": 0, "user_id": 1})
     user_id = (order or {}).get("user_id")
+
+    try:
+        from services.book_renderer import render_book_pdf
+        rendered = await render_book_pdf(order_id, plan, cover_image_url, book_assets)
+    except Exception as e:  # noqa: BLE001 — a broken template must not stop delivery
+        logger.warning(f"[pdf] magazine renderer failed for {order_id}, using ReportLab: {type(e).__name__}: {e}")
+        rendered = None
+    if rendered:
+        pdf_bytes, meta = rendered
+        url = await _store_pdf(order_id, user_id, pdf_bytes)
+        return url, meta["pages"], {**meta, "rtl": True, "size_bytes": len(pdf_bytes),
+                                    "cover_included": bool(cover_image_url)}
+
+    _ensure_font()
 
     # Load image bytes upfront
     cover_bytes = None
@@ -250,24 +286,8 @@ async def assemble_pdf(
 
     c.save()
     pdf_bytes = buf.getvalue()
-
-    # Store in object storage
-    pdf_file_id = str(uuid.uuid4())
-    storage_path = f"{APP_NAME}/orders/{order_id}/generated/final-pdf/{pdf_file_id}.pdf"
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, lambda: put_object(storage_path, pdf_bytes, "application/pdf"))
-    await db.files.insert_one({
-        "id": pdf_file_id,
-        "user_id": user_id,
-        "scope": "final-pdf",
-        "storage_path": result.get("path", storage_path),
-        "original_filename": "story.pdf",
-        "content_type": "application/pdf",
-        "size": result.get("size", len(pdf_bytes)),
-        "is_deleted": False,
-        "created_at": None,
-    })
-    return f"/api/uploads/file/{pdf_file_id}", pages_drawn, {
+    url = await _store_pdf(order_id, user_id, pdf_bytes)
+    return url, pages_drawn, {
         "renderer": "reportlab",
         "rtl": True,
         "size_bytes": len(pdf_bytes),

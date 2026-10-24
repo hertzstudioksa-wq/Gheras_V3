@@ -175,8 +175,8 @@ async def user_delivery(order_id: str, current=Depends(get_current_user)):
     order = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    video = await db.final_videos.find_one({"order_id": order_id}, {"_id": 0})
-    pdf = await db.final_pdfs.find_one({"order_id": order_id}, {"_id": 0})
+    video = await db.final_videos.find_one({"order_id": order_id}, {"_id": 0}, sort=[("created_at", -1)])
+    pdf = await db.final_pdfs.find_one({"order_id": order_id}, {"_id": 0}, sort=[("created_at", -1)])
     summary = order.get("final_assembly_summary") or {}
     total = summary.get("total") or 0
     completed = summary.get("completed") or 0
@@ -206,8 +206,8 @@ async def admin_get_delivery(order_id: str):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    video = await db.final_videos.find_one({"order_id": order_id}, {"_id": 0})
-    pdf = await db.final_pdfs.find_one({"order_id": order_id}, {"_id": 0})
+    video = await db.final_videos.find_one({"order_id": order_id}, {"_id": 0}, sort=[("created_at", -1)])
+    pdf = await db.final_pdfs.find_one({"order_id": order_id}, {"_id": 0}, sort=[("created_at", -1)])
     jobs = await db.generation_jobs.find(
         {"order_id": order_id, "job_type": {"$in": ["final_video_assembly", "final_pdf_assembly"]}},
         {"_id": 0},

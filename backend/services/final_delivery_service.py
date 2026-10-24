@@ -51,6 +51,7 @@ async def _run_video_job(job: dict, order: dict, plan: dict) -> dict:
     cover = await db.scene_images.find_one(
         {"order_id": order["id"], "production_plan_id": plan["id"], "kind": "cover"},
         {"_id": 0},
+        sort=[("created_at", -1)],
     )
     narrations = await db.narration_assets.find(
         {"order_id": order["id"], "production_plan_id": plan["id"]},
@@ -87,6 +88,7 @@ async def _run_pdf_job(job: dict, order: dict, plan: dict) -> dict:
     cover = await db.scene_images.find_one(
         {"order_id": order["id"], "production_plan_id": plan["id"], "kind": "cover"},
         {"_id": 0},
+        sort=[("created_at", -1)],
     )
     book_assets = await db.book_assets.find(
         {"order_id": order["id"], "production_plan_id": plan["id"]},
@@ -109,11 +111,11 @@ async def _run_pdf_job(job: dict, order: dict, plan: dict) -> dict:
         "pdf_url": pdf_url,
         "page_count": page_count,
         "cover_image_url": (cover or {}).get("image_url"),
-        "provider": "reportlab",
+        "provider": meta.get("renderer") or "reportlab",
         "assembly_metadata": meta,
         "created_at": _now(),
     })
-    return {"provider": "reportlab", "output_url": pdf_url, "final_pdf_id": fp_id}
+    return {"provider": meta.get("renderer") or "reportlab", "output_url": pdf_url, "final_pdf_id": fp_id}
 
 
 async def _process_with_retry(job: dict, order: dict, plan: dict, executor) -> bool:
@@ -262,8 +264,8 @@ async def retry_single_assembly_job(job_id: str) -> dict:
     # Re-evaluate order status if every requested deliverable is complete.
     order = await db.orders.find_one({"id": job["order_id"]}, {"_id": 0})
     output_type = get_order_output_type(order)
-    video = await db.final_videos.find_one({"order_id": job["order_id"]}, {"_id": 0})
-    pdf = await db.final_pdfs.find_one({"order_id": job["order_id"]}, {"_id": 0})
+    video = await db.final_videos.find_one({"order_id": job["order_id"]}, {"_id": 0}, sort=[("created_at", -1)])
+    pdf = await db.final_pdfs.find_one({"order_id": job["order_id"]}, {"_id": 0}, sort=[("created_at", -1)])
     requirements_met = (
         (output_type == "video" and video) or
         (output_type == "pdf"   and pdf)   or
