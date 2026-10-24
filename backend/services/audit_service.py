@@ -29,6 +29,8 @@ ENTITY_TYPES = (
     "order", "user", "setting", "category", "subcategory", "story_option", "content",
     "style_preset", "dialect_profile", "engine_settings", "system_prompt", "stage_model", "model_catalog",
     "asset", "retention_policy",
+    # M6
+    "wallet",
 )
 ACTIONS = (
     "create", "update", "delete",
@@ -44,6 +46,9 @@ ACTIONS = (
     "system_prompt.create", "system_prompt.activate", "system_prompt.reset",
     "prompt_template.create", "prompt_template.activate", "prompt_template.reset",
     "stage.model", "stage.enabled", "video.premium", "catalog.add",
+    # M6
+    "pricing.settings", "pricing.override", "payment.paid", "payment.waived", "payment.refund",
+    "wallet.topup", "wallet.charge", "wallet.refund", "wallet.adjust",
 )
 
 

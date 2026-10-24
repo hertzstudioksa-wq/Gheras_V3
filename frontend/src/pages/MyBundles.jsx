@@ -1,103 +1,133 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../lib/api";
-import { Package, Loader2, Sparkles, Clock, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { ArrowRight, Gift, Loader2, Package, Sparkles, Wallet } from "lucide-react";
+import { api } from "../lib/api";
+import Navbar from "../components/gheras/Navbar";
+import Footer from "../components/gheras/Footer";
 
-const OUTPUT_LABEL = { video: "فيديو", pdf: "كتاب PDF", both: "فيديو + PDF" };
-const STATUS_LABEL = {
-  active:    { label: "نشطة",    bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]", icon: CheckCircle2 },
-  exhausted: { label: "مستهلكة", bg: "bg-[#F8F1E7]", fg: "text-[#8B5A2B]", icon: AlertCircle },
-  expired:   { label: "منتهية",  bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]", icon: XCircle },
-};
+// My balance (M6): SAR wallet credit bought in top-ups (with a bonus) and spent
+// on stories. Older per-story bundle credits still show while they last.
+
+const sar = (v) => `${Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} ر.س`;
 
 export default function MyBundles() {
+  const [wallet, setWallet] = useState(null);
   const [purchases, setPurchases] = useState([]);
-  const [available, setAvailable] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const [busy, setBusy] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const load = () => Promise.all([api.get("/wallet/me"), api.get("/bundles/me?only_active=true")])
+    .then(([w, p]) => { setWallet(w.data); setPurchases(p.data?.purchases || []); })
+    .catch(() => toast.error("تعذّر التحميل"));
 
   useEffect(() => {
-    Promise.all([
-      api.get("/bundles/me?only_active=false"),
-      api.get("/bundles"),
-    ]).then(([p, b]) => {
-      setPurchases(p.data?.purchases || []);
-      setAvailable(b.data?.bundles || []);
-    }).catch(() => toast.error("تعذّر التحميل"))
-      .finally(() => setLoading(false));
-  }, []);
+    const pid = searchParams.get("payment");
+    if (pid) {
+      // Back from the Moyasar page: confirm the top-up with the server.
+      api.post(`/wallet/topup/refresh/${pid}`)
+        .then((r) => (r.data.status === "paid" ? toast.success("تم شحن رصيدك 🎉") : toast("الدفع لسه ما اكتملش")))
+        .catch(() => {})
+        .finally(() => { setSearchParams({}, { replace: true }); load(); });
+    } else {
+      load();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading) {
-    return <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-[#87A96B]" /></div>;
-  }
-
-  const buy = async (bundleId) => {
+  const topup = async (b) => {
+    setBusy(b.id);
     try {
-      const { data } = await api.post(`/checkout/bundle/${bundleId}`, {}, { headers: { "X-Origin": window.location.origin } });
-      if (data?.url) window.location.href = data.url;
+      const { data } = await api.post(`/wallet/topup/${b.id}`, null, { headers: { "X-Origin": window.location.origin } });
+      window.location.assign(data.url);
     } catch (e) {
-      const status = e?.response?.status;
-      if (status === 503) toast.error("الدفع غير مفعّل بعد. يمكنك متابعة استخدام الباقات الممنوحة من قِبل الإدارة.");
-      else toast.error(e?.response?.data?.detail || "تعذّر إتمام الشراء");
+      toast.error(e?.response?.data?.detail || "تعذّر فتح صفحة الدفع");
+      setBusy(null);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] py-10 px-4" data-testid="my-bundles-page">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="font-heading text-3xl font-bold text-[#2D3748] inline-flex items-center gap-2 mb-2">
-          <Package className="w-7 h-7 text-[#87A96B]" /> باقاتي
-        </h1>
-        <p className="font-body text-sm text-[#5A677D] mb-6">رصيدك من القصص + الباقات المتاحة للشراء.</p>
+    <div className="min-h-screen bg-[#FDFBF7]" data-testid="my-bundles-page">
+      <Navbar />
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 md:py-12">
+        <Link to="/dashboard" className="inline-flex items-center gap-2 text-[#5A677D] hover:text-[#2D3748] mb-6 font-body">
+          <ArrowRight className="w-4 h-4" /> العودة إلى قصصي
+        </Link>
 
-        <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-3">رصيدي الحالي</h2>
-        {purchases.length === 0 ? (
-          <div className="bg-white rounded-2xl p-6 border border-[#E2D8C9] text-center text-[#8A9AB0] font-body mb-8">
-            لا توجد باقات نشطة. اختر إحدى الباقات أدناه.
-          </div>
+        {!wallet ? (
+          <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-[#87A96B]" /></div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
-            {purchases.map((p) => {
-              const stt = STATUS_LABEL[p.status] || STATUS_LABEL.active;
-              const Icon = stt.icon;
-              const total = p.quantity_total;
-              const used = p.quantity_consumed;
-              const reserved = p.quantity_reserved;
-              return (
-                <div key={p.id} className="bg-white rounded-2xl p-5 border border-[#E2D8C9]" data-testid={`my-purchase-${p.id}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-heading font-bold text-[#2D3748]">{p.bundle_snapshot?.name}</h3>
-                    <span className={`inline-flex items-center gap-1 text-xs font-bold rounded-full px-2 py-0.5 ${stt.bg} ${stt.fg}`}><Icon className="w-3 h-3" />{stt.label}</span>
-                  </div>
-                  <p className="text-xs text-[#5A677D] font-body mb-3">{p.bundle_snapshot?.description}</p>
-                  <div className="bg-[#FDFBF7] rounded-xl p-3 mb-3">
-                    <div className="text-xs text-[#5A677D] mb-1">المتبقّي</div>
-                    <div className="text-2xl font-heading font-bold text-[#4F6B3B]">{p.quantity_remaining}<span className="text-sm text-[#8A9AB0] font-body"> / {total}</span></div>
-                    <div className="text-[10px] text-[#8A9AB0] font-body mt-1">مستخدمة: {used} • محجوزة: {reserved}</div>
-                  </div>
-                  <div className="text-xs text-[#5A677D] font-body inline-flex items-center gap-1"><Clock className="w-3 h-3" /> تنتهي في {p.expires_at?.slice(0, 10)}</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-3">الباقات المتاحة</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          {available.map((b) => (
-            <div key={b.id} className="bg-white rounded-2xl p-5 border border-[#E2D8C9]" data-testid={`available-bundle-${b.id}`}>
-              <h3 className="font-heading font-bold text-[#2D3748] mb-1">{b.name}</h3>
-              <p className="text-xs text-[#5A677D] font-body mb-3 min-h-[36px]">{b.description}</p>
-              <div className="text-3xl font-heading font-bold text-[#4F6B3B] mb-1">{b.price} <span className="text-sm font-body text-[#8A9AB0]">{b.currency}</span></div>
-              <div className="text-xs text-[#5A677D] font-body mb-4">{b.quantity}× {OUTPUT_LABEL[b.output_type]} • صالحة لـ {b.validity_days} يوم</div>
-              <button onClick={() => buy(b.id)} className="w-full btn-primary inline-flex items-center justify-center gap-2" data-testid={`buy-bundle-${b.id}`}><Sparkles className="w-4 h-4" /> اشترِ الآن</button>
+          <>
+            <div className="bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[2rem] p-6 md:p-8 border border-[#E2D8C9] mb-8">
+              <div className="inline-flex items-center gap-2 bg-white rounded-full px-3 py-1 text-xs font-bold text-[#729352] mb-3">
+                <Wallet className="w-3.5 h-3.5" /> رصيدي
+              </div>
+              <div className="font-heading text-4xl md:text-5xl font-bold text-[#2D3748]" data-testid="wallet-balance">{sar(wallet.balance_halalas / 100)}</div>
+              <p className="font-body text-[#5A677D] mt-2">ادفع منه أي قصة بضغطة واحدة. الضريبة (لو فيه) بتتحسب وقت شراء القصة.</p>
             </div>
-          ))}
-        </div>
 
-        <button onClick={() => navigate("/dashboard")} className="text-sm text-[#5A677D] hover:text-[#2D3748] font-body">← رجوع</button>
+            <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-3">اشحن رصيدك</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+              {wallet.topups.map((b) => {
+                const bonus = (b.credit_sar || 0) - b.price;
+                return (
+                  <div key={b.id} className={`bg-white rounded-3xl p-5 border-2 ${bonus > 0 ? "border-[#87A96B]" : "border-[#E2D8C9]"} flex flex-col`} data-testid={`topup-${b.id}`}>
+                    {bonus > 0 && (
+                      <span className="self-start inline-flex items-center gap-1 text-xs font-bold rounded-full px-2.5 py-1 bg-[#E8F0E1] text-[#4F6B3B] mb-2">
+                        <Gift className="w-3.5 h-3.5" /> {sar(bonus)} هدية
+                      </span>
+                    )}
+                    <div className="font-body text-sm text-[#5A677D]">ادفع</div>
+                    <div className="font-heading text-3xl font-bold text-[#2D3748]">{sar(b.price)}</div>
+                    <div className="font-body text-sm text-[#4F6B3B] font-bold mb-4">رصيدك يزيد {sar(b.credit_sar)}</div>
+                    <button onClick={() => topup(b)} disabled={!wallet.card_available || !!busy}
+                      className="mt-auto w-full btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-50" data-testid={`buy-topup-${b.id}`}>
+                      {busy === b.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} اشحن
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {!wallet.card_available && (
+              <p className="font-body text-sm text-[#8B5A2B] mb-8">الشحن بالبطاقة هيتفعّل قريب.</p>
+            )}
+
+            {purchases.length > 0 && (
+              <>
+                <h2 className="font-heading text-xl font-bold text-[#2D3748] mt-8 mb-3">باقات القصص</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
+                  {purchases.map((p) => (
+                    <div key={p.id} className="bg-white rounded-2xl p-5 border border-[#E2D8C9] flex items-center gap-4">
+                      <Package className="w-8 h-8 text-[#87A96B] shrink-0" />
+                      <div className="flex-1">
+                        <div className="font-heading font-bold text-[#2D3748]">{p.bundle_snapshot?.name}</div>
+                        <div className="font-body text-xs text-[#5A677D]">تنتهي {p.expires_at?.slice(0, 10)}</div>
+                      </div>
+                      <div className="font-heading text-2xl font-bold text-[#4F6B3B]">{p.quantity_remaining}<span className="text-sm text-[#8A9AB0]"> / {p.quantity_total}</span></div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <h2 className="font-heading text-xl font-bold text-[#2D3748] mt-8 mb-3">الحركات</h2>
+            <div className="bg-white rounded-3xl border border-[#E2D8C9] divide-y divide-[#F0E9DD]" data-testid="wallet-history">
+              {wallet.history.length === 0 && <div className="p-6 text-center font-body text-[#8A9AB0]">مفيش حركات لسه</div>}
+              {wallet.history.map((h) => (
+                <div key={h.id} className="p-4 flex items-center justify-between gap-3 font-body">
+                  <div className="min-w-0">
+                    <div className="font-bold text-[#2D3748]">{h.kind_ar}</div>
+                    <div className="text-xs text-[#8A9AB0] truncate">{h.note || ""} · {new Date(h.created_at).toLocaleDateString("ar-EG")}</div>
+                  </div>
+                  <div className={`font-heading font-bold shrink-0 ${h.amount_halalas > 0 ? "text-[#4F6B3B]" : "text-[#B8612F]"}`} dir="ltr">
+                    {h.amount_halalas > 0 ? "+" : "−"}{(Math.abs(h.amount_halalas) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
+      <Footer />
     </div>
   );
 }

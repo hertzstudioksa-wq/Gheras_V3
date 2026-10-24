@@ -40,5 +40,11 @@ async def ensure_indexes():
     await db.book_assets.create_index([("order_id", 1), ("page_number", 1)])
     await db.final_videos.create_index("order_id")
     await db.final_pdfs.create_index("order_id")
+    # M6 — wallet + payments
+    await db.wallets.create_index("user_id", unique=True)
+    await db.wallet_ledger.create_index("idem_key", unique=True, sparse=True)
+    await db.wallet_ledger.create_index([("user_id", 1), ("created_at", -1)])
+    await db.payments.create_index("invoice_id", sparse=True)
+    await db.payments.create_index([("order_id", 1), ("created_at", -1)])
     await db.files.create_index("storage_path")
     await db.files.create_index("user_id")

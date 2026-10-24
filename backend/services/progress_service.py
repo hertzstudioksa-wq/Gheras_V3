@@ -48,6 +48,14 @@ async def compute_pipeline_progress(order: dict) -> dict:
             "message_ar": "تعذّر إكمال بعض الخطوات",
         }
 
+    if status == OrderStatus.AWAITING_PAYMENT.value:
+        return {
+            "stage": "plan",
+            "stage_ar": STAGE_LABELS_AR["plan"],
+            "percent": 12,
+            "message_ar": "اخترت القصة — ادفع عشان نبدأ نجهّزها",
+        }
+
     # --- Planning range (0..20) ---
     plan_statuses = (
         OrderStatus.PENDING.value,

@@ -133,15 +133,16 @@ KNOWN_ENV_KEYS: list[dict] = [
         "optional": True,
     },
     {
-        "key": "STRIPE_API_KEY",
-        "label": "Stripe",
-        "providers": ["stripe"],
-        "purpose": "بوّابة الدفع (test/sandbox أو live).",
+        "key": "MOYASAR_SECRET_KEY",
+        "label": "Moyasar — ميسر",
+        "providers": ["moyasar"],
+        "test_provider_key": "moyasar",
+        "purpose": "بوابة الدفع (مدى، فيزا/ماستركارد، Apple Pay). مفتاح sk_test للتجربة وsk_live للتشغيل الحقيقي.",
         "rotation_instructions": (
-            "1) https://dashboard.stripe.com/apikeys\n"
-            "2) Reveal sk_test أو sk_live → استخدم زرّ 'تحديث آمن' هنا."
+            "1) لوحة ميسر ← Settings ← API Keys\n"
+            "2) انسخ Secret Key (sk_test_… للتجربة) واحفظه هنا بزرار التحديث الآمن.\n"
+            "3) جرّبه من صفحة المدفوعات ← اختبار المفتاح."
         ),
-        "test_provider_key": "stripe",
         "optional": True,
     },
     {

@@ -40,7 +40,7 @@ export default function ScenarioSelection() {
       const { data } = await api.get(`/orders/${id}/scenarios`);
       setState(data);
       errorShownRef.current = false;
-      const terminal = ["scenarios_ready", "scenario_selected", "ready_for_ai", "generating", "completed", "failed"];
+      const terminal = ["scenarios_ready", "scenario_selected", "awaiting_payment", "ready_for_ai", "generating", "completed", "failed"];
       if (terminal.includes(data.status)) setPolling(false);
     } catch (e) {
       // Only surface PERMANENT errors (404/403/401) once. Transient errors

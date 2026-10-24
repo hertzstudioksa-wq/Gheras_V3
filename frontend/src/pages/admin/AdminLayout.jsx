@@ -24,7 +24,8 @@ const SECTIONS = [
   { title: "العملاء والمبيعات", items: [
     { to: "/admin/users", label: "المستخدمين", icon: Users, tid: "admin-nav-users" },
     { to: "/admin/bundles", label: "الباقات والرصيد", icon: Package, tid: "admin-nav-bundles" },
-    { to: "/admin/payment", label: "الدفع", icon: CreditCard, tid: "admin-nav-payment" },
+    { to: "/admin/payment", label: "المدفوعات", icon: CreditCard, tid: "admin-nav-payment" },
+    { to: "/admin/pricing", label: "التسعير والهوامش", icon: Coins, tid: "admin-nav-pricing" },
   ] },
   { title: "الكتالوج والمحتوى", items: [
     { to: "/admin/categories", label: "التصنيفات والمواضيع", icon: Sprout, tid: "admin-nav-cats" },
@@ -37,7 +38,6 @@ const SECTIONS = [
     { to: "/admin/secrets", label: "المفاتيح والمزوّدين", icon: Lock, tid: "admin-nav-secrets" },
   ] },
   { title: "الإعدادات", items: [
-    { to: "/admin/pricing", label: "تكاليف الإنتاج", icon: Coins, tid: "admin-nav-pricing" },
     { to: "/admin/retention", label: "سياسة الاحتفاظ", icon: Hourglass, tid: "admin-nav-retention" },
     { to: "/admin/audit", label: "سجل التدقيق", icon: ScrollText, tid: "admin-nav-audit" },
     { to: "/admin/settings", label: "إعدادات النظام", icon: Settings, tid: "admin-nav-settings" },

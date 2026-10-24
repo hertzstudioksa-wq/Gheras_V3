@@ -1,137 +1,165 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../../lib/api";
-import { CreditCard, Save, Loader2, RefreshCw, ShieldCheck, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { CheckCircle2, RefreshCw, ShieldAlert } from "lucide-react";
+import { api } from "../../lib/api";
+import { AdminPage, ConfirmAction, KpiCard, PageState, Pager, useDebounced } from "../../components/admin/AdminKit";
+import { formatDate } from "../../lib/orderStatus";
+
+// Payments (M6): Moyasar status and the "pay before production" switch, then
+// every card payment (story or wallet top-up) with totals.
+
+const STATUS = {
+  pending: ["مستنية الدفع", "bg-[#FBEFD5] text-[#8B5A2B]"],
+  paid: ["مدفوعة", "bg-[#E8F0E1] text-[#4F6B3B]"],
+  failed: ["فشلت", "bg-[#FCE6D4] text-[#B8612F]"],
+  expired: ["انتهت", "bg-[#F0E9DD] text-[#8A9AB0]"],
+  canceled: ["اتلغت", "bg-[#F0E9DD] text-[#8A9AB0]"],
+  mismatch: ["مبلغ مختلف!", "bg-[#FCE6D4] text-[#B8612F]"],
+  refunded: ["مستردة", "bg-[#F0E9DD] text-[#5A677D]"],
+};
+const PURPOSE = { order: "قصة", topup: "شحن رصيد" };
+const sar = (v) => `${Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} ر.س`;
 
 export default function AdminPaymentSettings() {
-  const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [payments, setPayments] = useState([]);
+  const [error, setError] = useState(null);
+  const [list, setList] = useState(null);
+  const [filters, setFilters] = useState({ status: "", purpose: "", q: "", page: 1 });
+  const q = useDebounced(filters.q);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [s, st, p] = await Promise.all([
-        api.get("/admin/payment/settings"),
-        api.get("/admin/payment/status"),
-        api.get("/admin/payment/payments?limit=20"),
-      ]);
-      setSettings(s.data); setStatus(st.data); setPayments(p.data?.payments || []);
-    } catch { toast.error("تعذّر تحميل إعدادات الدفع"); }
-    finally { setLoading(false); }
+  const loadStatus = () => {
+    setError(null);
+    api.get("/admin/payment/status").then((r) => setStatus(r.data)).catch(() => setError("تعذّر تحميل حالة الدفع"));
   };
-  useEffect(() => { load(); }, []);
+  const loadList = () => {
+    api.get("/admin/payment/payments", { params: { status: filters.status || undefined, purpose: filters.purpose || undefined, q: q || undefined, page: filters.page, limit: 30 } })
+      .then((r) => setList(r.data)).catch(() => setList({ items: [], total: 0, totals: {} }));
+  };
+  useEffect(loadStatus, []);
+  useEffect(loadList, [filters.status, filters.purpose, q, filters.page]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const save = async () => {
-    setSaving(true);
+  const setRequired = async (value) => {
     try {
-      const { data } = await api.put("/admin/payment/settings", {
-        publishable_key: settings.publishable_key,
-        sandbox_mode: !!settings.sandbox_mode,
-        supported_methods: settings.supported_methods,
-        supported_currencies: settings.supported_currencies,
-        payout_destination_label: settings.payout_destination_label,
-        apple_pay_domain_verified: !!settings.apple_pay_domain_verified,
-      });
-      setSettings(data); toast.success("تم الحفظ");
+      const r = await api.put("/admin/payment/settings", { payment_required: value });
+      setStatus(r.data);
+      toast.success(value ? "الدفع بقى مطلوب قبل الإنتاج" : "الإنتاج بيبدأ من غير دفع");
     } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
-    finally { setSaving(false); }
+  };
+  const testKey = async () => {
+    const r = await api.post("/admin/payment/test");
+    if (r.data.ok) toast.success(`المفتاح شغّال (${r.data.mode === "live" ? "حقيقي" : "تجربة"})`);
+    else toast.error(r.data.error);
+  };
+  const refresh = async (p) => {
+    try { await api.post(`/admin/payment/payments/${p.id}/refresh`); loadList(); toast.success("اتحدّثت من ميسر"); }
+    catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
   };
 
-  if (loading || !settings || !status) {
-    return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-[#87A96B]" /></div>;
-  }
-
+  const t = list?.totals || {};
+  const th = "px-3 py-2 font-body text-xs font-bold text-[#5A677D] text-right whitespace-nowrap";
+  const td = "px-3 py-2 font-body text-sm whitespace-nowrap";
   return (
-    <div data-testid="admin-payment-settings-page" className="max-w-4xl">
-      <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="font-heading text-3xl font-bold text-[#2D3748] inline-flex items-center gap-2"><CreditCard className="w-7 h-7 text-[#87A96B]" /> الدفع و Stripe</h1>
-          <p className="font-body text-sm text-[#5A677D] mt-2">إعدادات الدفع والإعدادات العامة. الأسرار الفعلية في .env.</p>
-        </div>
-        <button onClick={load} className="rounded-full bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] px-4 py-2 text-sm font-bold inline-flex items-center gap-1"><RefreshCw className="w-4 h-4" /> تحديث</button>
-      </div>
+    <AdminPage title="المدفوعات" testId="admin-payment-page"
+      description="الدفع عن طريق ميسر (مدى، فيزا/ماستركارد، Apple Pay). العميل بيدفع سعر القصة اللي شافه، أو من رصيده.">
+      <PageState loading={!status && !error} error={error} onRetry={loadStatus}>
+        {status && (
+          <section className="bg-white rounded-3xl border border-[#E2D8C9] p-5 mb-6" data-testid="payment-status">
+            <div className="flex items-start gap-3 flex-wrap justify-between">
+              <div className="flex items-start gap-3">
+                {status.configured ? <CheckCircle2 className="w-7 h-7 text-[#4F6B3B] shrink-0" /> : <ShieldAlert className="w-7 h-7 text-[#B8612F] shrink-0" />}
+                <div>
+                  <div className="font-heading text-lg font-bold text-[#2D3748]">
+                    {status.configured ? `ميسر متوصّل — ${status.mode === "live" ? "وضع حقيقي" : "وضع تجربة"}` : "ميسر مش متوصّل"}
+                  </div>
+                  <p className="font-body text-sm text-[#5A677D]">
+                    {status.configured
+                      ? <>المفتاح {status.key_masked}. </>
+                      : <>سجّل الـ Secret Key من <Link to="/admin/secrets" className="underline font-bold">صفحة المفاتيح</Link> (ابدأ بـ sk_test للتجربة). </>}
+                    {status.callback_url
+                      ? <>ميسر بيبلّغنا بالدفع على <span dir="ltr">{status.callback_url}</span>.</>
+                      : <>تأكيد الدفع بيتم لما العميل يرجع للموقع (عشان ميسر يبلّغنا مباشرة لازم PUBLIC_API_URL بـ https على السيرفر).</>}
+                  </p>
+                </div>
+              </div>
+              {status.configured && (
+                <button onClick={testKey} className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-4 py-2 text-sm font-bold font-body">اختبار المفتاح</button>
+              )}
+            </div>
+            <div className="mt-5 pt-4 border-t border-[#F0E9DD] flex items-center justify-between gap-3 flex-wrap">
+              <div className="font-body">
+                <div className="font-bold text-[#2D3748]">الدفع قبل الإنتاج</div>
+                <div className="text-sm text-[#5A677D]">
+                  {status.payment_required
+                    ? "مطلوب: بعد اختيار السيناريو العميل بيدفع، وبعدها بس الإنتاج بيبدأ."
+                    : "مش مطلوب: الإنتاج بيبدأ على طول من غير دفع (مناسب للتجربة بس)."}
+                </div>
+              </div>
+              <ConfirmAction
+                title={status.payment_required ? "توقف الدفع قبل الإنتاج؟" : "تطلب الدفع قبل الإنتاج؟"}
+                description={status.payment_required ? "أي طلب جديد هيدخل الإنتاج من غير ما يدفع." : "أي طلب جديد هيستنى الدفع (رصيد أو بطاقة) قبل ما نصرف على توليده."}
+                tone={status.payment_required ? "danger" : "cost"} confirmLabel={status.payment_required ? "أوقفه" : "فعّله"}
+                onConfirm={() => setRequired(!status.payment_required)} testId="toggle-payment-required"
+                className={`rounded-full px-5 py-2 text-sm font-bold font-body ${status.payment_required ? "bg-[#FCE6D4] text-[#B8612F]" : "bg-[#87A96B] text-white"}`}>
+                {status.payment_required ? "إيقاف" : "تفعيل"}
+              </ConfirmAction>
+            </div>
+          </section>
+        )}
 
-      {/* Provider status */}
-      <section className={`rounded-2xl p-5 mb-5 border-2 ${status.active ? "bg-[#E8F0E1] border-[#87A96B]/40" : "bg-[#FCE6D4] border-[#E07A5F]/40"}`} data-testid="payment-status">
-        <div className="flex items-center gap-3 mb-3">
-          {status.active ? <ShieldCheck className="w-5 h-5 text-[#4F6B3B]" /> : <ShieldAlert className="w-5 h-5 text-[#B8612F]" />}
-          <h3 className="font-heading font-bold text-[#2D3748]">حالة المزوّد: <span className={status.active ? "text-[#4F6B3B]" : "text-[#B8612F]"}>{status.active ? "مفعّل" : "غير مفعّل"}</span></h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <KpiCard label="قصص مدفوعة بالبطاقة" value={sar(t.card_orders?.sar)} hint={`${t.card_orders?.n || 0} عملية`} />
+          <KpiCard label="قصص مدفوعة من الرصيد" value={sar(t.wallet_orders?.sar)} hint={`${t.wallet_orders?.n || 0} طلب`} />
+          <KpiCard label="شحن رصيد" value={sar(t.topups?.sar)} hint={`${t.topups?.n || 0} عملية`} />
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs font-body mb-3">
-          <Stat label="STRIPE_API_KEY" v={status.secret_key_configured ? `✓ ${status.secret_key_masked || ""}` : "✗ مفقود"} />
-          <Stat label="Publishable key" v={status.publishable_key_configured ? "✓" : "✗"} />
-          <Stat label="Webhook secret" v={status.webhook_secret_configured ? "✓" : "✗ (موصى به)"} />
-          <Stat label="Sandbox" v={status.sandbox_mode ? "نعم" : "لا"} />
-        </div>
-        <div className="bg-white/60 rounded-xl p-3 text-xs font-body text-[#2D3748] flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 text-[#8B5A2B] mt-0.5 shrink-0" />
-          <span>{status.note_ar}</span>
-        </div>
-      </section>
 
-      {/* Settings form */}
-      <section className="bg-white rounded-2xl p-5 border border-[#E2D8C9] mb-5">
-        <h3 className="font-heading text-lg font-bold text-[#2D3748] mb-4">الإعدادات العامة</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="Publishable Key (آمن للنشر)">
-            <input className="input w-full" value={settings.publishable_key || ""} onChange={(e) => setSettings({ ...settings, publishable_key: e.target.value })} placeholder="pk_test_..." data-testid="pub-key" />
-          </Field>
-          <Field label="وضع التطوير">
-            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!settings.sandbox_mode} onChange={(e) => setSettings({ ...settings, sandbox_mode: e.target.checked })} data-testid="sandbox-toggle" /> Sandbox</label>
-          </Field>
-          <Field label="طرق الدفع (مفصولة بفاصلة)">
-            <input className="input w-full" value={(settings.supported_methods || []).join(", ")} onChange={(e) => setSettings({ ...settings, supported_methods: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
-          </Field>
-          <Field label="العملات (مفصولة بفاصلة)">
-            <input className="input w-full" value={(settings.supported_currencies || []).join(", ")} onChange={(e) => setSettings({ ...settings, supported_currencies: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
-          </Field>
-          <Field label="وجهة التحويل البنكي (نصياً فقط — معلوماتية)">
-            <input className="input w-full" value={settings.payout_destination_label || ""} onChange={(e) => setSettings({ ...settings, payout_destination_label: e.target.value })} placeholder="مثال: مصرف الراجحي — IBAN ينتهي بـ 1234" />
-          </Field>
-          <Field label="Apple Pay domain verified">
-            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!settings.apple_pay_domain_verified} onChange={(e) => setSettings({ ...settings, apple_pay_domain_verified: e.target.checked })} /> تم التحقّق من الدومين في Stripe Dashboard</label>
-          </Field>
+        <div className="flex gap-2 flex-wrap mb-3">
+          <input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value, page: 1 })} placeholder="إيميل، رقم الطلب أو الفاتورة"
+            className="flex-1 min-w-[200px] bg-white border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body text-sm" />
+          <select value={filters.purpose} onChange={(e) => setFilters({ ...filters, purpose: e.target.value, page: 1 })}
+            className="bg-white border border-[#E2D8C9] rounded-2xl px-3 py-2 font-body text-sm">
+            <option value="">كل الأنواع</option><option value="order">قصص</option><option value="topup">شحن رصيد</option>
+          </select>
+          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
+            className="bg-white border border-[#E2D8C9] rounded-2xl px-3 py-2 font-body text-sm">
+            <option value="">كل الحالات</option>
+            {Object.entries(STATUS).map(([k, [label]]) => <option key={k} value={k}>{label}</option>)}
+          </select>
         </div>
-        <p className="text-xs text-[#8A9AB0] font-body mt-3">
-          <b>ملاحظة:</b> Apple Pay طريقة دفع للعميل (يختارها في صفحة Stripe على أجهزة Apple). الأرباح تُحوَّل إلى الحساب البنكي للتاجر، وليس إلى Apple Pay wallet.
-        </p>
-        <div className="flex justify-end mt-3">
-          <button onClick={save} disabled={saving} className="btn-primary inline-flex items-center gap-2" data-testid="save-payment-settings"><Save className="w-4 h-4" /> {saving ? "جاري..." : "حفظ"}</button>
-        </div>
-      </section>
-
-      {/* Recent payments */}
-      <section className="bg-white rounded-2xl p-5 border border-[#E2D8C9]" data-testid="payments-table">
-        <h3 className="font-heading text-lg font-bold text-[#2D3748] mb-3">آخر العمليات</h3>
-        {payments.length === 0 ? (
-          <p className="text-sm text-[#8A9AB0] font-body">لا توجد عمليات دفع بعد.</p>
-        ) : (
-          <table className="w-full text-sm font-body">
-            <thead className="text-xs text-[#5A677D]">
-              <tr className="border-b border-[#E2D8C9]"><th className="py-2 text-right">المستخدم</th><th>الباقة</th><th>المبلغ</th><th>الحالة</th><th>التاريخ</th></tr>
+        <div className="bg-white rounded-3xl border border-[#E2D8C9] overflow-x-auto" data-testid="payments-table">
+          <table className="w-full">
+            <thead className="bg-[#FDFBF7] border-b border-[#E2D8C9]">
+              <tr><th className={th}>التاريخ</th><th className={th}>العميل</th><th className={th}>النوع</th><th className={th}>المبلغ</th><th className={th}>الحالة</th><th className={th}>الطريقة</th><th className={th}></th></tr>
             </thead>
-            <tbody>
-              {payments.map(p => (
-                <tr key={p.id} className="border-b border-[#E2D8C9]">
-                  <td className="py-2">{p.user_email || p.user_id?.slice(0, 8)}</td>
-                  <td>{p.bundle_snapshot?.name || p.bundle_id?.slice(0, 8)}</td>
-                  <td>{p.amount} {p.currency}</td>
-                  <td><span className="text-xs px-2 py-0.5 rounded-full bg-[#FDFBF7] border border-[#E2D8C9]">{p.payment_status || p.status}</span></td>
-                  <td className="text-xs text-[#8A9AB0]">{p.created_at?.slice(0, 16)}</td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-[#F0E9DD]">
+              {list && list.items.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center font-body text-sm text-[#8A9AB0]">مفيش عمليات دفع لسه</td></tr>}
+              {(list?.items || []).map((p) => {
+                const [label, cls] = STATUS[p.status] || [p.status, "bg-[#F0E9DD] text-[#5A677D]"];
+                return (
+                  <tr key={p.id}>
+                    <td className={td}>{formatDate(p.created_at)}</td>
+                    <td className={td}>{p.user_email}</td>
+                    <td className={td}>
+                      {PURPOSE[p.purpose] || p.purpose}
+                      {p.order_id && <Link to={`/admin/orders/${p.order_id}`} className="mr-1 text-xs text-[#4F6B3B] underline" dir="ltr">{p.order_id.slice(0, 8)}</Link>}
+                      {p.mode === "test" && <span className="mr-1 text-[10px] font-bold rounded-full px-1.5 py-0.5 bg-[#F0E9DD] text-[#8A9AB0]">تجربة</span>}
+                    </td>
+                    <td className={`${td} font-bold`}>{sar(p.amount_sar)}</td>
+                    <td className={td}><span className={`text-xs font-bold rounded-full px-2 py-0.5 ${cls}`}>{label}</span></td>
+                    <td className={td}>{p.source || "—"}</td>
+                    <td className={td}>
+                      {p.status === "pending" && (
+                        <button onClick={() => refresh(p)} title="اسأل ميسر عن الحالة" aria-label="تحديث من ميسر" className="p-1.5 rounded-lg border border-[#E2D8C9] bg-white"><RefreshCw className="w-3.5 h-3.5" /></button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        )}
-      </section>
-
-      <style>{`.input { background:#FDFBF7; border:1px solid #E2D8C9; border-radius:14px; padding:8px 12px; font-family:'Tajawal',sans-serif; font-size:14px; }`}</style>
-    </div>
+        </div>
+        {list && <Pager page={list.page} limit={list.limit} total={list.total} onPage={(page) => setFilters({ ...filters, page })} />}
+      </PageState>
+    </AdminPage>
   );
 }
-
-function Stat({ label, v }) { return <div className="bg-white/70 rounded-xl px-2 py-1"><div className="text-[10px] text-[#8A9AB0]">{label}</div><b className="text-[#2D3748]">{v}</b></div>; }
-function Field({ label, children }) { return <label className="block"><div className="text-xs text-[#5A677D] font-body mb-1">{label}</div>{children}</label>; }

@@ -101,7 +101,7 @@ async def update_user(user_id: str, payload: UserUpdate, admin=Depends(require_a
 # Order status phases (mirrors frontend lib/orderStatus.js).
 ORDER_PHASES = {
     "intake": ["draft", "pending", "in_review"],
-    "scenarios": ["scenarios_generating", "scenarios_ready", "scenario_selected"],
+    "scenarios": ["scenarios_generating", "scenarios_ready", "scenario_selected", "awaiting_payment"],
     "planning": ["ready_for_ai", "production_planning", "production_ready", "production_approved"],
     "media": ["assets_generating", "assets_ready", "assembling", "generating"],
     "delivered": ["delivered", "completed"],
@@ -334,11 +334,9 @@ async def admin_select_scenario(order_id: str, scenario_id: str, background: Bac
         reason += f" (promoted batch {str(target_batch)[:8]})"
     await db.orders.update_one({"id": order_id}, {"$set": updates})
     await append_status(order_id, o.get("status"), "scenario_selected", "admin", actor_id=admin["id"], reason=reason)
-    await append_status(order_id, "scenario_selected", "ready_for_ai", "system", reason="auto after admin selection")
-    # Trigger production planning in background (phase 5)
-    from routes.production_routes import trigger_production_planning
-    await trigger_production_planning(order_id, background)
-    return {"ok": True}
+    # M6 — same payment gate as the parent's own selection (waive it from the order page).
+    from services.payment_service import gate_production
+    return {"ok": True, **(await gate_production(order_id, background))}
 
 
 # ---------- Categories ----------

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
@@ -9,6 +9,7 @@ import {
   PartyPopper, Music, Mic, VolumeX, Download, Play,
 } from "lucide-react";
 import { fileSrc } from "../lib/api";
+import OrderPayment from "../components/gheras/OrderPayment";
 import { toast } from "sonner";
 
 const audioBgLabel = (mode) => ({
@@ -26,6 +27,7 @@ const audioBgIcon = (mode) => ({
 export default function ProductionReady() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
@@ -109,6 +111,13 @@ export default function ProductionReady() {
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.debug("[prod-ready] mount order_id=", id);
+    // Back from the Moyasar page: confirm the payment with the server first.
+    if (searchParams.get("payment")) {
+      api.post(`/orders/${id}/payment/refresh`).catch(() => {}).finally(() => {
+        setSearchParams({}, { replace: true });
+        fetchData({ silent: true });
+      });
+    }
     fetchData();
     // Quick backoff retries (1s, 3s) for the initial load — shortens the
     // "connection error" window if the very first request hiccups.
@@ -180,6 +189,7 @@ export default function ProductionReady() {
   const isPlanning = isPlanStillLoading || ["pending", "ready_for_ai", "production_planning", "scenarios_generating",
                       "scenarios_ready", "scenario_selected"].includes(status);
   const isFailed = status === "failed";
+  const isAwaitingPayment = status === "awaiting_payment";
   // Unified progress from backend (0..100 across the whole pipeline).
   const progress = state?.progress;
   const rawPercent = progress?.percent ?? 0;
@@ -313,7 +323,9 @@ export default function ProductionReady() {
               <Sparkles className="w-3 h-3" /> الخطوة 8 من 8
             </div>
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
-              {isDelivered
+              {isAwaitingPayment
+                ? "اخترت القصة 🌱 فاضل خطوة الدفع"
+                : isDelivered
                 ? "🎉 قصتك أصبحت جاهزة!"
                 : isAssembling
                 ? "جاري تجميع قصة طفلك..."
@@ -334,7 +346,9 @@ export default function ProductionReady() {
                 : "نُعِدّ خطة القصة لطفلك..."}
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
-              {isDelivered
+              {isAwaitingPayment
+                ? "ادفع السعر اللي شفته وإنت بتجهّز القصة، وبعدها نبدأ على طول."
+                : isDelivered
                 ? "يمكنك الآن مشاهدة الفيديو وتحميل القصة المصوّرة."
                 : isAssembling
                 ? "نجمع الصور والسرد في فيديو وكتاب نهائيين."
@@ -356,7 +370,7 @@ export default function ProductionReady() {
             </p>
 
             {/* Unified pipeline progress bar — always visible from planning to delivery */}
-            {progress && !isDelivered && !isFailed && !isMediaFailed && (
+            {progress && !isDelivered && !isFailed && !isMediaFailed && !isAwaitingPayment && (
               <div className="mt-5 bg-white/70 backdrop-blur rounded-2xl p-4 border border-[#E2D8C9]" data-testid="hero-progress">
                 <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
                   <span className="inline-flex items-center gap-2">
@@ -394,6 +408,8 @@ export default function ProductionReady() {
             )}
           </div>
         </div>
+
+        {isAwaitingPayment && <OrderPayment orderId={id} onPaid={() => fetchData({ silent: true })} />}
 
         {/* PLANNING STATE */}
         {isPlanning && !summary && (
@@ -720,6 +736,7 @@ export default function ProductionReady() {
             permanent load error), we must NEVER leave the page hero-only. */}
         {(() => {
           const ctxRendered =
+            isAwaitingPayment ||
             isDelivered ||
             isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling ||
             (!approved && !isFailed && planReady) ||
@@ -729,6 +746,7 @@ export default function ProductionReady() {
           // eslint-disable-next-line no-console
           console.debug(
             "[prod-ready] render_branch=",
+            isAwaitingPayment ? "awaiting_payment" :
             isDelivered ? "delivered" :
             isMediaFailed ? "media_failed" :
             isAssembling ? "assembling" :

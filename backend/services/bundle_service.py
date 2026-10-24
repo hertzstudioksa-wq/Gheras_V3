@@ -50,6 +50,19 @@ def _now_iso() -> str:
 ALLOWED_OUTPUT_TYPES = ("video", "pdf", "both")
 
 
+def _credit(payload: dict) -> float | None:
+    """M6: a bundle with `credit_sar` is a wallet top-up (pay `price`, get
+    `credit_sar` of wallet credit, the difference being the bonus). Bundles
+    without it are the older per-story credits, kept for existing purchases."""
+    value = payload.get("credit_sar")
+    if value in (None, "", 0):
+        return None
+    value = float(value)
+    if value < float(payload.get("price") or 0) or value > 100000:
+        raise ValueError("الرصيد لازم يكون أكبر من أو يساوي السعر")
+    return value
+
+
 async def create_bundle(payload: dict, admin_id: str | None, admin_email: str | None) -> dict:
     out = (payload.get("output_type") or "both").lower()
     if out not in ALLOWED_OUTPUT_TYPES:
@@ -62,6 +75,7 @@ async def create_bundle(payload: dict, admin_id: str | None, admin_email: str | 
         "quantity":       max(1, int(payload.get("quantity") or 1)),
         "validity_days":  max(1, int(payload.get("validity_days") or 90)),
         "price":          float(payload.get("price") or 0),
+        "credit_sar":     _credit(payload),
         "currency":       (payload.get("currency") or "SAR")[:8],
         "is_active":      bool(payload.get("is_active", True)),
         "notes":          (payload.get("notes") or "").strip()[:500],
@@ -74,7 +88,8 @@ async def create_bundle(payload: dict, admin_id: str | None, admin_email: str | 
     await record_audit(
         entity_type="bundle", entity_id=bundle["id"], action="create",
         actor_id=admin_id, actor_email=admin_email,
-        summary=f"create bundle {bundle['name']} ({bundle['quantity']}x {bundle['output_type']})",
+        summary=(f"create top-up {bundle['name']} ({bundle['price']:g} → {bundle['credit_sar']:g} SAR)" if bundle["credit_sar"]
+                 else f"create bundle {bundle['name']} ({bundle['quantity']}x {bundle['output_type']})"),
         after=bundle,
     )
     return bundle
@@ -87,6 +102,8 @@ async def update_bundle(bundle_id: str, patch: dict, admin_id: str | None, admin
     allowed = {"name", "description", "output_type", "quantity", "validity_days",
                "price", "currency", "is_active", "notes"}
     upd: dict = {k: v for k, v in patch.items() if k in allowed}
+    if "credit_sar" in patch:
+        upd["credit_sar"] = _credit(patch)
     if "output_type" in upd and upd["output_type"] not in ALLOWED_OUTPUT_TYPES:
         upd.pop("output_type")
     upd["updated_at"] = _now_iso()
@@ -347,10 +364,36 @@ SEEDED_BUNDLES = [
 ]
 
 
+SEEDED_TOPUPS = [
+    {"name": "شحن 100 ر.س", "description": "رصيد 100 ريال تستخدمه في أي قصة.", "price": 100.0, "credit_sar": 100.0},
+    {"name": "شحن 200 ر.س", "description": "رصيد 220 ريال — 20 ريال هدية.", "price": 200.0, "credit_sar": 220.0},
+    {"name": "شحن 400 ر.س", "description": "رصيد 460 ريال — 60 ريال هدية.", "price": 400.0, "credit_sar": 460.0},
+]
+
+
+async def seed_wallet_topups() -> int:
+    """M6 — bundles become wallet credit: add the default top-ups once, and stop
+    selling the seeded per-story bundles nobody bought (existing purchases stay valid)."""
+    if await db.bundles.count_documents({"credit_sar": {"$gt": 0}}):
+        return 0
+    for t in SEEDED_TOPUPS:
+        await db.bundles.insert_one({
+            **t, "id": str(uuid.uuid4()), "output_type": "both", "quantity": 1, "validity_days": 365,
+            "currency": "SAR", "is_active": True, "is_seeded": True, "notes": "",
+            "created_at": _now_iso(), "updated_at": _now_iso(),
+        })
+    async for b in db.bundles.find({"is_seeded": True, "credit_sar": {"$in": [None, 0]}, "is_active": True},
+                                   {"_id": 0, "id": 1}):
+        if not await db.bundle_purchases.count_documents({"bundle_id": b["id"]}):
+            await db.bundles.update_one({"id": b["id"]}, {"$set": {"is_active": False, "updated_at": _now_iso()}})
+    logger.info(f"[bundles] seeded {len(SEEDED_TOPUPS)} wallet top-ups")
+    return len(SEEDED_TOPUPS)
+
+
 async def seed_default_bundles() -> int:
     """Insert default bundles only if none exist yet. Returns number created."""
     if await db.bundles.count_documents({}) > 0:
-        return 0
+        return await seed_wallet_topups()
     created = 0
     for b in SEEDED_BUNDLES:
         bundle = {**b,
@@ -361,4 +404,4 @@ async def seed_default_bundles() -> int:
         await db.bundles.insert_one(bundle)
         created += 1
     logger.info(f"[bundles] seeded {created} default bundles")
-    return created
+    return created + await seed_wallet_topups()

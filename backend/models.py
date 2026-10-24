@@ -261,6 +261,7 @@ class OrderStatus(str, Enum):
     SCENARIOS_GENERATING = "scenarios_generating"
     SCENARIOS_READY = "scenarios_ready"
     SCENARIO_SELECTED = "scenario_selected"
+    AWAITING_PAYMENT = "awaiting_payment"
     READY_FOR_AI = "ready_for_ai"
     PRODUCTION_PLANNING = "production_planning"
     PRODUCTION_READY = "production_ready"
@@ -282,6 +283,7 @@ ORDER_STATUS_AR = {
     "scenarios_generating": "جاري توليد السيناريوهات",
     "scenarios_ready": "السيناريوهات جاهزة",
     "scenario_selected": "تم اختيار سيناريو",
+    "awaiting_payment": "بانتظار الدفع",
     "ready_for_ai": "جاهز للتوليد",
     "production_planning": "جاري إعداد خطة الإنتاج",
     "production_ready": "خطة الإنتاج جاهزة",

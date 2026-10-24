@@ -954,135 +954,107 @@ export function AdminProductionTab({ orderId }) {
 }
 
 
+const PAYMENT_STATUS = { awaiting: "مستني الدفع", paid: "مدفوع", refunded: "مسترد للرصيد" };
+const PAYMENT_METHOD = { wallet: "الرصيد", card: "بطاقة (ميسر)", bundle_credit: "باقة قديمة", admin: "مجاناً (الإدارة)" };
+const money = (v) => (v == null ? "—" : `${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })} ر.س`);
+
+// Cost tab (M6): the price the parent saw, the payment, and what the order
+// actually cost so far (from the records each stage wrote), with the margin.
 export function AdminPricingTab({ orderId }) {
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [snapshotting, setSnapshotting] = useState(null);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const { data } = await api.get(`/admin/orders/${orderId}/pricing`);
-      setData(data);
-    } catch {
-      toast.error("تعذّر تحميل التسعير");
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => { load(); }, [orderId]);
+  const load = () => api.get(`/admin/orders/${orderId}/pricing`).then((r) => setData(r.data)).catch(() => toast.error("تعذّر تحميل التكلفة"));
+  useEffect(() => { load(); }, [orderId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const doSnapshot = async (kind) => {
-    setSnapshotting(kind);
+  const act = async (path, reason, ok) => {
     try {
-      await api.post(`/admin/orders/${orderId}/pricing/snapshot?kind=${kind}`);
-      toast.success(`تم حفظ snapshot (${kind === "estimate" ? "تقديري" : "نهائي"})`);
+      await api.post(`/admin/orders/${orderId}/payment/${path}`, { reason });
+      toast.success(ok);
       load();
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "فشل");
-    } finally {
-      setSnapshotting(null);
-    }
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
   };
 
-  if (loading || !data) {
-    return <div className="py-8 text-center font-body text-[#8A9AB0]">جاري التحميل...</div>;
-  }
-
+  if (!data) return <div className="py-8 text-center font-body text-[#8A9AB0]">جاري التحميل...</div>;
+  const { quote, payment, actual } = data;
+  const tone = actual.margin_pct == null ? "text-[#8A9AB0]" : actual.margin_pct >= 45 ? "text-[#4F6B3B]" : actual.margin_pct >= 30 ? "text-[#8B5A2B]" : "text-[#B8612F]";
   return (
     <div data-testid="admin-pricing-tab" className="space-y-5">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <PricingCard
-          title="تقديري (عند production_ready)"
-          subtitle="estimate — قبل بدء توليد الوسائط"
-          stored={data?.snapshots?.estimate}
-          fresh={data?.fresh?.estimate}
-          color="amber"
-          onSnapshot={() => doSnapshot("estimate")}
-          busy={snapshotting === "estimate"}
-        />
-        <PricingCard
-          title="نهائي (عند delivered)"
-          subtitle="actual — بعد تنفيذ كل المراحل"
-          stored={data?.snapshots?.actual}
-          fresh={data?.fresh?.actual}
-          color="green"
-          onSnapshot={() => doSnapshot("actual")}
-          busy={snapshotting === "actual"}
-        />
-      </div>
-
-      <p className="text-xs text-[#8A9AB0] font-body" data-testid="pricing-tab-help">
-        Internal Cost = تكلفة الموارد الفعلية | Sell Price = السعر للعميل (مع هامش الربح والحد الأدنى) | Margin = الربح.
-      </p>
-    </div>
-  );
-}
-
-function PricingCard({ title, subtitle, stored, fresh, color, onSnapshot, busy }) {
-  const tone = color === "amber"
-    ? { bg: "bg-[#F8F1E7]", border: "border-[#D4A373]/40", chip: "text-[#8B5A2B]" }
-    : { bg: "bg-[#E8F0E1]", border: "border-[#87A96B]/40", chip: "text-[#4F6B3B]" };
-  return (
-    <div className={`rounded-2xl p-4 border-2 ${tone.bg} ${tone.border}`}>
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <div>
-          <h4 className={`font-heading font-bold ${tone.chip}`}>{title}</h4>
-          <p className="text-xs text-[#5A677D] font-body">{subtitle}</p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="rounded-2xl p-4 bg-[#FDFBF7] border border-[#E2D8C9] font-body">
+          <div className="text-xs text-[#5A677D] mb-1">السعر للعميل (قبل الضريبة)</div>
+          <div className="font-heading text-2xl font-bold text-[#2D3748]">{money(actual.price_sar)}</div>
+          {quote && <div className="text-xs text-[#8A9AB0] mt-1">عرض السعر: {quote.seconds} ث · تكلفة مقدّرة {money(actual.estimate_sar)}{quote.overridden ? " · سعر يدوي" : ""}</div>}
         </div>
-        <button
-          onClick={onSnapshot}
-          disabled={busy}
-          className="text-xs bg-white hover:bg-[#FDFBF7] border border-[#E2D8C9] rounded-full px-3 py-1 font-body font-bold text-[#5A677D] disabled:opacity-50"
-          data-testid={`snapshot-${color === "amber" ? "estimate" : "actual"}-btn`}
-        >
-          {busy ? "..." : "حفظ snapshot"}
-        </button>
-      </div>
-
-      {stored ? (
-        <div className="space-y-1 text-sm font-body bg-white rounded-2xl p-3 border border-[#E2D8C9]" data-testid={`stored-${color === "amber" ? "estimate" : "actual"}`}>
-          <Row label="Internal cost" value={`${stored.internal_cost} ${stored.currency}`} />
-          <Row label="Sell price" value={`${stored.sell_price} ${stored.currency}`} bold />
-          <Row label="Margin" value={`${stored.margin} ${stored.currency}`} />
-          <Row label="Output type" value={stored.output_type} small />
-          <Row label="At" value={(stored.created_at || "").slice(0, 16)} small />
-        </div>
-      ) : (
-        <div className="text-xs text-[#8A9AB0] font-body italic mb-2">لم يُحفظ snapshot بعد.</div>
-      )}
-
-      {fresh && (
-        <details className="mt-3 bg-white rounded-2xl border border-[#E2D8C9]">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-body text-[#5A677D] font-bold">
-            إعادة الحساب الآن: {fresh.sell_price} {fresh.currency} (تفاصيل {fresh.items?.length || 0} مرحلة)
-          </summary>
-          <div className="p-3 text-xs font-body space-y-1">
-            <div className="text-[#5A677D]">base: {fresh.base_cost} → ×{fresh.modifiers?.output} (output) ×{fresh.modifiers?.cost_tier} (tier) = <b>{fresh.internal_cost}</b></div>
-            <table className="w-full text-xs mt-2">
-              <tbody>
-                {(fresh.items || []).map((it, i) => (
-                  <tr key={i} className="border-t border-[#E2D8C9]">
-                    <td className="py-1 text-[#2D3748]">{it.label || it.stage}</td>
-                    <td className="py-1 text-[#5A677D]">×{it.quantity}</td>
-                    <td className="py-1 text-[#5A677D]">@{it.unit_cost}</td>
-                    <td className="py-1 text-[#2D3748] font-bold">{it.line_cost}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="rounded-2xl p-4 bg-[#FDFBF7] border border-[#E2D8C9] font-body">
+          <div className="text-xs text-[#5A677D] mb-1">التكلفة الفعلية لحد دلوقتي</div>
+          <div className="font-heading text-2xl font-bold text-[#2D3748]">{money(actual.total_sar)}</div>
+          <div className="text-xs text-[#8A9AB0] mt-1" dir="ltr" style={{ textAlign: "right" }}>
+            ${actual.total_usd}{actual.vs_estimate_pct != null ? ` · ${actual.vs_estimate_pct > 0 ? "+" : ""}${actual.vs_estimate_pct}% vs estimate` : ""}
           </div>
-        </details>
-      )}
-    </div>
-  );
-}
+        </div>
+        <div className="rounded-2xl p-4 bg-[#FDFBF7] border border-[#E2D8C9] font-body">
+          <div className="text-xs text-[#5A677D] mb-1">الهامش (بعد رسوم الدفع)</div>
+          <div className={`font-heading text-2xl font-bold ${tone}`}>{actual.margin_pct == null ? "—" : `${actual.margin_pct}%`}</div>
+          {actual.margin_sar != null && <div className="text-xs text-[#8A9AB0] mt-1">{money(actual.margin_sar)}</div>}
+        </div>
+      </div>
 
-function Row({ label, value, bold, small }) {
-  return (
-    <div className={`flex items-center justify-between ${small ? "text-xs" : ""}`}>
-      <span className={`text-[#5A677D] font-body ${bold ? "font-bold" : ""}`}>{label}</span>
-      <span className={`text-[#2D3748] font-body ${bold ? "font-bold" : ""}`}>{value}</span>
+      <div className="rounded-2xl border border-[#E2D8C9] p-4 font-body" data-testid="order-payment-admin">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-bold text-[#2D3748]">الدفع: {payment ? PAYMENT_STATUS[payment.status] || payment.status : "مفيش (الدفع مكانش مطلوب)"}</div>
+            {payment && (
+              <div className="text-sm text-[#5A677D]">
+                {money(payment.total_sar)}{payment.vat_sar ? ` شامل ضريبة ${money(payment.vat_sar)}` : ""}
+                {payment.method ? ` · ${PAYMENT_METHOD[payment.method] || payment.method}` : ""}
+                {payment.paid_at ? ` · ${payment.paid_at.slice(0, 16).replace("T", " ")}` : ""}
+                {payment.note ? ` · ${payment.note}` : ""}
+                {payment.refund_reason ? ` · سبب الاسترداد: ${payment.refund_reason}` : ""}
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {payment?.status === "awaiting" && (
+              <ConfirmAction title="تعدّي الطلب من غير دفع؟" description="الطلب هيدخل الإنتاج على طول ومش هيتحسب له إيراد. اكتب السبب."
+                requireReason tone="cost" confirmLabel="عدّيه مجاناً" onConfirm={(reason) => act("waive", reason, "الطلب اتعدّى مجاناً")}
+                className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-4 py-1.5 text-sm font-bold">
+                تعدية مجانية
+              </ConfirmAction>
+            )}
+            {payment?.status === "paid" && ["wallet", "card"].includes(payment.method) && (
+              <ConfirmAction title={`ترجّع ${money(payment.total_sar)} لرصيد العميل؟`} description="المبلغ بيتضاف لرصيده في غِراس (مش للبطاقة). الإنتاج مش بيقف. اكتب السبب."
+                requireReason confirmLabel="رجّع للرصيد" onConfirm={(reason) => act("refund", reason, "اترجع للرصيد")}
+                className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-1.5 text-sm font-bold">
+                استرداد للرصيد
+              </ConfirmAction>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[#E2D8C9] overflow-x-auto">
+        <table className="w-full font-body text-sm">
+          <thead className="bg-[#FDFBF7] border-b border-[#E2D8C9]">
+            <tr>{["البند", "الكمية", "سعر الوحدة", "التكلفة", "الموديل"].map((h) => <th key={h} className="px-3 py-2 text-xs font-bold text-[#5A677D] text-right">{h}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-[#F0E9DD]">
+            {actual.items.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-[#8A9AB0]">لسه مفيش توليد</td></tr>}
+            {actual.items.map((it, i) => (
+              <tr key={i}>
+                <td className="px-3 py-2 font-bold text-[#2D3748]">{it.label_ar}</td>
+                <td className="px-3 py-2">{it.quantity} {it.unit}</td>
+                <td className="px-3 py-2" dir="ltr" style={{ textAlign: "right" }}>{it.priced ? `$${it.unit_usd}` : "مش مسعّر"}</td>
+                <td className="px-3 py-2 font-bold" dir="ltr" style={{ textAlign: "right" }}>${it.cost_usd}</td>
+                <td className="px-3 py-2 text-xs text-[#8A9AB0]" dir="ltr" style={{ textAlign: "right" }}>{it.note || ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-[#8A9AB0] font-body">
+        محسوبة من اللي اتولّد فعلاً (شامل إعادة الرسم) × سعر الموديل في الكتالوج. المحاولات اللي فشلت قبل ما تتسجّل مش محسوبة — الاحتياطي في التسعير بيغطيها.
+        {actual.unpriced.length > 0 && ` موديلات من غير سعر في الكتالوج: ${actual.unpriced.join("، ")}.`}
+      </p>
     </div>
   );
 }

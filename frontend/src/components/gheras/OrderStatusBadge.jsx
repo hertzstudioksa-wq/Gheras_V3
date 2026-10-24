@@ -7,6 +7,7 @@ const STATUS_MAP = {
   scenarios_generating:  { label: "جاري توليد السيناريوهات", bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]", dot: "bg-[#87A96B] animate-pulse" },
   scenarios_ready:       { label: "السيناريوهات جاهزة", bg: "bg-[#DEEBCF]", fg: "text-[#3F5B2E]", dot: "bg-[#4F6B3B]" },
   scenario_selected:     { label: "تم اختيار سيناريو", bg: "bg-[#DEEBCF]", fg: "text-[#3F5B2E]", dot: "bg-[#4F6B3B]" },
+  awaiting_payment:      { label: "بانتظار الدفع", bg: "bg-[#FBEFD5]", fg: "text-[#8B5A2B]", dot: "bg-[#D4A373]" },
   ready_for_ai:          { label: "جاهز للتوليد", bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]", dot: "bg-[#87A96B]" },
   production_planning:   { label: "جاري إعداد خطة الإنتاج", bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]", dot: "bg-[#87A96B] animate-pulse" },
   production_ready:      { label: "الخطة جاهزة", bg: "bg-[#DEEBCF]", fg: "text-[#3F5B2E]", dot: "bg-[#4F6B3B]" },

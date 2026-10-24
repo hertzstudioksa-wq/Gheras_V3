@@ -26,13 +26,18 @@ async def admin_list(active_only: bool = False):
 
 @admin_router.post("")
 async def admin_create(payload: dict[str, Any], admin=Depends(require_admin)):
-    bundle = await create_bundle(payload, admin_id=admin.get("id"), admin_email=admin.get("email"))
-    return bundle
+    try:
+        return await create_bundle(payload, admin_id=admin.get("id"), admin_email=admin.get("email"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @admin_router.put("/{bundle_id}")
 async def admin_update(bundle_id: str, payload: dict[str, Any], admin=Depends(require_admin)):
-    bundle = await update_bundle(bundle_id, payload, admin_id=admin.get("id"), admin_email=admin.get("email"))
+    try:
+        bundle = await update_bundle(bundle_id, payload, admin_id=admin.get("id"), admin_email=admin.get("email"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not bundle:
         raise HTTPException(404, "Bundle not found")
     return bundle
@@ -52,6 +57,15 @@ async def admin_grant(bundle_id: str, payload: dict[str, Any], admin=Depends(req
     user_id = (payload or {}).get("user_id")
     if not user_id:
         raise HTTPException(400, "user_id is required")
+    bundle = await db.bundles.find_one({"id": bundle_id, "is_active": True}, {"_id": 0})
+    if bundle and bundle.get("credit_sar"):
+        # M6 — a top-up granted by the admin is wallet credit, not a purchase.
+        from services.wallet_service import credit, to_halalas
+        if not await db.users.find_one({"id": user_id}, {"_id": 1}):
+            raise HTTPException(404, "المستخدم غير موجود")
+        await credit(user_id, to_halalas(bundle["credit_sar"]), "adjust", actor=admin,
+                     note=f"{bundle['name']} — {(payload or {}).get('reason') or 'منحة من الإدارة'}")
+        return {"ok": True, "wallet_credit_sar": bundle["credit_sar"]}
     purchase = await grant_purchase_to_user(
         user_id=user_id,
         bundle_id=bundle_id,
@@ -84,7 +98,7 @@ async def public_active_bundles():
     # Strip admin-only fields from public response.
     return {"bundles": [
         {k: v for k, v in b.items() if k in ("id", "name", "description", "output_type",
-                                              "quantity", "validity_days", "price", "currency")}
+                                              "quantity", "validity_days", "price", "credit_sar", "currency")}
         for b in rows
     ]}
 

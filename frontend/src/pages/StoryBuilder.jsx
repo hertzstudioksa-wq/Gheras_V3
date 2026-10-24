@@ -1099,7 +1099,10 @@ function Review({ data, categories, options, artStyles }) {
   const outputTypeLabel = (OUTPUT_TYPE_OPTIONS.find((o) => o.v === outputType) || OUTPUT_TYPE_OPTIONS[0]).l;
   const videoTier = data.delivery?.video_tier || "balanced";
   const tiers = useStoryPrices(durSec, outputType);
-  const price = (outputType === "pdf" ? tiers[0] : tiers.find((t) => t.video_tier === videoTier))?.price_sar;
+  const chosen = outputType === "pdf" ? tiers[0] : tiers.find((t) => t.video_tier === videoTier);
+  const price = chosen?.price_sar;
+  const priceLabel = !price ? "…"
+    : chosen.vat_sar > 0 ? `${price} ر.س + ضريبة ${chosen.vat_sar} = ${chosen.total_sar} ر.س` : `${price} ر.س`;
 
   return (
     <div data-testid="step-6-content">
@@ -1125,7 +1128,7 @@ function Review({ data, categories, options, artStyles }) {
         <Field label="الخلفية الصوتية" value={audioBgLabel} />
         <Field label="نوع التسليم" value={outputTypeLabel} />
         {outputType !== "pdf" && <Field label="جودة الفيديو" value={VIDEO_TIER_COPY[videoTier].title} />}
-        <Field label="السعر" value={price ? `${price} ر.س (غير شامل الضريبة)` : "…"} />
+        <Field label="السعر" value={priceLabel} />
       </div>
 
       <div className="bg-[#E8F0E1] rounded-2xl p-4 border border-[#87A96B]/30 mb-4">

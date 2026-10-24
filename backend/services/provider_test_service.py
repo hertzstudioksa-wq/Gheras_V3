@@ -292,29 +292,28 @@ async def test_fal_video() -> dict:
     return out
 
 
-# ---- Stripe ---------------------------------------------------------------
-async def test_stripe() -> dict:
-    secret, source = await get_secret_with_source("STRIPE_API_KEY")
+# ---- Moyasar --------------------------------------------------------------
+async def test_moyasar() -> dict:
+    secret, source = await get_secret_with_source("MOYASAR_SECRET_KEY")
     if not secret:
-        return _result("stripe", False, False, False, 0, None, "missing",
-                       "STRIPE_API_KEY not configured")
+        return _result("moyasar", False, False, False, 0, None, "missing",
+                       "MOYASAR_SECRET_KEY not configured")
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-            r = await c.get("https://api.stripe.com/v1/balance",
-                             headers={"Authorization": f"Bearer {secret}"})
+            r = await c.get("https://api.moyasar.com/v1/invoices", params={"page": 1}, auth=(secret, ""))
         latency = int((time.monotonic() - started) * 1000)
         if r.status_code == 200:
-            return _result("stripe", True, True, True, latency, secret, source,
+            return _result("moyasar", True, True, True, latency, secret, source,
                            model_reachable=True)
         if r.status_code in (401, 403):
-            return _result("stripe", False, False, True, latency, secret, source,
+            return _result("moyasar", False, False, True, latency, secret, source,
                            f"auth failed: HTTP {r.status_code}")
-        return _result("stripe", False, True, True, latency, secret, source,
+        return _result("moyasar", False, True, True, latency, secret, source,
                        f"HTTP {r.status_code}")
     except Exception as e:  # noqa: BLE001
         latency = int((time.monotonic() - started) * 1000)
-        return _result("stripe", False, False, False, latency, secret, source,
+        return _result("moyasar", False, False, False, latency, secret, source,
                        f"{type(e).__name__}: {e}")
 
 
@@ -329,7 +328,7 @@ PROVIDERS = {
     "fal_narration":     test_fal_narration,
     "fal_music":         test_fal_music,
     "fal_video":         test_fal_video,
-    "stripe":            test_stripe,
+    "moyasar":           test_moyasar,
 }
 
 

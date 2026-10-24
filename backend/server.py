@@ -37,8 +37,10 @@ from routes.admin_stage_control_routes import router as admin_stage_control_rout
 from routes.bundle_routes import admin_router as admin_bundle_router, user_router as bundle_user_router  # noqa: E402
 from routes.payment_routes import (  # noqa: E402
     admin_router as admin_payment_router,
-    checkout_router as checkout_router,
-    webhook_router as stripe_webhook_router,
+    admin_orders_router as admin_payment_orders_router,
+    order_payment_router,
+    wallet_router,
+    webhook_router as moyasar_webhook_router,
 )
 
 app = FastAPI(title="Gheras API v2", description="Arabic AI storytelling platform")
@@ -75,8 +77,10 @@ api_router.include_router(admin_stage_control_router)
 api_router.include_router(admin_bundle_router)
 api_router.include_router(bundle_user_router)
 api_router.include_router(admin_payment_router)
-api_router.include_router(checkout_router)
-api_router.include_router(stripe_webhook_router)
+api_router.include_router(admin_payment_orders_router)
+api_router.include_router(order_payment_router)
+api_router.include_router(wallet_router)
+api_router.include_router(moyasar_webhook_router)
 
 app.include_router(api_router)
 

@@ -409,9 +409,7 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     )
     await append_status(order_id, o.get("status"), OrderStatus.SCENARIO_SELECTED.value, "user",
                         actor_id=current["id"], reason=reason)
-    await append_status(order_id, OrderStatus.SCENARIO_SELECTED.value, OrderStatus.READY_FOR_AI.value,
-                        "system", reason="auto after selection")
-    # Trigger production planning in background (phase 5)
-    from routes.production_routes import trigger_production_planning
-    await trigger_production_planning(order_id, background)
-    return {"ok": True, "promoted_batch": promote_batch}
+    # M6 — production starts now, or once the order is paid.
+    from services.payment_service import gate_production
+    gate = await gate_production(order_id, background)
+    return {"ok": True, "promoted_batch": promote_batch, **gate}

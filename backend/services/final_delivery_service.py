@@ -225,12 +225,15 @@ async def run_final_assembly(order_id: str, run_id: str):
     if results and all(results.values()):
         await _append_status(order_id, OrderStatus.ASSEMBLING.value, OrderStatus.DELIVERED.value, "system",
                              reason=f"final {output_type} ready")
-        # Wave 2 — actual cost snapshot at delivery. Best-effort, never raises.
+        # M6 — what the order actually cost, for the margins report. Best-effort.
         try:
-            from services.pricing_service import snapshot_actual
+            from services.order_costs import actual_cost
             fresh_order = await db.orders.find_one({"id": order_id}, {"_id": 0})
             if fresh_order:
-                await snapshot_actual(fresh_order)
+                cost = await actual_cost(fresh_order)
+                await db.orders.update_one({"id": order_id}, {"$set": {"cost_actual": {
+                    "total_usd": cost["total_usd"], "total_sar": cost["total_sar"],
+                    "margin_pct": cost["margin_pct"], "computed_at": _now()}}})
         except Exception:  # noqa: BLE001
             pass
         # Wave 3 — finalize any reserved bundle credit.
