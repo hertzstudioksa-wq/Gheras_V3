@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from db import db
 from auth import require_admin
 from models import (
-    CategoryIn, SubcategoryIn, StoryOptionIn, OrderStatusUpdate, PromptUpdate,
+    CategoryIn, SubcategoryIn, StoryOptionIn, OrderStatusUpdate, OrderNoteUpdate, PromptUpdate,
     ContentBlockIn, PromptIn, PlanIn, SettingIn, UserUpdate, ORDER_STATUS_AR,
 )
 from prompt_engine import build_prompt
@@ -89,12 +89,32 @@ async def admin_order_detail(order_id: str):
 
 @router.patch("/orders/{order_id}/status")
 async def update_order_status(order_id: str, payload: OrderStatusUpdate, admin=Depends(require_admin)):
+    """Manual status override: changes the label only (no production runs or
+    stops). The reason goes into the status history and the audit log."""
+    from services.audit_service import record_audit
+
     o = await db.orders.find_one({"id": order_id}, {"_id": 0, "status": 1})
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    if payload.admin_note is not None:
+    reason = (payload.reason or "").strip() or None
+    if payload.admin_note is not None and payload.reason is None:  # old clients sent the note as the reason
         await db.orders.update_one({"id": order_id}, {"$set": {"admin_note": payload.admin_note}})
-    await append_status(order_id, o.get("status"), payload.status.value, "admin", actor_id=admin["id"], reason=payload.admin_note)
+        reason = payload.admin_note
+    await append_status(order_id, o.get("status"), payload.status.value, "admin", actor_id=admin["id"], reason=reason)
+    await record_audit(entity_type="order", entity_id=order_id, action="order.status_override",
+                       actor_id=admin.get("id"), actor_email=admin.get("email"),
+                       summary=f"تغيير حالة الطلب يدوياً: {o.get('status')} → {payload.status.value}"
+                               + (f" — {reason}" if reason else ""),
+                       before={"status": o.get("status")}, after={"status": payload.status.value})
+    return {"ok": True}
+
+
+@router.patch("/orders/{order_id}/note")
+async def update_order_note(order_id: str, payload: OrderNoteUpdate):
+    res = await db.orders.update_one({"id": order_id}, {"$set": {"admin_note": payload.admin_note.strip() or None,
+                                                                 "updated_at": _now()}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
     return {"ok": True}
 
 

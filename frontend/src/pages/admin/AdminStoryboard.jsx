@@ -47,7 +47,8 @@ function copyToClipboard(text) {
   );
 }
 
-export default function AdminStoryboard() {
+// `embedded`: shown inside the order page's "تتبّع الإنتاج" tab (no page header of its own).
+export default function AdminStoryboard({ embedded = false }) {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
@@ -102,17 +103,20 @@ export default function AdminStoryboard() {
     <div dir="rtl" className="space-y-5 pb-10" data-testid="admin-storyboard-page">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
+        {embedded ? (
+          <p className="font-body text-sm text-[#5A677D]">كل مرحلة من مراحل الإنتاج: اتشغّلت إمتى، بأي موديل، وطلّعت إيه.</p>
+        ) : (
         <div>
           <button
-            onClick={() => navigate("/admin/orders")}
+            onClick={() => navigate(`/admin/orders/${orderId}`)}
             className="inline-flex items-center gap-1 text-sm text-[#5A677D] hover:text-[#2D3748] mb-1"
             data-testid="storyboard-back-btn"
           >
-            <ArrowRight className="w-4 h-4" /> العودة للطلبات
+            <ArrowRight className="w-4 h-4" /> صفحة الطلب
           </button>
           <h1 className="font-heading text-2xl md:text-3xl font-bold text-[#2D3748] flex items-center gap-2">
             <Zap className="w-6 h-6 text-[#87A96B]" />
-            Storyboard — تتبّع خط الإنتاج
+            تتبّع الإنتاج
           </h1>
           <p className="text-xs text-[#8A9AB0] mt-1 font-mono">
             order: <span className="text-[#2D3748]">{data.order.id}</span>
@@ -120,6 +124,7 @@ export default function AdminStoryboard() {
             {data.order.child_name} ({data.order.child_age}) · {data.order.status_ar}
           </p>
         </div>
+        )}
         <div className="flex gap-2">
           <button
             onClick={toggleAll}

@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  Palette, Languages, Gauge, ScrollText, Plus, Save, Star, Power, Upload, RotateCcw, History, Info, Cpu, Library,
+  Palette, Languages, Gauge, ScrollText, Plus, Save, Star, Power, Upload, RotateCcw, History, Info, Cpu, Library, FileText,
 } from "lucide-react";
 import { api, uploadImage } from "../../lib/api";
 import { AuthImage, Badge, Drawer, Field, Panel, Text, diff, errText, inputCls } from "./engineUi";
 import { CatalogTab, StagesTab } from "./AdminEngineModels";
+import { TemplatesTab } from "./AdminEngineTemplates";
 
 // The admin's view of what every generation is built from (M3): art styles,
 // dialect profiles, pacing/image quality and the text stages' system prompts.
@@ -19,6 +20,7 @@ const TABS = [
   { k: "dialects", l: "اللهجات والأصوات", icon: Languages },
   { k: "pacing", l: "الإيقاع والجودة", icon: Gauge },
   { k: "system", l: "برومبتات النظام", icon: ScrollText },
+  { k: "templates", l: "قوالب الرسائل", icon: FileText },
 ];
 
 export default function AdminEngine() {
@@ -56,6 +58,7 @@ export default function AdminEngine() {
       {tab === "dialects" && <DialectsTab />}
       {tab === "pacing" && <PacingTab />}
       {tab === "system" && <SystemPromptsTab />}
+      {tab === "templates" && <TemplatesTab />}
     </div>
   );
 }

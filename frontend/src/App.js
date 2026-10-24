@@ -1,6 +1,6 @@
 import React from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { Toaster } from "sonner";
 
 import { AuthProvider } from "./contexts/AuthContext";
@@ -21,14 +21,12 @@ import ProductionReady from "./pages/ProductionReady";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminOverview from "./pages/admin/AdminOverview";
 import AdminOrders from "./pages/admin/AdminOrders";
-import AdminStoryboard from "./pages/admin/AdminStoryboard";
+import OrderDetailPage from "./pages/admin/OrderDetailPage";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminCategories from "./pages/admin/AdminCategories";
 import AdminStoryOptions from "./pages/admin/AdminStoryOptions";
 import AdminContent from "./pages/admin/AdminContent";
-import AdminPrompts from "./pages/admin/AdminPrompts";
 import AdminEngine from "./pages/admin/AdminEngine";
-import AdminPlans from "./pages/admin/AdminPlans";
 import AdminPricing from "./pages/admin/AdminPricing";
 import AdminStageLab from "./pages/admin/AdminStageLab";
 import AdminSecrets from "./pages/admin/AdminSecrets";
@@ -116,17 +114,18 @@ function App() {
             >
               <Route index element={<AdminOverview />} />
               <Route path="orders" element={<AdminOrders />} />
-              <Route path="orders/:orderId/storyboard" element={<AdminStoryboard />} />
+              <Route path="orders/:orderId" element={<OrderDetailPage />} />
+              <Route path="orders/:orderId/storyboard" element={<StoryboardRedirect />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="categories" element={<AdminCategories />} />
               <Route path="styles" element={<AdminStoryOptions />} />
               <Route path="content" element={<AdminContent />} />
               <Route path="engine" element={<AdminEngine />} />
-              <Route path="prompts" element={<AdminPrompts />} />
+              <Route path="prompts" element={<Navigate to="/admin/engine?tab=templates" replace />} />
               <Route path="models" element={<Navigate to="/admin/engine?tab=stages" replace />} />
               <Route path="pipeline" element={<Navigate to="/admin/engine?tab=stages" replace />} />
               <Route path="api-status" element={<Navigate to="/admin/secrets" replace />} />
-              <Route path="plans" element={<AdminPlans />} />
+              <Route path="plans" element={<Navigate to="/admin/bundles" replace />} />
               <Route path="pricing" element={<AdminPricing />} />
               <Route path="bundles" element={<AdminBundles />} />
               <Route path="payment" element={<AdminPaymentSettings />} />
@@ -147,6 +146,12 @@ function App() {
       </AuthProvider>
     </div>
   );
+}
+
+// The old standalone Storyboard page is now the order page's "تتبّع الإنتاج" tab.
+function StoryboardRedirect() {
+  const { orderId } = useParams();
+  return <Navigate to={`/admin/orders/${orderId}?tab=trace`} replace />;
 }
 
 export default App;

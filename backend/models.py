@@ -303,7 +303,12 @@ class OrderCreate(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus
-    admin_note: Optional[str] = None
+    admin_note: Optional[str] = None  # legacy: also used as the reason when `reason` is missing
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class OrderNoteUpdate(BaseModel):
+    admin_note: str = Field(default="", max_length=2000)  # shown to the customer on their order
 
 
 class PromptUpdate(BaseModel):

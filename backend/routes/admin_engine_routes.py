@@ -9,6 +9,8 @@
   /api/admin/engine/video-premium      the model the "فاخر" video tier renders with (M4)
   /api/admin/engine/presets/{id}/apply ready-made model sets made only of catalog models (M4)
   /api/admin/engine/catalog            the model catalog: what each model costs and can do (M4)
+  /api/admin/engine/prompt-templates   the user-message templates generation reads, versioned (M5)
+  /api/admin/overview                  operations home: what needs attention, KPIs, engine health (M5)
 
 Every edit bumps the layer's version, keeps the previous copy in a *_versions
 collection and writes an audit row; plans record the versions they used.
@@ -695,3 +697,239 @@ async def update_catalog_model(model_id: str, payload: CatalogPatch, admin: dict
                  before={k: before.get(k) for k in patch if k != "updated_at"},
                  after={k: v for k, v in patch.items() if k != "updated_at"})
     return await db.model_catalog.find_one({"id": model_id}, {"_id": 0})
+
+
+# ============================================================================
+# PROMPT TEMPLATES (M5) — the user-message templates generation actually reads
+# ============================================================================
+# Only these three are read at run time (resolve_prompt); the other seeded
+# templates are informational and stay out of the editor.
+USED_TEMPLATES = {
+    "scenario_generation": {
+        "name_ar": "رسالة طلب السيناريوهات",
+        "purpose_ar": "بيانات الطلب اللي بتتبعت مع برومبت النظام لما بنطلب الـ 3 سيناريوهات.",
+    },
+    "production_planning": {
+        "name_ar": "رسالة طلب خطة الإنتاج",
+        "purpose_ar": "بيانات الطلب والسيناريو المختار اللي بتتبعت لخطة الإنتاج (قبل قواعد اللقطات واللهجة اللي بتتضاف لوحدها).",
+    },
+    "child_character_i2i": {
+        "name_ar": "برومبت شخصية الطفل من الصورة",
+        "purpose_ar": "اللي بيتبعت مع صورة الطفل وصورة الستايل المرجعية عشان يطلع شيت الشخصية.",
+    },
+}
+
+SAMPLE_ORDER_DATA = {  # used for previews when there is no real order yet (fictional child)
+    "goal": {"context": "سليم بيخاف من الميّه ومش راضي ينزل حمام السباحة في النادي."},
+    "child": {"name": "سليم", "age": 6, "gender": "male", "appearance_notes": "شعر أسود قصير ونضارة صغيرة"},
+    "characters": [{"type": "father", "name": "خالد", "role": "visible"}],
+    "personalization": {"favorites": {}, "custom_notes": ""},
+    "style": {}, "duration": {"seconds": 60}, "audio_background": {"mode": "music"},
+    "delivery": {"output_type": "both", "video_tier": "balanced"},
+}
+
+
+async def _template_contexts() -> tuple[dict[str, dict], dict[str, str], str | None]:
+    """Variables each template can use (from the latest order with a scenario,
+    else a fictional sample), and the text the code builds when no template is active."""
+    from models import duration_meta
+    from services import engine_config
+    from services.child_character_service import _build_context
+    from services.production_service import (_build_production_context, _build_user_prompt,
+                                             target_scene_count)
+    from services.scenario_service import _build_scenario_context, _user_prompt
+
+    order = await db.orders.find_one({"selected_scenario_snapshot": {"$ne": None}}, {"_id": 0},
+                                     sort=[("created_at", -1)])
+    sample_id = order.get("id") if order else None
+    if not order:
+        order = {"id": "sample", "data": SAMPLE_ORDER_DATA, "duration": duration_meta(60), "enriched": {},
+                 "selected_scenario_snapshot": {"title": "سرّ بابا خالد الصغير", "short_summary": "بابا يحكي لسليم سرّ.",
+                                                "learning_goal": "الشجاع اللي بيجرّب", "emotional_angle": "warm"}}
+    scenario = order.get("selected_scenario_snapshot") or {}
+    target = target_scene_count(order, scenario)
+    art_style = await engine_config.style_for_order(order)
+    contexts = {
+        "scenario_generation": _build_scenario_context(order),
+        "production_planning": _build_production_context(order, scenario, target),
+        "child_character_i2i": _build_context(order, None, "", art_style),
+    }
+    defaults = {
+        "scenario_generation": _user_prompt(order),
+        "production_planning": _build_user_prompt(order, scenario, target),
+        "child_character_i2i": house_style.character_sheet_prompt(
+            "the person in the photo", None, art_style.get("style_text"), art_style.get("sheet_rules")),
+    }
+    return contexts, defaults, sample_id
+
+
+def _render(text: str, ctx: dict) -> tuple[str | None, list[str]]:
+    from services.config_service import _extract_placeholders, render_prompt_template
+
+    unknown = sorted(p for p in _extract_placeholders(text) if p not in ctx)
+    if unknown:
+        return None, unknown
+    rendered, ok, _reason = render_prompt_template(text, ctx)
+    return (rendered if ok else None), []
+
+
+@router.get("/engine/prompt-templates")
+async def list_prompt_templates_used():
+    contexts, defaults, sample_id = await _template_contexts()
+    out = []
+    for stage, meta in USED_TEMPLATES.items():
+        versions = await db.prompt_templates.find({"stage_key": stage}, {"_id": 0}).sort("version", -1).to_list(50)
+        active = next((v for v in versions if v.get("active")), None)
+        rendered, unknown = _render(active["template_text"], contexts[stage]) if active else (None, [])
+        out.append({
+            "stage": stage, **meta,
+            "active": active, "versions": versions,
+            "variables": sorted(contexts[stage]),
+            "sample": {k: str(v)[:160] for k, v in contexts[stage].items()},
+            "sample_order_id": sample_id,
+            "code_default_preview": defaults[stage],
+            "active_preview": rendered,
+            # An active template with a variable the code doesn't provide is silently
+            # skipped at run time (the code text is sent instead) — say so.
+            "active_broken": bool(active) and rendered is None,
+            "active_unknown_vars": unknown,
+        })
+    return out
+
+
+class TemplateIn(BaseModel):
+    template_text: str = Field(min_length=50, max_length=40000)
+    activate: bool = True
+
+
+@router.post("/engine/prompt-templates/{stage}/preview")
+async def preview_prompt_template(stage: str, payload: TemplateIn):
+    if stage not in USED_TEMPLATES:
+        raise HTTPException(status_code=404, detail="قالب غير معروف")
+    contexts, _defaults, _sid = await _template_contexts()
+    rendered, unknown = _render(payload.template_text, contexts[stage])
+    return {"rendered": rendered, "unknown_vars": unknown}
+
+
+@router.post("/engine/prompt-templates/{stage}")
+async def save_prompt_template(stage: str, payload: TemplateIn, admin: dict = Depends(require_admin)):
+    from services.config_service import _extract_placeholders
+
+    if stage not in USED_TEMPLATES:
+        raise HTTPException(status_code=404, detail="قالب غير معروف")
+    contexts, _defaults, _sid = await _template_contexts()
+    rendered, unknown = _render(payload.template_text, contexts[stage])
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"متغيرات مش موجودة: {', '.join('$' + u for u in unknown)}")
+    if rendered is None:
+        raise HTTPException(status_code=400, detail="القالب ما اتعرضش — راجع علامات $")
+    last = await db.prompt_templates.find_one({"stage_key": stage}, {"_id": 0, "version": 1}, sort=[("version", -1)])
+    doc = {"id": str(uuid.uuid4()), "stage_key": stage, "name": USED_TEMPLATES[stage]["name_ar"],
+           "template_text": payload.template_text, "variables": sorted(_extract_placeholders(payload.template_text)),
+           "version": (last["version"] + 1) if last else 1, "active": False,
+           "created_at": _now(), "updated_at": _now(), "created_by": admin.get("email")}
+    await db.prompt_templates.insert_one(doc)
+    if payload.activate:
+        await _activate_system_prompt(stage, doc["id"])
+    await _audit(admin, "prompt_template", stage, "prompt_template.create",
+                 f"نسخة {doc['version']} من {USED_TEMPLATES[stage]['name_ar']}" + (" (مفعّلة)" if payload.activate else ""))
+    return await db.prompt_templates.find_one({"id": doc["id"]}, {"_id": 0})
+
+
+@router.post("/engine/prompt-templates/{stage}/activate/{prompt_id}")
+async def activate_prompt_template_version(stage: str, prompt_id: str, admin: dict = Depends(require_admin)):
+    if stage not in USED_TEMPLATES:
+        raise HTTPException(status_code=404, detail="قالب غير معروف")
+    doc = await db.prompt_templates.find_one({"id": prompt_id, "stage_key": stage}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="النسخة غير موجودة")
+    contexts, _defaults, _sid = await _template_contexts()
+    if _render(doc["template_text"], contexts[stage])[0] is None:
+        raise HTTPException(status_code=400, detail="النسخة دي فيها متغيرات مش موجودة، فهتتجاهل لو اتفعّلت")
+    await _activate_system_prompt(stage, prompt_id)
+    await _audit(admin, "prompt_template", stage, "prompt_template.activate",
+                 f"تفعيل نسخة {doc.get('version')} من {USED_TEMPLATES[stage]['name_ar']}")
+    return {"ok": True}
+
+
+@router.post("/engine/prompt-templates/{stage}/reset")
+async def reset_prompt_template(stage: str, admin: dict = Depends(require_admin)):
+    if stage not in USED_TEMPLATES:
+        raise HTTPException(status_code=404, detail="قالب غير معروف")
+    await db.prompt_templates.update_many({"stage_key": stage, "active": True},
+                                          {"$set": {"active": False, "updated_at": _now()}})
+    await _audit(admin, "prompt_template", stage, "prompt_template.reset",
+                 f"{USED_TEMPLATES[stage]['name_ar']} رجع للنص اللي بيبنيه الكود")
+    return {"ok": True}
+
+
+# ============================================================================
+# OPERATIONS HOME (M5) — what needs attention, and how the business is doing
+# ============================================================================
+STUCK_HOURS = 3  # a generating/assembling order idle this long needs a look
+WAITING_CUSTOMER_HOURS = 48
+
+
+@router.get("/overview")
+async def operations_overview():
+    from datetime import timedelta
+
+    from models import ORDER_STATUS_AR
+    from services import model_catalog
+
+    now = datetime.now(timezone.utc)
+    stuck_before = (now - timedelta(hours=STUCK_HOURS)).isoformat()
+    waiting_before = (now - timedelta(hours=WAITING_CUSTOMER_HOURS)).isoformat()
+    fields = {"_id": 0, "id": 1, "status": 1, "created_at": 1, "updated_at": 1, "user_id": 1, "data.child.name": 1,
+              "duration.seconds": 1, "price_quote": 1}
+
+    async def queue(q: dict, reason: str, limit: int = 20) -> list[dict]:
+        rows = await db.orders.find(q, fields).sort("updated_at", -1).to_list(limit)
+        for r in rows:
+            r["child_name"] = ((r.pop("data", {}) or {}).get("child") or {}).get("name")
+            r["status_ar"] = ORDER_STATUS_AR.get(r.get("status"), r.get("status"))
+            r["reason_ar"] = reason
+        return rows
+
+    attention = {
+        "failed": await queue({"status": {"$in": ["media_failed", "failed"]}},
+                              "الإنتاج فشل — افتح الطلب وشوف المرحلة اللي وقعت"),
+        "stuck": await queue({"status": {"$in": ["scenarios_generating", "production_planning", "assets_generating",
+                                                 "assembling", "generating"]},
+                              "updated_at": {"$lt": stuck_before}},
+                             f"شغّال من أكتر من {STUCK_HOURS} ساعات من غير تحديث"),
+        "waiting_customer": await queue({"status": "scenarios_ready", "updated_at": {"$lt": waiting_before}},
+                                        f"السيناريوهات جاهزة والعميل ما اختارش من أكتر من {WAITING_CUSTOMER_HOURS} ساعة"),
+    }
+
+    async def count_since(days: int, q: dict | None = None) -> int:
+        return await db.orders.count_documents({**(q or {}), "created_at": {"$gte": (now - timedelta(days=days)).isoformat()}})
+
+    async def revenue_since(days: int) -> float:
+        rows = await db.payments.find({"status": {"$in": ["paid", "completed", "succeeded"]},
+                                       "created_at": {"$gte": (now - timedelta(days=days)).isoformat()}},
+                                      {"_id": 0, "amount": 1}).to_list(5000)
+        return round(sum(float(r.get("amount") or 0) for r in rows), 2)
+
+    stages = await model_catalog.stage_rows()
+    missing_keys = sorted({s["key"]["env_key"] for s in stages if s["selectable"] and not s["key"]["configured"]})
+    recent = await queue({}, "", limit=8)
+    return {
+        "attention": attention,
+        "attention_count": sum(len(v) for v in attention.values()),
+        "kpis": {
+            "orders_7d": await count_since(7), "orders_30d": await count_since(30),
+            "delivered_30d": await count_since(30, {"status": "delivered"}),
+            "failed_30d": await count_since(30, {"status": {"$in": ["media_failed", "failed"]}}),
+            "revenue_7d_sar": await revenue_since(7), "revenue_30d_sar": await revenue_since(30),
+            "users_total": await db.users.count_documents({}),
+        },
+        "engine": {
+            "stages_total": sum(1 for s in stages if s["selectable"]),
+            "stages_off_catalog": [s["name_ar"] for s in stages if not s["in_catalog"]],
+            "missing_keys": missing_keys,
+            "disabled_optional": [s["name_ar"] for s in stages if s["toggleable"] and not s["enabled"]],
+        },
+        "recent_orders": recent,
+        "thresholds": {"stuck_hours": STUCK_HOURS, "waiting_customer_hours": WAITING_CUSTOMER_HOURS},
+    }
