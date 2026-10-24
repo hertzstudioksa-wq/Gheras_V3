@@ -248,6 +248,17 @@ async def admin_select_scenario(order_id: str, scenario_id: str, background: Bac
 
 
 # ---------- Categories ----------
+@router.get("/categories")
+async def list_categories_admin():
+    """Every category with every subcategory, including inactive ones and the
+    admin prompt direction the public endpoint hides."""
+    cats = await db.categories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+    subs = await db.subcategories.find({}, {"_id": 0}).sort("sort_order", 1).to_list(1000)
+    for c in cats:
+        c["subcategories"] = [s for s in subs if s.get("category_id") == c["id"]]
+    return cats
+
+
 @router.post("/categories")
 async def create_category(payload: CategoryIn):
     if await db.categories.find_one({"slug": payload.slug}):
@@ -260,7 +271,7 @@ async def create_category(payload: CategoryIn):
 
 @router.patch("/categories/{cat_id}")
 async def update_category(cat_id: str, payload: CategoryIn):
-    res = await db.categories.update_one({"id": cat_id}, {"$set": payload.model_dump()})
+    res = await db.categories.update_one({"id": cat_id}, {"$set": payload.model_dump(exclude_unset=True)})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="غير موجود")
     return {"ok": True}
@@ -291,7 +302,7 @@ async def create_subcategory(payload: SubcategoryIn):
 
 @router.patch("/subcategories/{sub_id}")
 async def update_subcategory(sub_id: str, payload: SubcategoryIn):
-    res = await db.subcategories.update_one({"id": sub_id}, {"$set": payload.model_dump()})
+    res = await db.subcategories.update_one({"id": sub_id}, {"$set": payload.model_dump(exclude_unset=True)})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="غير موجود")
     return {"ok": True}
@@ -321,7 +332,7 @@ async def create_story_option(payload: StoryOptionIn):
 
 @router.patch("/story-options/{oid}")
 async def update_story_option(oid: str, payload: StoryOptionIn):
-    res = await db.story_options.update_one({"id": oid}, {"$set": payload.model_dump()})
+    res = await db.story_options.update_one({"id": oid}, {"$set": payload.model_dump(exclude_unset=True)})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="غير موجود")
     return {"ok": True}

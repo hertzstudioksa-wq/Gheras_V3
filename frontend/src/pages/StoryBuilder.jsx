@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, API } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
@@ -74,7 +74,7 @@ const blankData = () => ({
   child: { name: "", age: 5, gender: "male", image_url: "", appearance_notes: "", hijab: false },
   characters: [],
   personalization: { favorites: {}, toy_image_url: "", custom_notes: "" },
-  style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "" },
+  style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "", art_style: "" },
   duration: { seconds: 60 },
   audio_background: { mode: "music" },
   delivery: { output_type: "both", video_tier: "balanced" },
@@ -90,6 +90,7 @@ export default function StoryBuilder() {
   const [submitting, setSubmitting] = useState(false);
   const [categories, setCategories] = useState([]);
   const [options, setOptions] = useState({ type: [], tone: [], setting: [], language: [], voice: [] });
+  const [artStyles, setArtStyles] = useState([]);
   const [maxChars, setMaxChars] = useState(3);
   const [data, setData] = useState(blankData);
   const saveTimer = useRef(null);
@@ -105,6 +106,8 @@ export default function StoryBuilder() {
       setOptions(o.data);
       if (s.data?.["characters.max_count"]) setMaxChars(Number(s.data["characters.max_count"]) || 3);
     });
+    // Art styles are optional: without them the story uses the default style.
+    api.get("/public/art-styles").then((r) => setArtStyles(r.data || [])).catch(() => setArtStyles([]));
   }, []);
 
   // Hydrate draft (server if logged in, else localStorage)
@@ -690,6 +693,12 @@ export default function StoryBuilder() {
               <h2 className="font-heading text-2xl md:text-3xl font-bold text-[#2D3748] mb-2">أسلوب القصة</h2>
               <p className="font-body text-[#5A677D] mb-6">كيف تحب أن تُروى القصة لطفلك؟</p>
 
+              <ArtStylePicker
+                styles={artStyles}
+                value={data.style.art_style}
+                onChange={(key) => updateStyle({ art_style: key })}
+              />
+
               <DurationPicker
                 seconds={data.duration?.seconds || 60}
                 onChange={updateDuration}
@@ -722,7 +731,7 @@ export default function StoryBuilder() {
 
           {/* STEP 6 — Review */}
           {step === 6 && (
-            <Review data={data} categories={categories} options={options} />
+            <Review data={data} categories={categories} options={options} artStyles={artStyles} />
           )}
 
           {/* Desktop actions */}
@@ -998,6 +1007,57 @@ function VideoTierPicker({ seconds, outputType, value, onChange }) {
   );
 }
 
+function ArtStylePicker({ styles, value, onChange }) {
+  if (!styles?.length) return null;
+  const current = styles.find((s) => s.key === value) ? value : (styles.find((s) => s.is_default) || styles[0]).key;
+  return (
+    <div className="mb-6" data-testid="art-style-picker">
+      <label className="text-sm font-bold text-[#2D3748] mb-1 font-body inline-flex items-center gap-2">
+        <Palette className="w-4 h-4 text-[#729352]" />
+        شكل الرسم
+      </label>
+      <p className="text-xs text-[#8A9AB0] font-body mb-3">
+        {styles.length > 1 ? "اختار الستايل اللي هتترسم بيه شخصية طفلك وكل مشاهد القصة." : "كل شخصيات ومشاهد القصة هتترسم بالستايل ده."}
+      </p>
+      <div className={`grid gap-3 ${styles.length > 1 ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 md:grid-cols-2"}`}>
+        {styles.map((s) => {
+          const selected = current === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => onChange(s.key)}
+              aria-pressed={selected}
+              className={`text-right rounded-2xl overflow-hidden border-2 transition bg-[#FDFBF7] ${
+                selected ? "border-[#87A96B] shadow-sm" : "border-[#E2D8C9] hover:border-[#87A96B]/60"
+              }`}
+              data-testid={`art-style-${s.key}`}
+            >
+              <div className="relative aspect-[4/3] bg-[#F8F1E7]">
+                <img
+                  src={`${API}${(s.thumbnail || "").replace(/^\/api/, "")}`}
+                  alt={s.name_ar}
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                {selected && (
+                  <span className="absolute top-2 left-2 w-7 h-7 rounded-full bg-[#87A96B] text-white grid place-content-center shadow">
+                    <Check className="w-4 h-4" />
+                  </span>
+                )}
+              </div>
+              <div className="px-3 py-2.5">
+                <div className={`font-body text-sm font-bold ${selected ? "text-[#4F6B3B]" : "text-[#2D3748]"}`}>{s.name_ar}</div>
+                {s.description_ar && <div className="text-xs text-[#8A9AB0] font-body mt-0.5 leading-relaxed">{s.description_ar}</div>}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function OptionGroup({ label, icon: Icon, items, value, onChange, testId, required }) {
   if (!items?.length) return null;
   return (
@@ -1027,7 +1087,7 @@ function OptionGroup({ label, icon: Icon, items, value, onChange, testId, requir
   );
 }
 
-function Review({ data, categories, options }) {
+function Review({ data, categories, options, artStyles }) {
   const cat = categories.find((c) => c.id === data.goal.category_id);
   const sub = cat?.subcategories?.find((s) => s.id === data.goal.subcategory_id);
   const findOpt = (kind, id) => (options[kind] || []).find((o) => o.id === id)?.name_ar || "—";
@@ -1055,6 +1115,12 @@ function Review({ data, categories, options }) {
         <Field label="النبرة" value={findOpt("tone", data.style.tone_id)} />
         <Field label="البيئة" value={findOpt("setting", data.style.setting_id)} />
         <Field label="اللغة" value={findOpt("language", data.style.language_id)} />
+        {artStyles?.length > 0 && (
+          <Field
+            label="ستايل الرسم"
+            value={(artStyles.find((s) => s.key === data.style.art_style) || artStyles.find((s) => s.is_default) || artStyles[0]).name_ar}
+          />
+        )}
         <Field label="مدة الفيديو" value={`${durMeta.label} • ~${durMeta.scene_target} مشاهد`} />
         <Field label="الخلفية الصوتية" value={audioBgLabel} />
         <Field label="نوع التسليم" value={outputTypeLabel} />

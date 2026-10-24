@@ -26,7 +26,7 @@ from services.config_service import (
     resolve_model,
     DEFAULT_MODELS,
 )
-from services import house_style
+from services import engine_config, house_style
 from services.child_character_service import (
     _fetch_source_bytes,
     _generate_character,
@@ -109,7 +109,8 @@ async def _run_one(order: dict, character_index: int, character: dict,
         outfit = (profile or {}).get("clothing_style")
     who = (f"{character.get('name')}, the child's {character.get('type')}" if character.get("name")
            else f"the child's {character.get('type') or 'relative'}")
-    prompt = house_style.character_sheet_prompt(who, outfit)
+    art_style = await engine_config.style_for_order(order)
+    prompt = house_style.character_sheet_prompt(who, outfit, art_style["style_text"], art_style["sheet_rules"])
     prompt_src = "default"
 
     generated_url: str | None = None
@@ -120,7 +121,8 @@ async def _run_one(order: dict, character_index: int, character: dict,
         error = "character photo could not be read from storage"
     else:
         try:
-            result = await _generate_character(src_tuple[0], prompt, provider, model_name)
+            result = await _generate_character(src_tuple[0], prompt, provider, model_name,
+                                               await engine_config.style_reference_bytes(art_style))
             generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
             real_meta = result.get("meta") or {}
         except Exception as e:  # noqa: BLE001 — recorded on the asset; the book continues without this likeness

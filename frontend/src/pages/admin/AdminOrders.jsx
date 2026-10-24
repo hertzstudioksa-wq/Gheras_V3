@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { api, fileSrc } from "../../lib/api";
 import OrderStatusBadge from "../../components/gheras/OrderStatusBadge";
+import OrderPromptPreview from "./OrderPromptPreview";
 import { toast } from "sonner";
-import { Eye, Filter, Wand2, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock, ChevronDown, ChevronUp, Lightbulb, Coins, Film, ImageIcon, FileText as FileTextIcon, Users as UsersIcon, Palette } from "lucide-react";
+import { Eye, Filter, Save, RefreshCw, X, Sparkles, Heart, BookOpen, Rocket, CheckCircle2, Trash2, Clock, ChevronDown, ChevronUp, Lightbulb, Coins, Film, ImageIcon, FileText as FileTextIcon, Users as UsersIcon, Palette } from "lucide-react";
 
 const ANGLE_META = {
   emotional:   { label: "عاطفي", icon: Heart, bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]" },
@@ -28,8 +29,7 @@ export default function AdminOrders() {
   const [filter, setFilter] = useState("all");
   const [detail, setDetail] = useState(null);
   const [note, setNote] = useState("");
-  const [promptEdit, setPromptEdit] = useState("");
-  const [tab, setTab] = useState("overview"); // overview | scenarios | json | prompt | history
+  const [tab, setTab] = useState("overview"); // overview | scenarios | production | media | pricing | history | json | prompt
   const [scenariosData, setScenariosData] = useState(null);
 
   const reload = () => {
@@ -51,7 +51,6 @@ export default function AdminOrders() {
     const { data } = await api.get(`/admin/orders/${id}`);
     setDetail(data);
     setNote(data.admin_note || "");
-    setPromptEdit(data.ai_prompt_snapshot || "");
     setTab("overview");
     loadScenarios(id);
   };
@@ -95,26 +94,6 @@ export default function AdminOrders() {
       toast.success("تم تحديث الحالة");
       reload();
       openDetail(id);
-    } catch {
-      toast.error("فشل");
-    }
-  };
-
-  const savePrompt = async () => {
-    try {
-      await api.patch(`/admin/orders/${detail.id}/prompt`, { ai_prompt_snapshot: promptEdit });
-      toast.success("تم حفظ البرومبت");
-      openDetail(detail.id);
-    } catch {
-      toast.error("فشل");
-    }
-  };
-
-  const regeneratePrompt = async () => {
-    try {
-      const { data } = await api.post(`/admin/orders/${detail.id}/regenerate-prompt`);
-      setPromptEdit(data.ai_prompt_snapshot);
-      toast.success("تم إعادة التوليد من JSON");
     } catch {
       toast.error("فشل");
     }
@@ -204,7 +183,7 @@ export default function AdminOrders() {
                 { k: "pricing", l: "التسعير" },
                 { k: "history", l: "سجل الحالات" },
                 { k: "json", l: "JSON" },
-                { k: "prompt", l: "البرومبت" },
+                { k: "prompt", l: "البرومبت الفعلي" },
               ].map((t) => (
                 <button key={t.k} onClick={() => setTab(t.k)} className={`px-4 py-2 text-sm font-body font-bold border-b-2 whitespace-nowrap ${tab === t.k ? "border-[#87A96B] text-[#4F6B3B]" : "border-transparent text-[#8A9AB0]"}`} data-testid={`admin-order-tab-${t.k}`}>
                   {t.l}
@@ -226,6 +205,7 @@ export default function AdminOrders() {
                   <Field label="النبرة" value={detail.enriched?.tone_name} />
                   <Field label="البيئة" value={detail.enriched?.setting_name} />
                   <Field label="اللغة" value={detail.enriched?.language_name} />
+                  <Field label="ستايل الرسم" value={detail.enriched?.art_style_name || "الافتراضي"} />
                 </div>
                 <div className="bg-[#E8F0E1] rounded-2xl p-4 mb-4">
                   <div className="text-xs font-bold text-[#4F6B3B] mb-1">الموقف الحقيقي</div>
@@ -289,29 +269,7 @@ export default function AdminOrders() {
               </div>
             )}
 
-            {tab === "prompt" && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-[#729352] font-body font-bold text-sm">
-                    <Wand2 className="w-4 h-4" /> برومبت الذكاء الاصطناعي
-                    {detail.prompt_edited && <span className="text-xs bg-[#D4A373]/20 text-[#8B5A2B] rounded-full px-2 py-0.5">معدّل يدوياً</span>}
-                  </div>
-                  <button onClick={regeneratePrompt} className="inline-flex items-center gap-1 text-xs font-body text-[#5A677D] hover:text-[#2D3748]">
-                    <RefreshCw className="w-3 h-3" /> إعادة التوليد من JSON
-                  </button>
-                </div>
-                <textarea
-                  value={promptEdit}
-                  onChange={(e) => setPromptEdit(e.target.value)}
-                  rows={18}
-                  className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl p-4 font-body text-sm"
-                  data-testid="admin-prompt-editor"
-                />
-                <button onClick={savePrompt} className="btn-primary inline-flex items-center gap-2 mt-3">
-                  <Save className="w-4 h-4" /> حفظ البرومبت
-                </button>
-              </div>
-            )}
+            {tab === "prompt" && <OrderPromptPreview orderId={detail.id} />}
           </div>
         </div>
       )}

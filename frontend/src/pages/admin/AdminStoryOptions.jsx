@@ -86,7 +86,7 @@ export default function AdminStoryOptions() {
           <tbody>
             {byKind.sort((a, b) => a.sort_order - b.sort_order).map((it) => (
               <tr key={it.id} className="border-t border-[#E2D8C9]" data-testid={`opt-row-${it.id}`}>
-                <td className="px-5 py-3 font-body font-bold">{it.name_ar}</td>
+                <td className="px-5 py-3 font-body font-bold">{it.name_ar}{it.prompt_fragment ? <span className="text-xs text-[#729352]"> • توجيه</span> : null}</td>
                 <td className="px-5 py-3 font-mono text-xs text-[#8A9AB0]">{it.value}</td>
                 <td className="px-5 py-3 font-body text-sm">{it.sort_order}</td>
                 <td className="px-5 py-3">
@@ -112,7 +112,7 @@ export default function AdminStoryOptions() {
 
       {editing && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditing(null)}>
-          <div className="bg-white rounded-[2rem] p-8 max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-[2rem] p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
               <h2 className="font-heading text-xl font-bold">{editing.id ? "تعديل" : "جديد"}</h2>
               <button onClick={() => setEditing(null)}><X className="w-5 h-5" /></button>
@@ -125,6 +125,9 @@ export default function AdminStoryOptions() {
             <input value={editing.name_ar} onChange={(e) => setEditing({ ...editing, name_ar: e.target.value })} className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body mb-4" />
             <label className="block text-sm font-bold mb-2 font-body">المعرّف (value)</label>
             <input value={editing.value} onChange={(e) => setEditing({ ...editing, value: e.target.value })} placeholder="realistic" className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-mono mb-4" />
+            <label className="block text-sm font-bold mb-2 font-body">توجيه للذكاء الاصطناعي</label>
+            <textarea rows={3} value={editing.prompt_fragment || ""} onChange={(e) => setEditing({ ...editing, prompt_fragment: e.target.value })} className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body text-sm" data-testid="opt-edit-fragment" />
+            <p className="font-body text-xs text-[#8A9AB0] mt-1 mb-4">بيتضاف لبرومبت السيناريوهات وخطة الإنتاج لما العميل يختار ده. مثال: «ركّز على موقف يعيشه الطفل بنفسه، من غير وعظ مباشر». العملاء مش بيشوفوه.{editing.kind === "language" ? " (اللهجة نفسها بتتظبط من طبقات المحرك ← اللهجات.)" : ""}</p>
             <label className="block text-sm font-bold mb-2 font-body">الترتيب</label>
             <input type="number" value={editing.sort_order} onChange={(e) => setEditing({ ...editing, sort_order: parseInt(e.target.value || 0) })} className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body mb-4" />
             <label className="flex items-center gap-2 mb-3"><input type="checkbox" checked={editing.is_active} onChange={(e) => setEditing({ ...editing, is_active: e.target.checked })} className="accent-[#87A96B]" /> <span className="font-body">نشط</span></label>

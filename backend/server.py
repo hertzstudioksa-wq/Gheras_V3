@@ -31,6 +31,7 @@ from routes.admin_lab_routes import router as admin_lab_router  # noqa: E402
 from routes.admin_secrets_routes import router as admin_secrets_router  # noqa: E402
 from routes.admin_preset_stacks_routes import router as admin_preset_stacks_router  # noqa: E402
 from routes.admin_audit_routes import router as admin_audit_router  # noqa: E402
+from routes.admin_engine_routes import router as admin_engine_router  # noqa: E402
 from routes.admin_assets_routes import router as admin_assets_router  # noqa: E402
 from routes.admin_stage_control_routes import router as admin_stage_control_router  # noqa: E402
 from routes.bundle_routes import admin_router as admin_bundle_router, user_router as bundle_user_router  # noqa: E402
@@ -68,6 +69,7 @@ api_router.include_router(admin_lab_router)
 api_router.include_router(admin_secrets_router)
 api_router.include_router(admin_preset_stacks_router)
 api_router.include_router(admin_audit_router)
+api_router.include_router(admin_engine_router)
 api_router.include_router(admin_assets_router)
 api_router.include_router(admin_stage_control_router)
 api_router.include_router(admin_bundle_router)
@@ -432,6 +434,45 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"character sheet style-ref migration skipped: {e}")
+    # M3: art styles, dialect profiles and pacing live in the database (seeded
+    # once from the approved house style; admin edits are never overwritten).
+    try:
+        from services.engine_config import seed_engine_config
+        await seed_engine_config()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"engine config seeding skipped: {e}")
+    # M3: the child sheet template takes the parent's art style preset
+    # ($style_text / $sheet_rules) instead of the house style baked into its text.
+    # An admin-rewritten template (without the baked text) is left alone.
+    try:
+        if await _already_applied("character_sheet_style_vars"):
+            raise _SkipMigration
+        import uuid as _uuid
+        from services.house_style import SHEET_RULES, STYLE
+        doc = await db.prompt_templates.find_one({"stage_key": "child_character_i2i", "active": True}, {"_id": 0})
+        text = (doc or {}).get("template_text") or ""
+        if STYLE in text and SHEET_RULES in text:
+            now = datetime.now(timezone.utc).isoformat()
+            await db.prompt_templates.update_one(
+                {"id": doc["id"]},
+                {"$set": {"active": False, "deactivated_at": now, "deactivated_reason": "character_sheet_style_vars"}},
+            )
+            await db.prompt_templates.insert_one({
+                **{k: doc[k] for k in ("stage_key", "name", "notes") if k in doc},
+                "id": str(_uuid.uuid4()),
+                "variables": [*(doc.get("variables") or []), "style_text", "sheet_rules"],
+                "template_text": text.replace(STYLE, "$style_text").replace(SHEET_RULES, "$sheet_rules"),
+                "version": await db.prompt_templates.count_documents({"stage_key": "child_character_i2i"}) + 1,
+                "active": True,
+                "created_at": now,
+                "updated_at": now,
+            })
+            logger.info("prompt_templates: child_character_i2i → art style preset variables")
+        await _mark_applied("character_sheet_style_vars")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"character sheet style-vars migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

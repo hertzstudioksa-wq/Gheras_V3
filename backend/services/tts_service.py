@@ -306,6 +306,16 @@ def _pcm_to_wav(pcm: bytes, rate: int = GEMINI_TTS_RATE) -> bytes:
     return buf.getvalue()
 
 
+# Gemini TTS prebuilt voices (suggestions for the admin dialect page; any
+# voice name the model accepts works).
+GEMINI_VOICES = [
+    "Algieba", "Sulafat", "Achird", "Charon", "Kore", "Puck", "Zephyr", "Fenrir", "Leda", "Orus", "Aoede",
+    "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Despina", "Erinome", "Algenib", "Rasalgethi",
+    "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Zubenelgenubi", "Vindemiatrix",
+    "Sadachbia", "Sadaltager",
+]
+
+
 async def synthesize_gemini(text: str, voice: str, direction: str, model: Optional[str] = None) -> tuple[bytes, dict]:
     """One Gemini TTS take of `text` read as `direction` asks. Returns (wav_bytes, meta).
     Raises services.ai.AIError when every model fails."""
@@ -353,9 +363,10 @@ async def synthesize_gemini(text: str, voice: str, direction: str, model: Option
 
 async def _tts_via_gemini(text, voice, language, model_id, voice_settings):
     """Generic entry (Stage Lab / single lines): MSA storyteller unless told otherwise."""
-    from services.house_style import DIALECTS, DEFAULT_DIALECT
+    from services.engine_config import get_dialect
+    from services.house_style import DEFAULT_DIALECT
 
-    dialect = DIALECTS[DEFAULT_DIALECT]
+    dialect = await get_dialect(DEFAULT_DIALECT)
     voice = voice if voice and voice not in FAL_VOICE_BY_OPTION.values() else dialect["voices"]["male"]
     audio, meta = await synthesize_gemini(text, voice, dialect["tts_direction"], model_id)
     return audio, "audio/wav", {**meta, "language": language, "error": None, "fallback_to_mock": False}

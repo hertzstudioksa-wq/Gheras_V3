@@ -317,7 +317,7 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 أنتج الخطة الكاملة كـ JSON واحد حسب الصيغة المطلوبة. **{target_scenes} scenes بالضبط**{" (أو أي عدد داخل النطاق " + f"{brange[0]}–{brange[1]}" + " إن كان أنسب للسرد)" if brange else ""}، ولكل مشهد arc_beat من القائمة أعلاه بالترتيب."""
 
 
-from services import house_style
+from services import engine_config, house_style
 from services.config_service import resolve_model, resolve_prompt
 from services.ai.text_client import generate_text
 
@@ -387,37 +387,80 @@ def _build_production_context(order: dict, scenario: dict, target_scenes: int) -
     }
 
 
-async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) -> dict:
-    """Ask the configured text model for the full production plan. Raises on any failure."""
+def target_scene_count(order: dict, scenario: dict | None) -> int:
+    """Scenes to plan: the scenario's own estimate when it lies inside the
+    duration bucket, else the bucket's target (Phase D.5)."""
+    duration = order.get("duration") or {}
+    target = int(duration.get("scene_target") or 6)
+    est = (scenario or {}).get("estimated_scene_count")
+    mn, mx = duration.get("scene_target_min"), duration.get("scene_target_max")
+    if isinstance(est, int) and isinstance(mn, int) and isinstance(mx, int) and mn <= est <= mx:
+        return est
+    return target
+
+
+async def build_planning_request(order: dict, scenario: dict, target_scenes: int) -> dict:
+    """Everything the planning call sends — model, system prompt, user prompt — plus
+    the admin layers behind it. Shared by generation and the admin prompt preview,
+    so the preview is exactly what the model receives."""
     provider, model_name, model_src = await resolve_model(
         "production_planning", MODEL_PROVIDER, MODEL_NAME
     )
-    logger.info(f"[config] stage=production_planning source={model_src} model={provider}/{model_name}")
-
     # Prompt: admin template if it renders cleanly, else hardcoded fallback.
     ctx = _build_production_context(order, scenario, target_scenes)
     admin_prompt, prompt_src, reason = await resolve_prompt("production_planning", ctx)
-    if prompt_src == "admin":
-        logger.info(f"[config] stage=production_planning prompt_source=admin {reason}")
-        prompt = admin_prompt
-    else:
-        logger.info(f"[config] stage=production_planning prompt_source=default reason={reason}")
-        prompt = _build_user_prompt(order, scenario, target_scenes)
+    prompt = admin_prompt if prompt_src == "admin" else _build_user_prompt(order, scenario, target_scenes)
 
+    # Admin direction for the parent's picks (category, topic, story type, tone, setting).
+    fragments = await engine_config.story_fragments(order)
+    prompt += fragments
     # Shots and dialect drive the video: one ~5 s animated shot per narration
     # line, so the story lasts what the parent chose and nothing is held still.
+    pacing = await engine_config.get_pacing()
     seconds = int((order.get("duration") or {}).get("seconds") or 0) or 60
-    counts = house_style.shot_counts(seconds, target_scenes)
-    dialect = house_style.DIALECTS[await house_style.dialect_for_order(order)]
+    counts = house_style.shot_counts(seconds, target_scenes, pacing["shot_seconds"])
+    dialect = await engine_config.get_dialect(await house_style.dialect_for_order(order))
     per_scene = "\n".join(f"- المشهد {i + 1}: {n} لقطات" for i, n in enumerate(counts))
+    max_words = house_style.max_line_words(pacing["shot_seconds"], pacing["words_per_second"])
     prompt += (
         f"\n\n## اللقطات واللهجة (لها الأولوية على أي قاعدة أخرى)\n"
-        f"- مدة القصة {seconds} ثانية = {sum(counts)} لقطة تقريباً (لقطة كل ~{house_style.SHOT_SECONDS} ثوانٍ):\n"
+        f"- مدة القصة {seconds} ثانية = {sum(counts)} لقطة تقريباً (لقطة كل ~{pacing['shot_seconds']} ثوانٍ):\n"
         f"{per_scene}\n"
-        f"- كل narration_line لا تزيد عن {house_style.max_line_words()} كلمات (يُفضّل 6–9).\n"
+        f"- كل narration_line لا تزيد عن {max_words} كلمات (يُفضّل 6–9).\n"
         f"- لهجة السرد ({dialect['name_ar']}): {dialect['writing']}\n"
         f"- book_text و title وباقي النصوص العربية بالفصحى المبسّطة."
     )
+    system, system_src = await engine_config.system_prompt("production_planning", SYSTEM_MSG)
+    style = await engine_config.style_for_order(order)
+    return {
+        "provider": provider, "model": model_name, "system": system, "user": prompt,
+        "seconds": seconds, "counts": counts,
+        "style_guide": engine_config.style_guide(style),
+        "words_per_second": pacing["words_per_second"],
+        # Which admin layers (and versions) shaped this plan — kept on the plan so a
+        # story can be traced and reproduced after the settings change.
+        "trace": {
+            "model": f"{provider}/{model_name}",
+            "model_source": model_src,
+            "user_prompt_source": prompt_src,
+            "user_prompt_reason": reason,
+            "system_prompt": system_src,
+            "style": {"key": style.get("key"), "version": style.get("version")},
+            "dialect": {"key": dialect["key"], "version": dialect.get("version")},
+            "pacing_version": pacing.get("version"),
+            "story_fragments": fragments.strip(),
+            "shot_counts": counts,
+        },
+    }
+
+
+async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) -> dict:
+    """Ask the configured text model for the full production plan. Raises on any failure."""
+    req = await build_planning_request(order, scenario, target_scenes)
+    provider, model_name, prompt, system = req["provider"], req["model"], req["user"], req["system"]
+    seconds, counts = req["seconds"], req["counts"]
+    logger.info(f"[config] stage=production_planning model={provider}/{model_name} "
+                f"prompt={req['trace']['user_prompt_source']} system={req['trace']['system_prompt']['source']}")
 
     # The plan is a large nested JSON (scenes, pages, characters); its shape is
     # enforced by SYSTEM_MSG and validated below rather than by a strict schema.
@@ -425,7 +468,7 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
         stage="production_planning",
         provider=provider,
         model=model_name,
-        system=SYSTEM_MSG,
+        system=system,
         user=prompt,
         effort="high",
         max_tokens=48000,
@@ -466,6 +509,7 @@ async def _generate_via_claude(order: dict, scenario: dict, target_scenes: int) 
         shot_total += len(lines)
     if abs(shot_total - sum(counts)) > max(2, sum(counts) // 5):
         raise ValueError(f"plan has {shot_total} shots, expected about {sum(counts)} for {seconds}s")
+    payload["_engine"] = {k: req[k] for k in ("style_guide", "words_per_second", "trace")}
     return payload
 
 
@@ -502,6 +546,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
     now = _now()
     plan_payload = payload.get("production_plan", {}) or {}
     plan_id = str(uuid.uuid4())
+    engine = payload.get("_engine") or {}
+    wps = engine.get("words_per_second") or house_style.WORDS_PER_SECOND
 
     # characters
     character_profiles = []
@@ -596,7 +642,7 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             "music_prompt":        s.get("music_prompt") or "",
             "music_keywords":      s.get("music_keywords") or [],
             "camera_motion_hint":  s.get("camera_motion_hint") or "",
-            "estimated_duration_seconds": (round(wc / house_style.WORDS_PER_SECOND, 1) if shots
+            "estimated_duration_seconds": (round(wc / wps, 1) if shots
                                            else s.get("estimated_duration_seconds")),
             "shots": shots,
             "word_count": wc,
@@ -650,8 +696,9 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         "story_summary": plan_payload.get("story_summary"),
         "main_message": plan_payload.get("main_message"),
         "emotional_arc": plan_payload.get("emotional_arc"),
-        # Fixed house style (the LLM no longer picks one per story).
-        "style_guide": dict(house_style.STYLE_GUIDE),
+        # The admin style preset the parent picked (the LLM no longer picks one per story).
+        "style_guide": engine.get("style_guide") or dict(house_style.STYLE_GUIDE),
+        "engine_trace": engine.get("trace"),
         "cover_prompt": plan_payload.get("cover_prompt"),
         # Phase D.4 — story-level downstream generator fields
         "story_keywords":        plan_payload.get("story_keywords") or [],

@@ -17,7 +17,9 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
-ALLOWED_SCOPES = {"child", "character", "toy"}
+# "style" = an admin's art style reference / thumbnail (never a customer's photo).
+ADMIN_SCOPES = {"style"}
+ALLOWED_SCOPES = {"child", "character", "toy"} | ADMIN_SCOPES
 MAX_SIDE = 2048
 
 
@@ -50,6 +52,8 @@ async def upload_image(
 ):
     if scope not in ALLOWED_SCOPES:
         raise HTTPException(status_code=400, detail="نطاق الرفع غير صالح")
+    if scope in ADMIN_SCOPES and current.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="ممنوع الوصول")
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(status_code=400, detail="امتداد الصورة غير مدعوم")

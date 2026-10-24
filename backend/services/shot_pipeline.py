@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import house_style
+from services import engine_config, house_style
 from services.ai import AIPermanentError, fal
 from services.ai.image_client import WIDE
 from services.child_character_service import _fetch_source_bytes
@@ -165,16 +165,18 @@ async def ensure_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
     needed = {c for s in scenes for sh in s.get("shots") or [] for c in sh.get("characters") or []}
     profiles = await _profiles(plan)
     sheets = await load_character_sheets(order, plan)
+    style = await engine_config.style_for_order(order)
+    style_ref = None
     for t in sorted(needed - set(sheets)):
         profile = profiles.get(t)
         if not profile or t == "child":
             continue
         label = _label(profile, child_name)
-        style_ref = house_style.style_reference()
+        style_ref = style_ref or await engine_config.style_reference_bytes(style)
         prompt = (f"Character design for an animated children's story. Character: {_cast_line(profile, child_name)}. "
                   f"{profile.get('key_features') or ''} "
-                  f"{house_style.STYLE_REF_NOTE if style_ref else ''} STYLE: {house_style.STYLE} "
-                  f"COMPOSITION: {house_style.SHEET_RULES}")
+                  f"{house_style.STYLE_REF_NOTE if style_ref else ''} STYLE: {style['style_text']} "
+                  f"COMPOSITION: {style['sheet_rules']}")
         try:
             img, mime, meta = await generate_image(
                 scene_prompt=prompt, stage="extra_character_i2i", size=house_style.SHEET_SIZE, raw_prompt=True,
@@ -195,6 +197,38 @@ async def ensure_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
     return sheets
 
 
+# ---------------------------------------------------------------- prompt builders
+# Shared by the executors and the admin prompt preview, so the preview shows
+# exactly what the image and video models receive.
+PREV_SHOT_NOTE = "the previous shot of this scene — keep the same place, furniture, lighting and outfits"
+PREV_SCENE_NOTE = ("the last shot of the previous scene — if the story is still in the same place, keep the "
+                   "same room design and furniture (lighting may change)")
+
+
+def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_name: str,
+                    notes: list[str], style: dict) -> str:
+    cast = "; ".join(_cast_line(profiles[t], child_name, bool((sheets.get(t) or {}).get("from_photo")))
+                     for t in sh.get("characters") or [] if t in profiles)
+    return " ".join(p for p in [
+        sh.get("keyframe_prompt") or scene.get("visual_description") or "",
+        f"Shot type: {sh.get('shot_type') or 'medium'}.",
+        f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",
+        f"Characters, matching their reference sheets exactly: {cast}." if cast else "",
+        ("Reference images, in order: " + "; ".join(f"{i + 1}) {n}" for i, n in enumerate(notes)) + ".")
+        if notes else "",
+        f"Art style: {style['style_text']}",
+        style["frame_rules"],
+    ] if p)
+
+
+def motion_prompt(motion: str | None, mapping: list[str], style: dict) -> str:
+    return " ".join(p for p in [
+        motion or "Gentle natural character motion and a slow camera push-in.",
+        ("Characters: " + "; ".join(mapping) + ".") if mapping else "",
+        style["motion_text"],
+    ] if p)
+
+
 # ---------------------------------------------------------------- keyframes
 async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
     """Draw the scene's shot keyframes in order (each sees the previous one). A
@@ -205,6 +239,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
     child_name = ((order.get("data") or {}).get("child") or {}).get("name") or ""
     sheets = await load_character_sheets(order, plan)
     profiles = await _profiles(plan)
+    style = await engine_config.style_for_order(order)
     sheet_bytes: dict[str, tuple[bytes, str]] = {}
     prev: tuple[bytes, str] | None = None
     # The first shot of a scene sees the previous scene's last shot, so a story
@@ -236,23 +271,11 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 notes.append(f"{sheets[t]['label']}'s character sheet")
         if prev:
             refs.append({"image_bytes": prev[0], "mime_type": prev[1]})
-            notes.append("the previous shot of this scene — keep the same place, furniture, lighting and outfits")
+            notes.append(PREV_SHOT_NOTE)
         elif previous_scene:
             refs.append({"image_bytes": previous_scene[0], "mime_type": previous_scene[1]})
-            notes.append("the last shot of the previous scene — if the story is still in the same place, keep the "
-                         "same room design and furniture (lighting may change)")
-        cast = "; ".join(_cast_line(profiles[t], child_name, bool((sheets.get(t) or {}).get("from_photo")))
-                         for t in sh.get("characters") or [] if t in profiles)
-        prompt = " ".join(p for p in [
-            sh.get("keyframe_prompt") or scene.get("visual_description") or "",
-            f"Shot type: {sh.get('shot_type') or 'medium'}.",
-            f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",
-            f"Characters, matching their reference sheets exactly: {cast}." if cast else "",
-            ("Reference images, in order: " + "; ".join(f"{i + 1}) {n}" for i, n in enumerate(notes)) + ".")
-            if notes else "",
-            f"Art style: {house_style.STYLE}",
-            house_style.FRAME_RULES,
-        ] if p)
+            notes.append(PREV_SCENE_NOTE)
+        prompt = keyframe_prompt(scene, sh, profiles, sheets, child_name, notes, style)
         img, mime, meta = await generate_image(
             scene_prompt=prompt, references=refs or None, stage="scene_image_generation", size=WIDE,
             raw_prompt=True, session_hint=f"shot-{scene['scene_index']}-{sh['shot_index']}-{order['id'][:6]}",
@@ -263,6 +286,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             "keyframe_url": url, "keyframe_prompt_used": prompt, "image_model": model,
             "narration_line": sh["narration_line"], "shot_type": sh.get("shot_type"),
             "characters": sh.get("characters") or [], "motion_prompt": sh.get("motion_prompt") or "",
+            "style_key": style.get("key"), "style_version": style.get("version"),
         })
         prev = (img, mime)
         hero_url = hero_url or url
@@ -288,7 +312,7 @@ def _probe_seconds(path: str) -> float:
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0.0
 
 
-def _split_take(wav: bytes, lines: list[str]) -> list[bytes] | None:
+def _split_take(wav: bytes, lines: list[str], words_per_second: float = house_style.WORDS_PER_SECOND) -> list[bytes] | None:
     """Cut one narration take into one clip per line at its longest pauses.
     Returns None when the pauses don't line up with the lines (caller re-voices
     line by line instead)."""
@@ -315,7 +339,7 @@ def _split_take(wav: bytes, lines: list[str]) -> list[bytes] | None:
         out = []
         for i, line in enumerate(lines):
             seg_len = bounds[i + 1] - bounds[i]
-            expected = max(1.0, len(line.split()) / house_style.WORDS_PER_SECOND)
+            expected = max(1.0, len(line.split()) / words_per_second)
             if not 0.35 <= seg_len / expected <= 2.6:
                 return None
             dst = os.path.join(d, f"line{i}.wav")
@@ -331,9 +355,9 @@ def _split_take(wav: bytes, lines: list[str]) -> list[bytes] | None:
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _plausible(seconds: float, words: int) -> bool:
+def _plausible(seconds: float, words: int, words_per_second: float = house_style.WORDS_PER_SECOND) -> bool:
     """Spoken length a child-paced narrator could produce for `words` words."""
-    expected = words / house_style.WORDS_PER_SECOND
+    expected = words / words_per_second
     return expected * 0.35 <= seconds <= expected * 2.0 + 1.5
 
 
@@ -361,8 +385,9 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
         raise ValueError(f"scene_plan {job['target_id']} has no shots")
     lines = [sh["narration_line"] for sh in shots]
     provider, model = await _resolve_narration_provider()
-    dialect_key = await house_style.dialect_for_order(order)
-    dialect = house_style.DIALECTS[dialect_key]
+    dialect = await engine_config.get_dialect(await house_style.dialect_for_order(order))
+    dialect_key = dialect["key"]
+    wps = (await engine_config.get_pacing())["words_per_second"]
 
     take_url = None
     meta: dict = {"provider": provider, "model": model, "dialect": dialect_key}
@@ -377,7 +402,7 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
             for m in [model, *[x for x in GEMINI_TTS_MODELS if x != model]][:3]:
                 w, gmeta = await synthesize_gemini(text, voice, dialect["tts_direction"], m)
                 secs = await _seconds_of(w, "wav")
-                if _plausible(secs, words):
+                if _plausible(secs, words, wps):
                     return w, gmeta
                 tried.append(f"{gmeta.get('model')}={secs:.1f}s")
                 logger.warning(f"[shots] implausible narration ({secs:.1f}s for {words} words) from {gmeta.get('model')}")
@@ -386,7 +411,7 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
         wav, gmeta = await voice_text("\n".join(lines))
         meta.update(gmeta)
         take_url = await _store(order, "narration", wav, "audio/wav", "wav")
-        pieces = await asyncio.to_thread(_split_take, wav, lines)
+        pieces = await asyncio.to_thread(_split_take, wav, lines, wps)
         if pieces is None:
             logger.warning(f"[shots] scene {scene['scene_index']}: take didn't split cleanly; voicing line by line")
             pieces = [(await voice_text(line))[0] for line in lines]
@@ -431,11 +456,15 @@ async def story_seconds(order_id: str, plan_id: str) -> float:
     rows = await shot_rows(order_id, plan_id)
     if not rows:
         return 0.0
-    return sum((r.get("narration_seconds") or 0) + house_style.LINE_GAP_SEC for r in rows) + house_style.END_TAIL_SEC
+    pacing = await engine_config.get_pacing()
+    return sum((r.get("narration_seconds") or 0) + pacing["line_gap_sec"] for r in rows) + pacing["end_tail_sec"]
 
 
 # ---------------------------------------------------------------- clips
-async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict, tail: float = 0.0) -> dict:
+async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict, tail: float = 0.0,
+                          style: dict | None = None, pacing: dict | None = None) -> dict:
+    style = style or engine_config.DEFAULT_STYLE
+    pacing = pacing or engine_config.DEFAULT_PACING
     img = await _fetch_source_bytes(row["keyframe_url"])
     if not img:
         raise ValueError(f"keyframe for shot {row['scene_index']}.{row['shot_index']} is missing")
@@ -455,15 +484,12 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
                                                  file_name=f"sheet-{t}.png")
             elements.append({"frontal_image_url": sheet_urls[t], "reference_image_urls": [sheet_urls[t]]})
             mapping.append(f"{sheets[t]['label']} is @Element{len(elements)}")
-    prompt = " ".join(p for p in [
-        row.get("motion_prompt") or "Gentle natural character motion and a slow camera push-in.",
-        ("Characters: " + "; ".join(mapping) + ".") if mapping else "",
-        house_style.MOTION_STYLE,
-    ] if p)
+    prompt = motion_prompt(row.get("motion_prompt"), mapping, style)
     args = {
         "prompt": prompt[:2400],
-        "duration": str(house_style.clip_seconds_for(model, (row.get("narration_seconds") or 0) + tail)),
-        "negative_prompt": house_style.VIDEO_NEGATIVE,
+        "duration": str(house_style.clip_seconds_for(model, (row.get("narration_seconds") or 0) + tail,
+                                                     pacing["line_gap_sec"], pacing["five_second_stretch"])),
+        "negative_prompt": style["negative_text"],
         "cfg_scale": 0.5,
     }
     if v3:
@@ -492,6 +518,8 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
 
     rows = await shot_rows(order["id"], plan["id"])
     sheets = await load_character_sheets(order, plan)
+    style = await engine_config.style_for_order(order)
+    pacing = await engine_config.get_pacing()
     sheet_urls: dict[str, str] = {}
     sem = asyncio.Semaphore(CLIP_CONCURRENCY)
     key = {"order_id": order["id"], "production_plan_id": plan["id"]}
@@ -511,8 +539,8 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
             for attempt in (1, 2):
                 try:
                     if not request_id:
-                        tail = house_style.END_TAIL_SEC if row is rows[-1] else 0.0
-                        args = await _clip_arguments(row, model, sheets, sheet_urls, tail)
+                        tail = pacing["end_tail_sec"] if row is rows[-1] else 0.0
+                        args = await _clip_arguments(row, model, sheets, sheet_urls, tail, style, pacing)
                         request_id = await fal.submit(stage="video_generation", env_key="FAL_KEY_VIDEO",
                                                       model=model, arguments=args)
                         await _save(row, {"clip_request_id": request_id, "clip_model": model, "clip_state": "submitted",

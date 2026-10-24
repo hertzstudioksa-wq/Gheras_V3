@@ -39,6 +39,10 @@ async def _enrich(data: dict) -> dict:
             opt = await db.story_options.find_one({"id": style[k]}, {"_id": 0, "name_ar": 1})
             if opt:
                 out[field] = opt["name_ar"]
+    if style.get("art_style"):
+        preset = await db.style_presets.find_one({"key": style["art_style"], "active": True}, {"_id": 0, "name_ar": 1})
+        if preset:
+            out["art_style_name"] = preset["name_ar"]
     return out
 
 

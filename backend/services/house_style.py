@@ -4,6 +4,9 @@ The values come from the M1 lab spike that the owner approved (the two sample
 videos' look: a new animated 16:9 shot every ~5 s, one narration line per shot,
 a warm native-dialect narrator). They live here until the admin "style presets"
 and "dialect profiles" pages (M3) move them into the database.
+
+Since M3 these are the code defaults: services/engine_config.py seeds them into
+the database once and generation reads the admin-edited copies from there.
 """
 from __future__ import annotations
 
@@ -42,8 +45,8 @@ IMAGE_QUALITY = {
 }
 
 
-def image_quality(stage: str) -> str:
-    return IMAGE_QUALITY.get(stage, "high")
+def image_quality(stage: str, mapping: dict | None = None) -> str:
+    return (mapping if mapping is not None else IMAGE_QUALITY).get(stage, "high")
 
 # Neutral style reference: made-up characters drawn in the house style (never a
 # customer's child). Character sheets get it as image 2 so every face in every
@@ -90,7 +93,8 @@ IDENTITY_RULES = (
 )
 
 
-def character_sheet_prompt(who: str, outfit: str | None = None) -> str:
+def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str | None = None,
+                           sheet_rules: str | None = None) -> str:
     """Photo → cartoon character sheet (the owner's proven prompt, fixed: opaque
     white instead of transparent, photo rules, photo outfit by default, one view)."""
     return (
@@ -98,7 +102,7 @@ def character_sheet_prompt(who: str, outfit: str | None = None) -> str:
         "more cartoonish than the photo while keeping the person instantly recognizable to their own family. "
         "The first reference image is the photo (use it ONLY for identity). "
         f"{STYLE_REF_NOTE}\n\n{IDENTITY_RULES}\n\n{PHOTO_RULES}\n\nOUTFIT: {outfit_rule(outfit)}.\n\n"
-        f"STYLE: {STYLE}\n\nCOMPOSITION: {SHEET_RULES}"
+        f"STYLE: {style_text or STYLE}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
     )
 
 
@@ -127,9 +131,9 @@ LINE_GAP_SEC = 0.35
 END_TAIL_SEC = 1.2
 
 
-def shot_counts(duration_seconds: int, scene_count: int) -> list[int]:
+def shot_counts(duration_seconds: int, scene_count: int, shot_seconds: float | None = None) -> list[int]:
     """Shots per scene for a story length: ~one shot per 5 s, at least 2 per scene."""
-    total = max(scene_count * 2, round(duration_seconds / SHOT_SECONDS))
+    total = max(scene_count * 2, round(duration_seconds / (shot_seconds or SHOT_SECONDS)))
     base, extra = divmod(total, scene_count)
     # Give the remainder to the middle of the story (the problem / turning point).
     order = sorted(range(scene_count), key=lambda i: abs(i - (scene_count - 1) / 2))
@@ -139,13 +143,13 @@ def shot_counts(duration_seconds: int, scene_count: int) -> list[int]:
     return counts
 
 
-def max_line_words() -> int:
-    return math.floor(SHOT_SECONDS * WORDS_PER_SECOND) + 1
+def max_line_words(shot_seconds: float | None = None, words_per_second: float | None = None) -> int:
+    return math.floor((shot_seconds or SHOT_SECONDS) * (words_per_second or WORDS_PER_SECOND)) + 1
 
 
-def clip_seconds(narration_seconds: float) -> int:
+def clip_seconds(narration_seconds: float, line_gap: float | None = None) -> int:
     """Kling clip length that covers a narration line plus its gap (never a held frame)."""
-    need = narration_seconds + LINE_GAP_SEC + 0.15
+    need = narration_seconds + (LINE_GAP_SEC if line_gap is None else line_gap) + 0.15
     return int(min(CLIP_MAX_SEC, max(CLIP_MIN_SEC, math.ceil(need))))
 
 
@@ -154,12 +158,14 @@ def clip_seconds(narration_seconds: float) -> int:
 FIVE_SECOND_STRETCH = 1.2
 
 
-def clip_seconds_for(model: str, narration_seconds: float) -> int:
+def clip_seconds_for(model: str, narration_seconds: float, line_gap: float | None = None,
+                     five_second_stretch: float | None = None) -> int:
     """Clip length to request from a given video model for a narration line."""
+    gap = LINE_GAP_SEC if line_gap is None else line_gap
     if "/v3/" in model:
-        return clip_seconds(narration_seconds)  # any length 3–15 s
-    need = narration_seconds + LINE_GAP_SEC + 0.15
-    return 5 if need <= 5 * FIVE_SECOND_STRETCH else 10
+        return clip_seconds(narration_seconds, gap)  # any length 3–15 s
+    need = narration_seconds + gap + 0.15
+    return 5 if need <= 5 * (five_second_stretch or FIVE_SECOND_STRETCH) else 10
 
 
 # --- Dialects -----------------------------------------------------------------
@@ -208,7 +214,10 @@ async def dialect_for_order(order: dict) -> str:
     if not option_id:
         return DEFAULT_DIALECT
     option = await db.story_options.find_one({"id": option_id}, {"_id": 0, "value": 1})
-    return _OPTION_TO_DIALECT.get((option or {}).get("value"), DEFAULT_DIALECT)
+    value = (option or {}).get("value")
+    # Known aliases map to the launch dialects; any other value is taken as the
+    # key of an admin-added dialect profile (engine_config.get_dialect falls back to MSA).
+    return _OPTION_TO_DIALECT.get(value) or value or DEFAULT_DIALECT
 
 
 async def narrator_for_order(order: dict) -> str:

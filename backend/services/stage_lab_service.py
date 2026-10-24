@@ -208,17 +208,24 @@ async def _run_child_character_i2i(input_payload: dict) -> dict:
         raise ValueError("Failed to fetch source image from internal storage")
     src_bytes, src_mime = src_tuple
     # Prompt: admin template if any, else DEFAULT_PROMPT.
+    from services import engine_config
+    from services.house_style import outfit_rule
+    art_style = await engine_config.get_style(input_payload.get("art_style"))
     prompt_admin, prompt_src, _reason = await resolve_prompt(
         "child_character_i2i", {
             "child_name": input_payload.get("child_name", "Child"),
             "child_age": str(input_payload.get("child_age", 5)),
             "child_gender": input_payload.get("child_gender", "female"),
+            "outfit_rule": outfit_rule(input_payload.get("outfit")),
+            "style_text": art_style["style_text"],
+            "sheet_rules": art_style["sheet_rules"],
         },
     )
     prompt = prompt_admin if (prompt_src == "admin" and prompt_admin) else DEFAULT_PROMPT
     # Same resolution as the live pipeline, so a Lab run reproduces production.
     provider, model_name, _src = await resolve_model("child_character_i2i", "openai", "gpt-image-2")
-    res = await _generate_character(src_bytes, prompt, provider, model_name)
+    res = await _generate_character(src_bytes, prompt, provider, model_name,
+                                    await engine_config.style_reference_bytes(art_style))
     url = await _save_generated_png("lab-admin", "lab-admin", res["image_bytes"])
     return {
         "output_preview": {"image_url": url, "prompt_used": prompt[:600], "model": f"{provider}/{model_name}"},

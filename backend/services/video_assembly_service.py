@@ -206,13 +206,14 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
     """Shot-engine assembly: every shot is its Kling clip trimmed to its
     narration line (+ a short gap), hard cuts between shots, one music bed under
     the whole story, loudness-normalised stereo. No frame is ever held."""
-    from services import house_style
+    from services.engine_config import get_pacing
     from services.shot_pipeline import shot_rows, work_dir
 
     order = await db.orders.find_one({"id": order_id}, {"_id": 0, "user_id": 1})
     rows = await shot_rows(order_id, plan["id"])
     if not rows:
         raise RuntimeError("no shots to assemble")
+    pacing = await get_pacing()
     work = work_dir(f"gheras-shots-{order_id[:8]}-")
     try:
         video_parts, narr_parts = [], []
@@ -227,7 +228,7 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
             with open(nar_path, "wb") as f:
                 f.write(nar_bytes)
             nar_len = await _media_duration(nar_path) or float(r.get("narration_seconds") or 0)
-            dur = nar_len + house_style.LINE_GAP_SEC + (house_style.END_TAIL_SEC if i == len(rows) - 1 else 0.0)
+            dur = nar_len + pacing["line_gap_sec"] + (pacing["end_tail_sec"] if i == len(rows) - 1 else 0.0)
             narr_parts.append((nar_path, dur))
 
             seg = os.path.join(work, f"shot_{tag}.mp4")

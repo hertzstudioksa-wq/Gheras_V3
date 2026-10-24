@@ -6,7 +6,7 @@ import AdminPasswordGate from "./AdminPasswordGate";
 import {
   LayoutDashboard, Users, BookOpen, Sprout, FileText, Wand2,
   CreditCard, Settings, LogOut, Palette, Cpu, Workflow, ShieldCheck,
-  Coins, Beaker, Lock, Package, ScrollText, Library, Hourglass, Layers,
+  Coins, Beaker, Lock, Package, ScrollText, Library, Hourglass, Layers, SlidersHorizontal,
 } from "lucide-react";
 
 const LOGO_URL = "/gheras-logo.png";
@@ -18,6 +18,7 @@ const items = [
   { to: "/admin/categories", label: "التصنيفات", icon: Sprout, tid: "admin-nav-cats" },
   { to: "/admin/styles", label: "خيارات نمط القصة", icon: Palette, tid: "admin-nav-styles" },
   { to: "/admin/content", label: "محتوى الصفحة", icon: FileText, tid: "admin-nav-content" },
+  { to: "/admin/engine", label: "طبقات المحرك", icon: SlidersHorizontal, tid: "admin-nav-engine" },
   { to: "/admin/prompts", label: "برومبتات AI", icon: Wand2, tid: "admin-nav-prompts" },
   { to: "/admin/models", label: "إعدادات النماذج", icon: Cpu, tid: "admin-nav-models" },
   { to: "/admin/pipeline", label: "إعدادات خط الإنتاج", icon: Workflow, tid: "admin-nav-pipeline" },

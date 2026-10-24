@@ -19,6 +19,7 @@ from typing import Tuple
 
 from services.ai.image_client import generate_image as _provider_generate
 from services.config_service import resolve_model
+from services.engine_config import get_pacing
 from services.house_style import image_quality
 
 logger = logging.getLogger("image_generation_service")
@@ -83,7 +84,7 @@ async def generate_image(
         prompt=full_prompt,
         references=ref_bytes or None,
         size=size,
-        quality=quality or image_quality(stage),
+        quality=quality or image_quality(stage, (await get_pacing())["image_quality"]),
     )
     return image_bytes, mime, {
         "provider": "ai",

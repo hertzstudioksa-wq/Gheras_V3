@@ -126,6 +126,7 @@ def _clamp_scene_count(requested: int, target: int, bucket_range: tuple[int, int
     return max(lo, min(hi, r))
 
 
+from services import engine_config
 from services.config_service import resolve_model, resolve_prompt
 from services.ai.text_client import generate_text
 from models import duration_scene_range
@@ -229,28 +230,39 @@ def _build_scenario_context(order: dict) -> dict:
     }
 
 
-async def _generate_via_claude(order: dict) -> list[dict]:
-    """Ask the configured text model for 3 scenarios. Raises on any failure."""
+async def build_scenario_request(order: dict) -> dict:
+    """Model + system + user prompt for the scenarios call (shared with the admin
+    prompt preview, so the preview is exactly what the model receives)."""
     provider, model_name, model_src = await resolve_model(
         "scenario_generation", MODEL_PROVIDER, MODEL_NAME
     )
-    logger.info(f"[config] stage=scenario_generation source={model_src} model={provider}/{model_name}")
-
     # Resolve prompt: prefer admin template if it renders cleanly, else default.
     ctx = _build_scenario_context(order)
     admin_prompt, prompt_src, reason = await resolve_prompt("scenario_generation", ctx)
-    if prompt_src == "admin":
-        logger.info(f"[config] stage=scenario_generation prompt_source=admin {reason}")
-        user_prompt_text = admin_prompt
-    else:
-        logger.info(f"[config] stage=scenario_generation prompt_source=default reason={reason}")
-        user_prompt_text = _user_prompt(order)
+    user_prompt_text = admin_prompt if prompt_src == "admin" else _user_prompt(order)
+    # Admin direction for the parent's picks (category, topic, story type, tone, setting).
+    fragments = await engine_config.story_fragments(order)
+    system, system_src = await engine_config.system_prompt("scenario_generation", SYSTEM_MSG)
+    return {
+        "provider": provider, "model": model_name, "system": system, "user": user_prompt_text + fragments,
+        "trace": {"model": f"{provider}/{model_name}", "model_source": model_src,
+                  "user_prompt_source": prompt_src, "user_prompt_reason": reason,
+                  "system_prompt": system_src, "story_fragments": fragments.strip()},
+    }
+
+
+async def _generate_via_claude(order: dict) -> list[dict]:
+    """Ask the configured text model for 3 scenarios. Raises on any failure."""
+    req = await build_scenario_request(order)
+    provider, model_name, system, user_prompt_text = req["provider"], req["model"], req["system"], req["user"]
+    logger.info(f"[config] stage=scenario_generation model={provider}/{model_name} "
+                f"prompt={req['trace']['user_prompt_source']} system={req['trace']['system_prompt']['source']}")
 
     response = await generate_text(
         stage="scenario_generation",
         provider=provider,
         model=model_name,
-        system=SYSTEM_MSG,
+        system=system,
         user=user_prompt_text,
         json_schema=SCENARIOS_SCHEMA,
         effort="medium",

@@ -29,7 +29,7 @@ from services.config_service import (
     get_pipeline_config,
     DEFAULT_MODELS,
 )
-from services import house_style
+from services import engine_config, house_style
 from services.ai.image_client import generate_image as generate_provider_image
 from storage import put_object, APP_NAME
 
@@ -44,11 +44,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _build_context(order: dict, plan: dict | None, outfit: str = "") -> dict[str, Any]:
+def _build_context(order: dict, plan: dict | None, outfit: str = "",
+                   art_style: dict | None = None) -> dict[str, Any]:
     """Flat, string-safe context for $-Template substitution."""
     data = order.get("data", {}) or {}
     child = data.get("child", {}) or {}
     style = (plan or {}).get("style_guide") or {}
+    art_style = art_style or engine_config.DEFAULT_STYLE
     gender = child.get("gender")
     gender_ar = "ولد" if gender == "male" else ("بنت" if gender == "female" else "طفل")
     return {
@@ -61,27 +63,34 @@ def _build_context(order: dict, plan: dict | None, outfit: str = "") -> dict[str
         # The photo's outfit unless the story needs specific clothes (pajamas...).
         "child_outfit":  outfit or "same as in the photo",
         "outfit_rule":   house_style.outfit_rule(outfit),
+        # The parent's art style preset (admin-editable).
+        "style_text":    art_style.get("style_text") or house_style.STYLE,
+        "sheet_rules":   art_style.get("sheet_rules") or house_style.SHEET_RULES,
     }
 
 
-async def _resolve_prompt_safely(order: dict, plan: dict | None) -> tuple[str, str]:
+async def _resolve_prompt_safely(order: dict, plan: dict | None,
+                                 art_style: dict | None = None) -> tuple[str, str]:
     """Return (rendered_prompt, source). `source` is 'admin' or 'default'."""
+    art_style = art_style or engine_config.DEFAULT_STYLE
     outfit = ""
     if plan:
         profile = await db.character_profiles.find_one(
             {"production_plan_id": plan.get("id"), "type": "child"}, {"_id": 0, "clothing_style": 1})
         outfit = (profile or {}).get("clothing_style") or ""
+    fallback = house_style.character_sheet_prompt(
+        "the person in the photo", outfit, art_style.get("style_text"), art_style.get("sheet_rules"))
     try:
-        ctx = _build_context(order, plan, outfit)
+        ctx = _build_context(order, plan, outfit, art_style)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[child_character_i2i] context_error {type(e).__name__}: {e}")
-        return DEFAULT_PROMPT, "default"
+        return fallback, "default"
     admin_prompt, source, reason = await resolve_prompt("child_character_i2i", ctx)
     if source == "admin" and admin_prompt:
         logger.info(f"[config] stage=child_character_i2i prompt_source=admin {reason}")
         return admin_prompt, "admin"
     logger.info(f"[config] stage=child_character_i2i prompt_source=default reason={reason}")
-    return DEFAULT_PROMPT, "default"
+    return fallback, "default"
 
 
 async def _fetch_source_bytes(source_image_url: str) -> tuple[bytes, str] | None:
@@ -107,15 +116,16 @@ async def _fetch_source_bytes(source_image_url: str) -> tuple[bytes, str] | None
         return None
 
 
-async def _generate_character(source_bytes: bytes, prompt: str, provider: str, model_name: str) -> dict[str, Any]:
+async def _generate_character(source_bytes: bytes, prompt: str, provider: str, model_name: str,
+                              style_ref: bytes | None = None) -> dict[str, Any]:
     """Identity-preserving photo → cartoon character via the image adapter. Raises AIError."""
     image_bytes, mime, meta = await generate_provider_image(
         stage="child_character_i2i",
         provider=provider,
         model=model_name,
         prompt=prompt,
-        # The neutral style reference rides along so every character lands in the house style.
-        references=[source_bytes] + ([house_style.style_reference()] if house_style.style_reference() else []),
+        # The style preset's neutral reference image rides along so every character lands in that style.
+        references=[source_bytes] + ([style_ref] if style_ref else []),
         size=house_style.SHEET_SIZE,
     )
     return {"image_bytes": image_bytes, "mime_type": mime, "meta": meta}
@@ -197,7 +207,8 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
         "error_message": None,
     })
 
-    prompt, prompt_source = await _resolve_prompt_safely(order, plan)
+    art_style = await engine_config.style_for_order(order)
+    prompt, prompt_source = await _resolve_prompt_safely(order, plan, art_style)
 
     try:
         defaults = DEFAULT_MODELS.get("child_character_i2i", {})
@@ -218,7 +229,8 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
         error = "child photo could not be read from storage"
     else:
         try:
-            result = await _generate_character(src_tuple[0], prompt, provider, model_name)
+            result = await _generate_character(src_tuple[0], prompt, provider, model_name,
+                                               await engine_config.style_reference_bytes(art_style))
             generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
             real_meta = result.get("meta") or {}
         except Exception as e:  # noqa: BLE001 — recorded on the asset and surfaced to the orchestrator

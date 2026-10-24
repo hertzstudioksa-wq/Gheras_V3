@@ -11,7 +11,7 @@ export default function AdminCategories() {
   const [editing, setEditing] = useState(null);
   const [subcatEditingCat, setSubcatEditingCat] = useState(null);
 
-  const reload = () => api.get("/public/categories").then((r) => setCats(r.data));
+  const reload = () => api.get("/admin/categories").then((r) => setCats(r.data));
   useEffect(() => { reload(); }, []);
 
   const emptyCat = { name_ar: "", slug: "", description: "", icon: "sprout", color: "#87A96B", sort_order: cats.length, is_active: true };
@@ -65,7 +65,7 @@ export default function AdminCategories() {
               </div>
               <div className="flex-1">
                 <h3 className="font-heading text-lg font-bold text-[#2D3748]">{c.name_ar}</h3>
-                <p className="font-body text-xs text-[#8A9AB0]">{c.subcategories?.length || 0} مواضيع • {c.slug}</p>
+                <p className="font-body text-xs text-[#8A9AB0]">{c.subcategories?.length || 0} مواضيع • {c.slug}{c.prompt_fragment ? " • فيه توجيه للذكاء الاصطناعي" : ""}{c.is_active === false ? " • متوقف" : ""}</p>
               </div>
             </div>
             <p className="font-body text-sm text-[#5A677D] mb-4 min-h-[40px]">{c.description}</p>
@@ -119,6 +119,10 @@ export default function AdminCategories() {
               ))}
             </div>
           </Field>
+          <Field label="توجيه للذكاء الاصطناعي">
+            <textarea rows={3} value={editing.prompt_fragment || ""} onChange={(e) => setEditing({ ...editing, prompt_fragment: e.target.value })} className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body text-sm" data-testid="cat-edit-fragment" />
+            <p className="font-body text-xs text-[#8A9AB0] mt-1">بيتضاف لبرومبت السيناريوهات وخطة الإنتاج لما العميل يختار ده. مثال: «ركّز على موقف يعيشه الطفل بنفسه، من غير وعظ مباشر». العملاء مش بيشوفوه.</p>
+          </Field>
           <Field label="الترتيب">
             <input type="number" value={editing.sort_order} onChange={(e) => setEditing({ ...editing, sort_order: parseInt(e.target.value || 0) })} className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body" />
           </Field>
@@ -149,6 +153,18 @@ function SubcategoryManager({ category, onClose }) {
     } catch { toast.error("فشل"); }
   };
 
+  const [openId, setOpenId] = useState(null);
+  const [fragment, setFragment] = useState("");
+
+  const saveFragment = async (s) => {
+    try {
+      await api.patch(`/admin/subcategories/${s.id}`, { category_id: s.category_id, name_ar: s.name_ar, prompt_fragment: fragment });
+      setSubs(subs.map((x) => (x.id === s.id ? { ...x, prompt_fragment: fragment } : x)));
+      setOpenId(null);
+      toast.success("اتحفظ");
+    } catch { toast.error("فشل"); }
+  };
+
   const del = async (s) => {
     try {
       await api.delete(`/admin/subcategories/${s.id}`);
@@ -167,9 +183,21 @@ function SubcategoryManager({ category, onClose }) {
       </div>
       <div className="space-y-2">
         {subs.map((s) => (
-          <div key={s.id} className="flex items-center justify-between bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9]">
-            <span className="font-body text-[#2D3748]">{s.name_ar}</span>
-            <button onClick={() => del(s)} className="text-[#B8612F]"><Trash2 className="w-4 h-4" /></button>
+          <div key={s.id} className="bg-[#FDFBF7] rounded-2xl p-3 border border-[#E2D8C9]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-body text-[#2D3748]">{s.name_ar}{s.prompt_fragment ? <span className="text-xs text-[#729352] font-bold"> • توجيه</span> : null}</span>
+              <div className="flex items-center gap-3">
+                <button onClick={() => { setOpenId(openId === s.id ? null : s.id); setFragment(s.prompt_fragment || ""); }} className="text-[#4F6B3B]" title="توجيه للذكاء الاصطناعي"><Edit2 className="w-4 h-4" /></button>
+                <button onClick={() => del(s)} className="text-[#B8612F]"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            </div>
+            {openId === s.id && (
+              <div className="mt-3">
+                <textarea rows={3} value={fragment} onChange={(e) => setFragment(e.target.value)} placeholder="توجيه للذكاء الاصطناعي لما العميل يختار الموضوع ده…" className="w-full bg-white border border-[#E2D8C9] rounded-2xl px-3 py-2 font-body text-sm" />
+                <p className="font-body text-xs text-[#8A9AB0] mt-1 mb-2">بيتضاف لبرومبت السيناريوهات وخطة الإنتاج لما العميل يختار ده. مثال: «ركّز على موقف يعيشه الطفل بنفسه، من غير وعظ مباشر». العملاء مش بيشوفوه.</p>
+                <button onClick={() => saveFragment(s)} className="btn-primary inline-flex items-center gap-1 text-sm"><Save className="w-4 h-4" /> حفظ</button>
+              </div>
+            )}
           </div>
         ))}
         {subs.length === 0 && <p className="text-center text-[#8A9AB0] py-4 font-body text-sm">لا توجد مواضيع</p>}

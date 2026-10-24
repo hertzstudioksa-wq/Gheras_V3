@@ -62,6 +62,8 @@ class CategoryIn(BaseModel):
     color: Optional[str] = "#87A96B"
     sort_order: int = 0
     is_active: bool = True
+    # Admin direction appended to the story prompts when a parent picks this (never public).
+    prompt_fragment: Optional[str] = Field(default=None, max_length=2000)
 
 
 class SubcategoryIn(BaseModel):
@@ -70,6 +72,8 @@ class SubcategoryIn(BaseModel):
     description: Optional[str] = None
     sort_order: int = 0
     is_active: bool = True
+    # Admin direction appended to the story prompts when a parent picks this (never public).
+    prompt_fragment: Optional[str] = Field(default=None, max_length=2000)
 
 
 # =========================
@@ -88,6 +92,8 @@ class StoryOptionIn(BaseModel):
     sort_order: int = 0
     is_active: bool = True
     is_hidden: bool = False
+    # Admin direction appended to the story prompts when a parent picks this (never public).
+    prompt_fragment: Optional[str] = Field(default=None, max_length=2000)
 
 
 # =========================
@@ -133,6 +139,7 @@ class StylePayload(BaseModel):
     setting_id: Optional[str] = None
     language_id: Optional[str] = None
     voice_id: Optional[str] = None
+    art_style: Optional[str] = None  # style_presets.key (admin-managed); empty = the default style
 
 
 # Allowed duration snap points (seconds). Fully animated video costs per second, so
