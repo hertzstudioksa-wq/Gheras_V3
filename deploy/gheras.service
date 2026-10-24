@@ -1,0 +1,34 @@
+# Gheras backend on the shared VPS. Install as /etc/systemd/system/gheras.service
+# (deploy/provision.sh does it). The limits keep a heavy video/PDF job from
+# starving the other sites on this server (Lizam is live production).
+[Unit]
+Description=Gheras backend (FastAPI)
+After=network.target mongod.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=gheras
+Group=gheras
+WorkingDirectory=/var/www/gheras/backend
+EnvironmentFile=/etc/gheras/gheras.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/var/www/gheras/venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8010 --workers 1 --proxy-headers
+Restart=on-failure
+RestartSec=5
+# Resource limits: Gheras gets a fair share, never the whole machine.
+MemoryMax=1536M
+CPUQuota=150%
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TasksMax=256
+# Hardening: read-only system, writes only where Gheras keeps data.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/gheras
+
+[Install]
+WantedBy=multi-user.target

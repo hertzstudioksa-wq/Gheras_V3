@@ -99,6 +99,26 @@ async def update_user(user_id: str, payload: UserUpdate, admin=Depends(require_a
     return {"ok": True}
 
 
+class NotifyTestIn(BaseModel):
+    to: str = Field(min_length=5, max_length=200)
+
+
+@router.post("/notify/test")
+async def admin_notify_test(payload: NotifyTestIn):
+    """Send one email now to check SMTP_URL."""
+    from services.notify_service import smtp_config, test_connection
+    if not await smtp_config():
+        raise HTTPException(status_code=400, detail="سجّل SMTP_URL الأول من صفحة المفاتيح")
+    return await test_connection(payload.to.strip())
+
+
+@router.get("/notify/log")
+async def admin_notify_log(limit: int = 30):
+    from services.notify_service import smtp_config
+    rows = await db.notifications.find({}, {"_id": 0}).sort("at", -1).to_list(max(1, min(limit, 100)))
+    return {"rows": rows, "configured": bool(await smtp_config())}
+
+
 class SafetyReviewIn(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
     reason: str = Field(min_length=3, max_length=500)
@@ -521,6 +541,21 @@ KNOWN_SETTINGS = {
         "description_ar": "عدد الأقارب أو الأصدقاء اللي ولي الأمر يقدر يضيفهم في خطوة الشخصيات.",
         "type": "int", "min": 0, "max": 6, "default": 3, "public": True,
     },
+    "notify.enabled": {
+        "label_ar": "إيميلات لأولياء الأمور",
+        "description_ar": "خطة جاهزة للاعتماد، القصة جاهزة، أو حصلت مشكلة. بتشتغل لما SMTP_URL يتسجّل في صفحة المفاتيح.",
+        "type": "bool", "default": True,
+    },
+    "notify.from_email": {
+        "label_ar": "الإيميل اللي بنبعت منه",
+        "description_ar": "فاضي = إيميل حساب SMTP نفسه.",
+        "type": "email", "default": "",
+    },
+    "notify.ops_email": {
+        "label_ar": "إيميل فريق التشغيل",
+        "description_ar": "بيوصله تنبيه لما طلب يقع أو خطة تحتاج مراجعة سلامة. فاضي = من غير تنبيهات.",
+        "type": "email", "default": "",
+    },
 }
 
 
@@ -541,6 +576,13 @@ async def upsert_setting(payload: SettingIn, admin=Depends(require_admin)):
     if not meta:
         raise HTTPException(status_code=400, detail="إعداد غير معروف")
     value = payload.value
+    if meta["type"] == "bool":
+        if not isinstance(value, bool):
+            raise HTTPException(status_code=400, detail="القيمة لازم تكون تشغيل أو إيقاف")
+    elif meta["type"] == "email":
+        value = str(value or "").strip()
+        if value and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise HTTPException(status_code=400, detail="الإيميل مش مظبوط")
     if meta["type"] == "int":
         try:
             value = int(value)

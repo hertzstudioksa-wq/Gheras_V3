@@ -361,6 +361,48 @@ async def synthesize_gemini(text: str, voice: str, direction: str, model: Option
     raise last_error or AIError("Gemini TTS: no model available")
 
 
+FAL_GEMINI_TTS_MODEL = "fal-ai/gemini-3.1-flash-tts"
+# fal's language_code steers the accent; Egyptian has its own, the rest read as MSA.
+FAL_LANGUAGE_OF_DIALECT = {"egyptian": "Arabic (Egypt)"}
+FAL_DEFAULT_LANGUAGE = "Arabic (World)"
+
+
+async def synthesize_gemini_fal(text: str, voice: str, direction: str, model: Optional[str] = None,
+                                dialect_key: Optional[str] = None) -> tuple[bytes, dict]:
+    """One take of Gemini TTS through fal (same voices as direct Gemini, billed
+    on the fal balance). Returns (wav_bytes, meta). Raises services.ai.AIError."""
+    from services.ai import AIError, fal
+
+    slug = model or FAL_GEMINI_TTS_MODEL
+    started = time.monotonic()
+    result = await fal.run(stage="narration_generation", env_key="FAL_KEY_NARRATION", model=slug, timeout=240.0,
+                           poll_interval=1.5, arguments={
+                               "prompt": text,
+                               "style_instructions": direction,
+                               "voice": voice if voice in GEMINI_VOICES else "Algieba",
+                               "language_code": FAL_LANGUAGE_OF_DIALECT.get(dialect_key or "", FAL_DEFAULT_LANGUAGE),
+                               "output_format": "wav",
+                           })
+    audio_url = (result.get("audio") or {}).get("url")
+    if not audio_url:
+        raise AIError(f"fal Gemini TTS returned no audio ({slug})")
+    audio = await fal.download(audio_url)
+    return audio, {"provider": "fal_gemini_tts", "model": slug, "voice": voice,
+                   "latency_ms": int((time.monotonic() - started) * 1000), "real_call": True,
+                   "chars": len(text) + len(direction or "")}
+
+
+async def _tts_via_fal_gemini(text, voice, language, model_id, voice_settings):
+    """Generic entry (Stage Lab / single lines): MSA storyteller unless told otherwise."""
+    from services.engine_config import get_dialect
+    from services.house_style import DEFAULT_DIALECT
+
+    dialect = await get_dialect(DEFAULT_DIALECT)
+    voice = voice if voice in GEMINI_VOICES else dialect["voices"]["male"]
+    audio, meta = await synthesize_gemini_fal(text, voice, dialect["tts_direction"], model_id, dialect["key"])
+    return audio, "audio/wav", {**meta, "language": language, "error": None, "fallback_to_mock": False}
+
+
 async def _tts_via_gemini(text, voice, language, model_id, voice_settings):
     """Generic entry (Stage Lab / single lines): MSA storyteller unless told otherwise."""
     from services.engine_config import get_dialect
@@ -373,6 +415,7 @@ async def _tts_via_gemini(text, voice, language, model_id, voice_settings):
 
 
 PROVIDERS = {
+    "fal_gemini_tts": _tts_via_fal_gemini,
     "gemini_tts": _tts_via_gemini,
     "elevenlabs": _tts_via_elevenlabs,
     "fal_tts":    _tts_via_fal_elevenlabs,
@@ -449,7 +492,7 @@ async def narration_real_call_available() -> bool:
     if provider == "elevenlabs":
         secret, _src = await get_secret_with_source("ELEVENLABS_API_KEY")
         return bool(secret)
-    if provider == "fal_tts":
+    if provider in ("fal_tts", "fal_gemini_tts"):
         secret, _src = await _get_fal_key_for_narration()
         return bool(secret)
     if provider == "openai":

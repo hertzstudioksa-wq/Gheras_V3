@@ -35,6 +35,8 @@ async def _append_status(order_id, from_status, to_status, by, actor_id=None, re
         {"$set": {"status": to_status, "updated_at": _now()},
          "$push": {"status_history": entry}},
     )
+    from services.notify_service import on_status
+    on_status(order_id, to_status)
 
 
 async def _update_job(job_id: str, patch: dict):

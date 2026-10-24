@@ -146,6 +146,19 @@ KNOWN_ENV_KEYS: list[dict] = [
         "optional": True,
     },
     {
+        "key": "SMTP_URL",
+        "label": "SMTP — إيميلات الإشعارات",
+        "providers": ["smtp"],
+        "purpose": "صندوق إيميل بيبعت منه غِراس إشعارات العملاء والتشغيل (أي مزوّد: Zoho، Google Workspace، Resend، Brevo…).",
+        "rotation_instructions": (
+            "اكتبه بالشكل ده: smtps://USER:PASSWORD@smtp.example.com:465\n"
+            "أو smtp://USER:PASSWORD@smtp.example.com:587 (STARTTLS).\n"
+            "لو كلمة السر فيها رموز زي @ أو / اكتبها مشفّرة (%40، %2F).\n"
+            "بعد الحفظ جرّبه من إعدادات النظام ← جرّب الإيميل."
+        ),
+        "optional": True,
+    },
+    {
         "key": "MONGO_URL",
         "label": "MongoDB",
         "providers": ["mongo"],

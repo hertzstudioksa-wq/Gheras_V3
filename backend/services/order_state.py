@@ -40,4 +40,7 @@ async def claim(order_id: str, allowed_from, to_status: str, by: str, *, actor_i
     if inc:
         update["$inc"] = inc
     res = await db.orders.update_one({"id": order_id, "status": order["status"], **(where or {})}, update)
+    if res.modified_count == 1:
+        from services.notify_service import on_status
+        on_status(order_id, to_status)
     return res.modified_count == 1

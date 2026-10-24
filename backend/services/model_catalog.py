@@ -42,7 +42,7 @@ CAPABILITY_LABELS = {"text": "نصوص", "image": "صور", "tts": "صوت ال�
 EXECUTORS = {
     "text": {"fal_llm", "anthropic", "openai", "gemini"},
     "image": {"fal_image", "openai", "gemini"},
-    "tts": {"gemini_tts", "fal_tts", "elevenlabs", "openai"},
+    "tts": {"fal_gemini_tts", "gemini_tts", "fal_tts", "elevenlabs", "openai"},
     "video": {"kling"},  # the shot engine renders Kling (v2.x and v3) via fal
     "music": {"fal_music"},
 }
@@ -115,6 +115,11 @@ CATALOG_SEED = [
      "price": {"unit": "image", "usd": 0.04, "source": _LIST},
      "notes_ar": "للتجربة بس — المفتاح المجاني حده 0 صور، ومحتاج billing."},
     # ---- narration
+    {"capability": "tts", "provider": "fal_gemini_tts", "model_name": "fal-ai/gemini-3.1-flash-tts",
+     "label": "Gemini 3.1 Flash TTS (عبر fal)", "status": "recommended",
+     "price": {"unit": "minute", "usd": 0.045, "source": "fal: $0.05 / 1000 حرف — دقيقة سرد ≈ 900 حرف مع التوجيه"},
+     "notes_ar": "نفس أصوات Gemini العربية واللهجات (اللي اتختارت في الاختبار) بس مدفوعة على رصيد fal: "
+                 "كلام ولي الأمر مش بيعدّي على الـ free tier بتاع جوجل."},
     {"capability": "tts", "provider": "gemini_tts", "model_name": "gemini-3.8-flash-tts",
      "label": "Gemini 3.8 Flash TTS", "status": "recommended",
      "price": {"unit": "minute", "usd": None, "source": None},

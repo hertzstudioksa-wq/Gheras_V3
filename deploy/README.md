@@ -1,0 +1,21 @@
+# تشغيل غِراس على السيرفر (76.13.0.195)
+
+السيرفر ده عليه **لزام (Lizamcenter.com) شغّال إنتاج**. كل خطوة هنا بتلمس غِراس بس:
+- مفيش `systemctl stop/restart` لأي خدمة غير `gheras`.
+- الحاجة الوحيدة المشتركة هي `nginx reload` هادي (من غير ما الموقع يقع) عشان نضيف بورت 3000، وبيحصل بس بعد `nginx -t`، ولو لزام اتأثر بيترجع لوحده.
+- قبل وبعد: `systemctl is-active lizam` لازم `active`، و`https://lizamcenter.com/api/public/site-settings` لازم `200`.
+
+## مرة واحدة: التجهيز
+1. انسخ الريبو للسيرفر (مثلاً `scp -r backend deploy frontend/build root@76.13.0.195:/root/gheras-src/` بعد `npm run build` بـ `REACT_APP_BACKEND_URL=''`).
+2. على السيرفر: `bash /root/gheras-src/deploy/provision.sh`
+   - أول مرة بيعمل `/etc/gheras/gheras.env` ويقف: املأ `JWT_SECRET` و`ADMIN_PASSWORD` و`SECRETS_ENCRYPTION_KEY` (`openssl rand -hex 32`)، وشغّله تاني.
+   - بيسطّب: ffmpeg، Python venv، Chromium بتاع Playwright (للكتاب)، مستخدم `gheras`، خدمة `gheras.service` بحدود ذاكرة ومعالج.
+3. لما الخدمة تشتغل: `bash /root/gheras-src/deploy/provision.sh --enable-site` عشان الموقع يفتح على `:3000`.
+4. ادخل `/admin` بالأدمن وغيّر كلمة السر، وحط المفاتيح من «المفاتيح والمزوّدين» (fal، ميسر، SMTP).
+5. فعّل الـ deploy التلقائي: repo variable `GHERAS_DEPLOY_ENABLED=true` (الـ workflow بيكشف على لزام قبل وبعد).
+
+## بعدين
+- كل `git push` على main بيعمل deploy لغِراس بس (`.github/workflows/deploy.yml`).
+- اللوجز: `journalctl -u gheras -f`
+- الملفات: `/var/lib/gheras/media` — النسخ الاحتياطي يشمله هو وقاعدة `gheras_prod`.
+- لما يبقى فيه دومين: سيرفر nginx منفصل لدومين غِراس + certbot لدومينه هو بس، وبعدها `PUBLIC_APP_URL` و`PUBLIC_API_URL` بـ https.

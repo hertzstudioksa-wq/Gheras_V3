@@ -69,12 +69,14 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
         "env_key": "FAL_KEY_SCENE",
     },
     # Native-dialect narration steered by a direction prompt (approved in M1).
+    # Gemini's voices (authentic dialects) through fal: billed on the fal
+    # balance, so the parent's text never goes through Google's free tier.
     "narration_generation": {
-        "provider": "gemini_tts",
-        "model_name": "gemini-3.8-flash-tts",
+        "provider": "fal_gemini_tts",
+        "model_name": "fal-ai/gemini-3.1-flash-tts",
         "fallback_provider": "fal_tts",
         "fallback_model": "fal-ai/elevenlabs/tts/multilingual-v2",
-        "env_key": "GEMINI_API_KEY",
+        "env_key": "FAL_KEY_NARRATION",
     },
     # Kling 2.5 turbo: close to v3 pro in the bake-off at $0.07/s vs $0.112/s
     # (owner decision 2026-10-24). v3 pro stays available as the "premium" preset.
@@ -200,6 +202,7 @@ PROVIDER_ENV_MAP = {
     "fal_image":  {"env_key": "FAL_KEY_SCENE",      "label": "fal.ai — Images (Gemini Nano Banana)"},
     "fal_tts":    {"env_key": "FAL_KEY_NARRATION",  "label": "fal.ai — ElevenLabs TTS (narration)"},
     "gemini_tts": {"env_key": "GEMINI_API_KEY",     "label": "Google Gemini TTS (narration)"},
+    "fal_gemini_tts": {"env_key": "FAL_KEY_NARRATION", "label": "fal.ai — Gemini TTS (narration)"},
     "fal_llm":    {"env_key": "FAL_KEY_TEXT",       "label": "fal.ai — OpenRouter (Claude / GPT / Gemini text)"},
     "fal_music":  {"env_key": "FAL_KEY_MUSIC",      "label": "fal.ai — ElevenLabs Music"},
     "kling":      {"env_key": "FAL_KEY_VIDEO",      "label": "fal.ai — Kling Video"},

@@ -49,7 +49,10 @@ async def _note(order: dict, to_status: str, reason: str, inc: dict | None = Non
     update = {"$set": {"status": to_status, "updated_at": _now()}, "$push": {"status_history": entry}}
     if inc:
         update["$inc"] = inc
-    await db.orders.update_one({"id": order["id"], "status": order["status"]}, update)
+    res = await db.orders.update_one({"id": order["id"], "status": order["status"]}, update)
+    if res.modified_count:
+        from services.notify_service import on_status
+        on_status(order["id"], to_status)
 
 
 async def _resume(order: dict, step: str) -> None:

@@ -63,6 +63,8 @@ async def append_status(order_id: str, from_status: str | None, to_status: str, 
             "$push": {"status_history": entry},
         },
     )
+    from services.notify_service import on_status
+    on_status(order_id, to_status)
 
 
 async def run_scenario_generation(order_id: str, batch_id: str):

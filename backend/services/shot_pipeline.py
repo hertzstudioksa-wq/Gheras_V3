@@ -410,7 +410,7 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
     split into one clip per shot line; other providers voice line by line."""
     from services.ai import AIError
     from services.tts_service import (GEMINI_TTS_MODELS, _resolve_narration_provider, generate_tts,
-                                      narration_voice_for_order, synthesize_gemini)
+                                      narration_voice_for_order, synthesize_gemini, synthesize_gemini_fal)
 
     scene = await db.scene_plans.find_one({"id": job["target_id"]}, {"_id": 0})
     shots = (scene or {}).get("shots") or []
@@ -424,16 +424,22 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
 
     take_url = None
     meta: dict = {"provider": provider, "model": model, "dialect": dialect_key}
-    if provider == "gemini_tts":
+    if provider in ("gemini_tts", "fal_gemini_tts"):
         voice = dialect["voices"][await house_style.narrator_for_order(order)]
+        via_fal = provider == "fal_gemini_tts"
+        # Direct Gemini falls back across models; through fal, a fresh take of the same model.
+        candidates = [model] * 3 if via_fal else [model, *[x for x in GEMINI_TTS_MODELS if x != model]][:3]
 
         async def voice_text(text: str) -> tuple[bytes, dict]:
             # A take far longer than its words means the model also spoke the
-            # direction or ad-libbed: retry on the next model, never deliver it.
+            # direction or ad-libbed: retry, never deliver it.
             words = len(text.split())
             tried = []
-            for m in [model, *[x for x in GEMINI_TTS_MODELS if x != model]][:3]:
-                w, gmeta = await synthesize_gemini(text, voice, dialect["tts_direction"], m)
+            for m in candidates:
+                if via_fal:
+                    w, gmeta = await synthesize_gemini_fal(text, voice, dialect["tts_direction"], m, dialect_key)
+                else:
+                    w, gmeta = await synthesize_gemini(text, voice, dialect["tts_direction"], m)
                 secs = await _seconds_of(w, "wav")
                 if _plausible(secs, words, wps):
                     return w, gmeta

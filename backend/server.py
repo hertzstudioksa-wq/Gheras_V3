@@ -508,6 +508,26 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"landing copy migration skipped: {e}")
+    # M7: narration moves from direct Gemini (a free key: Google may use the
+    # inputs, which include the child's name) to the same voices through fal.
+    try:
+        if await _already_applied("narration_via_fal"):
+            raise _SkipMigration
+        fal_tts = {"provider": "fal_gemini_tts", "model_name": "fal-ai/gemini-3.1-flash-tts", "env_key": "FAL_KEY_NARRATION"}
+        await db.model_registry.update_many({"stage_key": "narration_generation", "provider": "gemini_tts"},
+                                            {"$set": {**fal_tts, "updated_at": datetime.now(timezone.utc).isoformat()}})
+        await db.preset_stacks.update_many({"stage_map.narration_generation.provider": "gemini_tts"},
+                                           {"$set": {"stage_map.narration_generation": fal_tts}})
+        await db.model_catalog.update_one(
+            {"provider": "gemini_tts", "model_name": "gemini-3.8-flash-tts"},
+            {"$set": {"status": "testing_only",
+                      "notes_ar": "مباشر من جوجل بالمفتاح المجاني: جوجل ممكن تستخدم المدخلات (فيها اسم الطفل) لتحسين "
+                                  "خدماتها، فللتجربة بس. للإنتاج استخدم نفس الأصوات عبر fal."}})
+        await _mark_applied("narration_via_fal")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"narration via fal migration skipped: {e}")
     # M3: the child sheet template takes the parent's art style preset
     # ($style_text / $sheet_rules) instead of the house style baked into its text.
     # An admin-rewritten template (without the baked text) is left alone.
