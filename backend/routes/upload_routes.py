@@ -3,11 +3,14 @@ import io
 import os
 import uuid
 from datetime import datetime, timezone
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header, Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from db import db
 from auth import get_current_user, decode_token
+from services import rate_limit
 from storage import put_object, get_object, ALLOWED_EXT, MIME_TYPES, MAX_BYTES, APP_NAME
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
@@ -52,6 +55,7 @@ async def upload_image(
 ):
     if scope not in ALLOWED_SCOPES:
         raise HTTPException(status_code=400, detail="نطاق الرفع غير صالح")
+    rate_limit.check(f"upload:{current['id']}", 40, 3600, "رفعت صور كتير — جرّب بعد شوية")
     if scope in ADMIN_SCOPES and current.get("role") != "admin":
         raise HTTPException(status_code=403, detail="ممنوع الوصول")
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
@@ -87,31 +91,42 @@ async def upload_image(
         "created_at": _now(),
     })
 
-    # URL served by our backend, token via ?auth= for <img src>
+    # Served by our backend; <img src> adds the short-lived media token (?mt=).
     url = f"/api/uploads/file/{file_id}"
     return {"id": file_id, "url": url, "storage_path": result["path"], "content_type": content_type}
+
+
+_RANGE = re.compile(r"bytes=(\d*)-(\d*)$")
 
 
 @router.get("/file/{file_id}")
 async def download_file(
     file_id: str,
     authorization: str = Header(None),
-    auth: str | None = Query(None),
+    mt: str | None = Query(None),
+    range_header: str | None = Header(None, alias="Range"),
 ):
-    # Auth can come from header OR ?auth= query (for <img> tags).
-    token = None
+    """A stored file for its owner or an admin. <img>/<video> tags can't send
+    headers, so links carry the short-lived media token (?mt=), never the
+    session token. Supports byte ranges so videos seek (and play on Safari)."""
     if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ", 1)[1]
-    elif auth:
-        token = auth
-    if not token:
+        token, want_media = authorization.split(" ", 1)[1], False
+    elif mt:
+        token, want_media = mt, True
+    else:
         raise HTTPException(status_code=401, detail="Unauthorized")
     try:
         claims = decode_token(token)
     except Exception:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    if (claims.get("typ") == "media") != want_media:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     uid = claims.get("sub")
-    role = claims.get("role")
+    user = await db.users.find_one({"id": uid}, {"_id": 0, "role": 1, "token_version": 1, "is_active": 1})
+    if not user or not user.get("is_active", True) or \
+            int(claims.get("tv", 0)) != int(user.get("token_version", 0)):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    role = user.get("role")
 
     rec = await db.files.find_one({"id": file_id, "is_deleted": False}, {"_id": 0})
     if not rec:
@@ -125,4 +140,18 @@ async def download_file(
         data, ct = get_object(rec["storage_path"])
     except Exception:
         raise HTTPException(status_code=502, detail="تعذّر تحميل الملف")
-    return Response(content=data, media_type=rec.get("content_type", ct))
+    media_type = rec.get("content_type", ct)
+    headers = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}
+    m = _RANGE.match((range_header or "").strip())
+    if m and (m.group(1) or m.group(2)):
+        size = len(data)
+        if m.group(1):
+            start = int(m.group(1))
+            end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+        else:  # last N bytes
+            start, end = max(0, size - int(m.group(2))), size - 1
+        if start >= size or start > end:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        return Response(content=data[start:end + 1], status_code=206, media_type=media_type,
+                        headers={**headers, "Content-Range": f"bytes {start}-{end}/{size}"})
+    return Response(content=data, media_type=media_type, headers=headers)

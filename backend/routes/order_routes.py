@@ -9,6 +9,7 @@ from auth import get_current_user
 from models import OrderCreate, OrderStatus, ORDER_STATUS_AR, duration_meta
 from prompt_engine import build_prompt
 from services.scenario_service import generate_scenarios, build_scenario_docs
+from services.privacy_service import CONSENT_VERSION
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -103,11 +104,29 @@ async def run_scenario_generation(order_id: str, batch_id: str):
         await append_status(order_id, order.get("status"), OrderStatus.FAILED.value, "system", reason=f"scenarios error: {e}")
 
 
+async def _check_own_photos(data: dict, user: dict) -> None:
+    """Every photo an order points at must be a file this parent uploaded
+    (audit MISS-6): a leaked file id can't pull another child into a story."""
+    urls = [((data.get("child") or {}).get("image_url"))]
+    urls += [c.get("image_url") for c in data.get("characters") or []]
+    urls.append((data.get("personalization") or {}).get("toy_image_url"))
+    for url in filter(None, urls):
+        fid = str(url).rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+        rec = await db.files.find_one({"id": fid, "is_deleted": False}, {"_id": 0, "user_id": 1})
+        if not rec or rec.get("user_id") != user["id"]:
+            raise HTTPException(status_code=400, detail="صورة من الصور مش موجودة في حسابك — ارفعها تاني")
+
+
 @router.post("")
 async def create_order(payload: OrderCreate, background: BackgroundTasks, current=Depends(get_current_user)):
+    from services import rate_limit
+    rate_limit.check(f"order-create:{current['id']}", 10, 3600, "طلبات كتير في ساعة واحدة — جرّب بعد شوية")
+    if not payload.consent:
+        raise HTTPException(status_code=400, detail="لازم توافق على استخدام الصور حسب سياسة الخصوصية")
     data = payload.data.model_dump()
     if not await db.categories.find_one({"id": data["goal"]["category_id"], "is_active": True}):
         raise HTTPException(status_code=400, detail="التصنيف غير موجود")
+    await _check_own_photos(data, current)
 
     max_chars = 3
     s = await db.settings.find_one({"key": "characters.max_count"}, {"_id": 0})
@@ -115,6 +134,14 @@ async def create_order(payload: OrderCreate, background: BackgroundTasks, curren
         max_chars = int(s["value"])
     if len(data.get("characters", [])) > max_chars:
         raise HTTPException(status_code=400, detail=f"الحد الأقصى للشخصيات هو {max_chars}")
+
+    # Child safety (PL-13): the parent's text is screened before any generation.
+    from services.safety_service import check_parent_text, refusal_message
+    safety = await check_parent_text(data)
+    if not safety["safe"]:
+        await db.safety_refusals.insert_one({"id": str(uuid.uuid4()), "user_id": current["id"], "at": _now(),
+                                             "category": safety["category"], "reason_ar": safety["reason_ar"]})
+        raise HTTPException(status_code=400, detail=refusal_message(safety))
 
     # Duration — normalize & compute meta
     raw_seconds = int((data.get("duration") or {}).get("seconds") or 90)
@@ -139,6 +166,8 @@ async def create_order(payload: OrderCreate, background: BackgroundTasks, curren
         "enriched": enriched,
         "duration": dur_meta,
         "price_quote": price_quote,
+        "consent": {"accepted_at": _now(), "version": CONSENT_VERSION},
+        "safety": safety,
         "status": OrderStatus.PENDING.value,
         "admin_note": None,
         "ai_prompt_snapshot": prompt,
@@ -341,13 +370,28 @@ async def list_scenario_batches(order_id: str, current=Depends(get_current_user)
     }
 
 
+@router.post("/{order_id}/photos/delete")
+async def delete_my_photos(order_id: str, current=Depends(get_current_user)):
+    """The parent deletes the original photos now (the drawings and the story stay)."""
+    from services.privacy_service import delete_order_photos
+    o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if o.get("status") not in ("delivered", "completed"):
+        raise HTTPException(status_code=400, detail="تقدر تمسح الصور بعد ما القصة تتسلّم")
+    n = await delete_order_photos(o, actor=current, reason="طلب ولي الأمر")
+    return {"ok": True, "deleted": n}
+
+
 @router.post("/{order_id}/scenarios/regenerate")
 async def regenerate_scenarios(order_id: str, background: BackgroundTasks, current=Depends(get_current_user)):
     o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    if o.get("status") in (OrderStatus.GENERATING.value, OrderStatus.COMPLETED.value):
-        raise HTTPException(status_code=400, detail="لا يمكن إعادة التوليد بعد بدء الإنتاج")
+    from services.order_state import SCENARIO_REGENERABLE, claim
+    if o.get("status") not in SCENARIO_REGENERABLE or o.get("production_approved") or \
+            (o.get("status") == OrderStatus.FAILED.value and o.get("production_plan_id")):
+        raise HTTPException(status_code=400, detail="لا يمكن تغيير الأفكار بعد بدء إعداد القصة")
 
     used = int(o.get("regeneration_count", 0))
     max_regen = int(o.get("max_regenerations", MAX_REGENERATIONS))
@@ -358,18 +402,14 @@ async def regenerate_scenarios(order_id: str, background: BackgroundTasks, curre
         )
 
     new_batch_id = str(uuid.uuid4())
-    await db.orders.update_one(
-        {"id": order_id},
-        {
-            "$set": {
-                "current_scenario_batch_id": new_batch_id,
-                "selected_scenario_id": None,
-                "selected_scenario_snapshot": None,
-            },
-            "$inc": {"regeneration_count": 1},
-        },
+    claimed = await claim(
+        order_id, SCENARIO_REGENERABLE, OrderStatus.SCENARIOS_GENERATING.value, "user", actor_id=current["id"],
+        reason=f"regenerate ({used + 1}/{max_regen})",
+        extra={"current_scenario_batch_id": new_batch_id, "selected_scenario_id": None, "selected_scenario_snapshot": None},
+        inc={"regeneration_count": 1},
     )
-    await append_status(order_id, o.get("status"), OrderStatus.SCENARIOS_GENERATING.value, "user", actor_id=current["id"], reason=f"regenerate ({used + 1}/{max_regen})")
+    if not claimed:
+        raise HTTPException(status_code=409, detail="الطلب اتغيّر — حدّث الصفحة")
     background.add_task(run_scenario_generation, order_id, new_batch_id)
     return {"ok": True, "batch_id": new_batch_id, "regeneration_count": used + 1, "regenerations_remaining": max_regen - used - 1}
 
@@ -379,8 +419,9 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     o = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    if o.get("status") in (OrderStatus.GENERATING.value, OrderStatus.COMPLETED.value):
-        raise HTTPException(status_code=400, detail="لا يمكن التعديل بعد بدء الإنتاج")
+    from services.order_state import SCENARIO_SELECTABLE, claim
+    if o.get("status") not in SCENARIO_SELECTABLE:
+        raise HTTPException(status_code=400, detail="القصة اتختارت وبدأ تجهيزها بالفعل")
     scenario = await db.scenarios.find_one({"id": scenario_id, "order_id": order_id}, {"_id": 0})
     if not scenario:
         raise HTTPException(status_code=404, detail="السيناريو غير موجود")
@@ -392,8 +433,6 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     current_batch = o.get("current_scenario_batch_id")
     promote_batch = bool(selected_batch and selected_batch != current_batch)
 
-    await db.scenarios.update_many({"order_id": order_id}, {"$set": {"is_selected": False}})
-    await db.scenarios.update_one({"id": scenario_id}, {"$set": {"is_selected": True}})
     update_fields: dict = {
         "selected_scenario_id": scenario_id,
         "selected_scenario_snapshot": scenario,
@@ -401,14 +440,15 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     }
     if promote_batch:
         update_fields["current_scenario_batch_id"] = selected_batch
-    await db.orders.update_one({"id": order_id}, {"$set": update_fields})
-
     reason = (
         f"selected scenario {scenario.get('scenario_index')}"
         + (" (from previous batch)" if promote_batch else "")
     )
-    await append_status(order_id, o.get("status"), OrderStatus.SCENARIO_SELECTED.value, "user",
-                        actor_id=current["id"], reason=reason)
+    if not await claim(order_id, SCENARIO_SELECTABLE, OrderStatus.SCENARIO_SELECTED.value, "user",
+                       actor_id=current["id"], reason=reason, extra=update_fields):
+        raise HTTPException(status_code=409, detail="الطلب اتغيّر — حدّث الصفحة")
+    await db.scenarios.update_many({"order_id": order_id}, {"$set": {"is_selected": False}})
+    await db.scenarios.update_one({"id": scenario_id}, {"$set": {"is_selected": True}})
     # M6 — production starts now, or once the order is paid.
     from services.payment_service import gate_production
     gate = await gate_production(order_id, background)

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { CheckCircle2, AlertTriangle, PlugZap, RotateCcw, Plus, Save, Layers, KeyRound, Info } from "lucide-react";
+import { CheckCircle2, AlertTriangle, PlugZap, RotateCcw, Plus, Save, Layers, KeyRound, Info, Beaker } from "lucide-react";
 import { api } from "../../lib/api";
 import { Badge, Drawer, Field, Panel, diff, errText, inputCls } from "./engineUi";
 
@@ -90,6 +90,15 @@ export function StagesTab() {
     if (!window.confirm(`تطبّق "${p.name}"؟ هتغيّر موديلات ${p.stages.length} مرحلة.\n${p.description || ""}`)) return;
     run(`preset-${p.id}`, () => api.post(`/admin/engine/presets/${p.id}/apply`), `اتطبّقت "${p.name}"`);
   };
+  const savePreset = () => {
+    const name = window.prompt("اسم المجموعة (مثلاً: اقتصادي — Haiku + CassetteAI)");
+    if (!name || name.trim().length < 2) return;
+    run("preset-save", () => api.post("/admin/engine/presets", { name: name.trim() }), `اتحفظت "${name.trim()}"`);
+  };
+  const deletePreset = (p) => {
+    if (!window.confirm(`تمسح مجموعة "${p.name}"؟ (الإعداد الحالي مش هيتغيّر)`)) return;
+    run(`preset-del-${p.id}`, () => api.delete(`/admin/engine/presets/${p.id}`), "اتمسحت");
+  };
 
   const videoModels = byCap.video || [];
   const balanced = state.stages.find((s) => s.stage_key === "video_generation");
@@ -115,26 +124,36 @@ export function StagesTab() {
         </div>
       </Panel>
 
-      {state.presets?.length > 0 && (
-        <Panel>
-          <div className="flex items-center gap-2 mb-3">
-            <Layers className="w-4 h-4 text-[#729352]" />
-            <h3 className="font-heading font-bold text-[#2D3748]">مجموعات جاهزة</h3>
-            <span className="font-body text-xs text-[#8A9AB0]">بتغيّر كذا مرحلة مرة واحدة — بتظهر هنا بس لو كل موديلاتها في الكتالوج</span>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {state.presets.map((p) => (
-              <button key={p.id} onClick={() => applyPreset(p)} disabled={!!busy} title={p.description || ""}
-                className="inline-flex items-center gap-2 rounded-2xl bg-[#FDFBF7] border border-[#E2D8C9] hover:border-[#87A96B] px-4 py-2 text-sm font-body font-bold text-[#2D3748] disabled:opacity-50"
+      <Panel>
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <Layers className="w-4 h-4 text-[#729352]" />
+          <h3 className="font-heading font-bold text-[#2D3748]">مجموعات جاهزة</h3>
+          <span className="font-body text-xs text-[#8A9AB0]">بتغيّر كذا مرحلة مرة واحدة — بتظهر هنا بس لو كل موديلاتها في الكتالوج</span>
+          <button onClick={savePreset} disabled={!!busy}
+            className="mr-auto inline-flex items-center gap-1 rounded-2xl bg-white border border-dashed border-[#87A96B] px-3 py-1.5 text-xs font-body font-bold text-[#4F6B3B]"
+            data-testid="preset-save-current">
+            <Plus className="w-3.5 h-3.5" /> احفظ الإعداد الحالي كمجموعة
+          </button>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {(state.presets || []).length === 0 && <span className="font-body text-sm text-[#8A9AB0]">مفيش مجموعات لسه</span>}
+          {(state.presets || []).map((p) => (
+            <span key={p.id} className="inline-flex items-center rounded-2xl bg-[#FDFBF7] border border-[#E2D8C9] hover:border-[#87A96B]">
+              <button onClick={() => applyPreset(p)} disabled={!!busy} title={p.description || ""}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-body font-bold text-[#2D3748] disabled:opacity-50"
                 data-testid={`preset-${p.id}`}>
                 {p.name}
                 {p.intended_use === "testing" && <Badge tone="gold">تجربة</Badge>}
                 {p.is_active && <Badge tone="green">آخر واحدة اتطبّقت</Badge>}
               </button>
-            ))}
-          </div>
-        </Panel>
-      )}
+              {!p.is_seeded && (
+                <button onClick={() => deletePreset(p)} disabled={!!busy} aria-label={`امسح ${p.name}`} title="امسح المجموعة"
+                  className="px-2 py-2 text-[#B8612F] text-sm font-bold border-r border-[#E2D8C9]">×</button>
+              )}
+            </span>
+          ))}
+        </div>
+      </Panel>
 
       <div className="space-y-3">
         {state.stages.map((row) => {
@@ -180,6 +199,10 @@ export function StagesTab() {
                       data-testid={`stage-test-${row.stage_key}`}>
                       <PlugZap className="w-3.5 h-3.5" /> {t?.loading ? "جاري الاختبار…" : "اختبار المفتاح"}
                     </button>
+                    <Link to={`/admin/lab?stage=${row.stage_key}`} title="جرّب المرحلة دي على بيانات حقيقية"
+                      className="inline-flex items-center gap-1 rounded-2xl bg-white border border-[#E2D8C9] px-3 py-2 text-xs font-body font-bold text-[#5A677D] hover:border-[#87A96B]">
+                      <Beaker className="w-3.5 h-3.5" /> المختبر
+                    </Link>
                     {!row.is_default && (
                       <button onClick={() => run(row.stage_key, () => api.post(`/admin/engine/stages/${row.stage_key}/reset`), "رجعت للافتراضي")}
                         disabled={!!busy} title={`الافتراضي: ${row.default_label}`}

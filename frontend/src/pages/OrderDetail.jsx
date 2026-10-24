@@ -123,7 +123,7 @@ export default function OrderDetail() {
           <p className="font-body text-[#5A677D] max-w-lg mx-auto mb-4">
             {order.status === "completed" ? "يمكنك تحميل الفيديو و PDF أو مشاركة القصة"
             : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اضغط لاختيار السيناريو الذي يناسب طفلك"
-            : "فريقنا يُحضّر قصة طفلك بعناية. ستصلك عند الاكتمال."}
+            : "بنجهّز قصة طفلك. هتلاقيها هنا وفي «قصصي» أول ما تخلص."}
           </p>
           {["scenarios_generating","scenarios_ready"].includes(order.status) && (
             <Link to={`/orders/${order.id}/scenarios`} className="btn-primary inline-flex items-center gap-2">

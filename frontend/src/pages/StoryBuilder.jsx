@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api, API } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/gheras/Navbar";
@@ -236,7 +236,13 @@ export default function StoryBuilder() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const [consent, setConsent] = useState(false);
+
   const submit = async () => {
+    if (!consent) {
+      toast.error("وافق على استخدام الصور الأول");
+      return;
+    }
     if (!user) {
       toast("سجّل دخولك لإتمام الطلب 🌱");
       navigate("/login", { state: { from: { pathname: "/story/new" } } });
@@ -244,7 +250,7 @@ export default function StoryBuilder() {
     }
     setSubmitting(true);
     try {
-      const { data: created } = await api.post("/orders", { data });
+      const { data: created } = await api.post("/orders", { data, consent });
       localStorage.removeItem(LS_KEY);
       toast.success("تم الإرسال — جاري إعداد السيناريوهات 🌱");
       navigate(`/orders/${created.id}/scenarios`);
@@ -409,15 +415,22 @@ export default function StoryBuilder() {
               <p className="font-body text-[#5A677D] mb-6">المعلومات التي تجعل القصة شخصية حقاً</p>
 
               <div className="flex flex-col md:flex-row gap-6 mb-6">
-                <ImageUploader
-                  value={data.child.image_url}
-                  onChange={(url) => updateChild({ image_url: url })}
-                  scope="child"
-                  label="صورة الطفل"
-                  required
-                  size="lg"
-                  testId="child-image"
-                />
+                <div className="md:w-56 shrink-0">
+                  <ImageUploader
+                    value={data.child.image_url}
+                    onChange={(url) => updateChild({ image_url: url })}
+                    scope="child"
+                    label="صورة الطفل"
+                    required
+                    size="lg"
+                    testId="child-image"
+                  />
+                  <p className="mt-3 font-body text-xs leading-relaxed text-[#5A677D] bg-[#E8F0E1]/60 rounded-2xl p-3" data-testid="photo-privacy-note">
+                    🔒 الصورة بتُستخدم بس لرسم شخصية طفلك في قصته، ومش بتتشارك مع حد.
+                    بنمسحها بعد تسليم القصة بـ 30 يوم، وتقدر تمسحها بنفسك قبلها.{" "}
+                    <Link to="/privacy" target="_blank" className="underline font-bold">سياسة الخصوصية</Link>
+                  </p>
+                </div>
                 <div className="flex-1 grid gap-4">
                   <div>
                     <label className="block text-sm font-bold text-[#2D3748] mb-2 font-body">اسم الطفل <span className="text-[#E07A5F]">*</span></label>
@@ -731,7 +744,19 @@ export default function StoryBuilder() {
 
           {/* STEP 6 — Review */}
           {step === 6 && (
-            <Review data={data} categories={categories} options={options} artStyles={artStyles} />
+            <>
+              <Review data={data} categories={categories} options={options} artStyles={artStyles} />
+              <label className="mt-6 flex items-start gap-3 bg-[#FDFBF7] border-2 border-[#E2D8C9] rounded-2xl p-4 cursor-pointer font-body text-sm text-[#2D3748]" data-testid="consent-box">
+                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
+                  className="mt-1 w-5 h-5 accent-[#87A96B] shrink-0" data-testid="consent-checkbox" />
+                <span>
+                  أنا ولي أمر الطفل (أو عندي إذن من ولي أمره)، وموافق إن غِراس تستخدم الصور والمعلومات دي
+                  عشان ترسم وتكتب قصته بمساعدة الذكاء الاصطناعي، حسب{" "}
+                  <Link to="/privacy" target="_blank" className="underline font-bold text-[#4F6B3B]">سياسة الخصوصية</Link> و
+                  <Link to="/terms" target="_blank" className="underline font-bold text-[#4F6B3B]">الشروط</Link>.
+                </span>
+              </label>
+            </>
           )}
 
           {/* Desktop actions */}
@@ -750,7 +775,7 @@ export default function StoryBuilder() {
                 التالي <ChevronLeft className="w-4 h-4" />
               </button>
             ) : (
-              <button type="button" onClick={submit} disabled={submitting} className="btn-primary inline-flex items-center gap-2 disabled:opacity-70" data-testid="wizard-submit-btn">
+              <button type="button" onClick={submit} disabled={submitting || !consent} className="btn-primary inline-flex items-center gap-2 disabled:opacity-50" data-testid="wizard-submit-btn">
                 <Sprout className="w-4 h-4" />
                 {submitting ? "جاري الإرسال..." : "إرسال الطلب"}
               </button>
@@ -772,7 +797,7 @@ export default function StoryBuilder() {
         {step < 6 ? (
           <button onClick={next} className="flex-[2] btn-primary">التالي</button>
         ) : (
-          <button onClick={submit} disabled={submitting} className="flex-[2] btn-primary">
+          <button onClick={submit} disabled={submitting || !consent} className="flex-[2] btn-primary disabled:opacity-50">
             {submitting ? "جاري الإرسال..." : "إرسال"}
           </button>
         )}

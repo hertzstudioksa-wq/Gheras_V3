@@ -115,6 +115,13 @@ async def on_startup():
             logger.info(f"applied {n} secure secret overrides at startup")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"secret overrides apply skipped: {e}")
+    # Privacy promise: delete original photos 30 days after delivery (CS-7).
+    import asyncio as _asyncio
+    from services.privacy_service import sweep_forever
+    app.state.privacy_sweep = _asyncio.create_task(sweep_forever())
+    # Orders a restart interrupted are resumed once (PL-4).
+    from services.recovery_service import recover_after_boot
+    app.state.recovery = _asyncio.create_task(recover_after_boot())
     try:
         from services.preset_stacks_service import seed_default_presets
         n = await seed_default_presets()
@@ -484,6 +491,23 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"presets catalog cleanup skipped: {e}")
+    # M7: landing copy promised a voice clone and a human review that don't
+    # exist (audit MISS-8). Replace those texts only where nobody edited them.
+    try:
+        if await _already_applied("honest_landing_copy"):
+            raise _SkipMigration
+        await db.content.update_one({"key": "hero.subtitle", "value": "منصة غِراس تصنع لطفلك قصصاً شخصيّة بصوته واسمه وصورته، تُعلّمه القيم الجميلة وتُعدّل سلوكياته بحُب."},
+                                    {"$set": {"value": "منصة غِراس تصنع لطفلك قصصاً شخصيّة باسمه وملامحه، تُعلّمه القيم الجميلة وتُعدّل سلوكياته بحُب."}})
+        values = await db.content.find_one({"key": "values.items"}, {"_id": 0, "value": 1})
+        items = (values or {}).get("value")
+        if isinstance(items, list) and any(i.get("desc") == "نراجع كل قصة قبل توصيلها لطفلك" for i in items):
+            items = [{**i, "desc": "نفحص طلبك ونص القصة بقواعد أمان الأطفال قبل ما نرسمها"} if i.get("desc") == "نراجع كل قصة قبل توصيلها لطفلك" else i for i in items]
+            await db.content.update_one({"key": "values.items"}, {"$set": {"value": items}})
+        await _mark_applied("honest_landing_copy")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"landing copy migration skipped: {e}")
     # M3: the child sheet template takes the parent's art style preset
     # ($style_text / $sheet_rules) instead of the house style baked into its text.
     # An admin-rewritten template (without the baked text) is left alone.

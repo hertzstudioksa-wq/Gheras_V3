@@ -47,6 +47,7 @@ api.interceptors.response.use(
       console.debug("[auth] interceptor:401 url=", url, "action=", isAuthProbe ? "ignore" : "redirect");
       if (!isAuthProbe) {
         localStorage.removeItem("gheras_token");
+        localStorage.removeItem(MEDIA_KEY);
         // eslint-disable-next-line no-console
         console.debug("[auth] token:cleared reason=401-from-app-endpoint");
         if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
@@ -60,19 +61,32 @@ api.interceptors.response.use(
   }
 );
 
-/**
- * Build an <img>-friendly URL for backend-served files.
- * Uses ?auth= query param because <img> tags can't send headers.
- */
+// <img>/<video> tags can't send headers, so file links carry a short-lived
+// media token (opens files only, never the API) instead of the session token.
+const MEDIA_KEY = "gheras_media_token";
+
+export function setMediaToken(token) {
+  if (token) localStorage.setItem(MEDIA_KEY, token);
+  else localStorage.removeItem(MEDIA_KEY);
+}
+
+export async function refreshMediaToken() {
+  try {
+    const { data } = await api.get("/auth/media-token");
+    setMediaToken(data.media_token);
+  } catch { /* keep the current one; the next refresh retries */ }
+}
+
+/** Build an <img>-friendly URL for backend-served files. */
 export function fileSrc(urlOrPath) {
   if (!urlOrPath) return "";
-  const token = localStorage.getItem("gheras_token");
   // If it's a full URL already, return as-is
   if (/^https?:\/\//.test(urlOrPath)) return urlOrPath;
   // Ensure leading slash
   const path = urlOrPath.startsWith("/") ? urlOrPath : `/${urlOrPath}`;
+  if (!path.startsWith("/api/uploads/file/")) return `${BACKEND_URL}${path}`;
   const sep = path.includes("?") ? "&" : "?";
-  return `${BACKEND_URL}${path}${sep}auth=${encodeURIComponent(token || "")}`;
+  return `${BACKEND_URL}${path}${sep}mt=${encodeURIComponent(localStorage.getItem(MEDIA_KEY) || "")}`;
 }
 
 /** Upload an image and return {id, url}. Throws Error with a clear Arabic message on failure. */

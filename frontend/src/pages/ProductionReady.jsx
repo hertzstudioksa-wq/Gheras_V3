@@ -24,6 +24,46 @@ const audioBgIcon = (mode) => ({
   none: VolumeX,
 }[mode] || Music);
 
+// Privacy promise (CS-7): original photos go 30 days after delivery, or now.
+function PhotoPrivacyCard({ orderId, deletedAt, onDeleted }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/orders/${orderId}/photos/delete`);
+      toast.success("اتمسحت الصور الأصلية — القصة والرسومات زي ما هي");
+      onDeleted?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "تعذّر المسح");
+    } finally {
+      setBusy(false);
+      setConfirm(false);
+    }
+  };
+  return (
+    <div className="bg-white rounded-3xl p-5 border border-[#E2D8C9] font-body text-sm text-[#5A677D] flex items-center gap-3 flex-wrap justify-between" data-testid="photo-privacy-card">
+      <span>
+        {deletedAt
+          ? "🔒 الصور الأصلية اللي رفعتها اتمسحت. القصة والرسومات محفوظة في حسابك."
+          : "🔒 الصور الأصلية اللي رفعتها بتتمسح تلقائياً بعد 30 يوم من التسليم."}
+      </span>
+      {!deletedAt && (confirm ? (
+        <span className="flex gap-2">
+          <button onClick={remove} disabled={busy} className="rounded-full bg-[#B8612F] text-white px-4 py-1.5 font-bold disabled:opacity-50">
+            {busy ? "جاري المسح..." : "أكّد المسح"}
+          </button>
+          <button onClick={() => setConfirm(false)} className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-4 py-1.5 font-bold">إلغاء</button>
+        </span>
+      ) : (
+        <button onClick={() => setConfirm(true)} className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-1.5 font-bold" data-testid="delete-photos-btn">
+          امسحها دلوقتي
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function ProductionReady() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -190,6 +230,8 @@ export default function ProductionReady() {
                       "scenarios_ready", "scenario_selected"].includes(status);
   const isFailed = status === "failed";
   const isAwaitingPayment = status === "awaiting_payment";
+  // A plan the model marked as sensitive waits for our team's review (PL-13).
+  const needsReview = !!summary && summary.safety_check && summary.safety_check !== "ok" && summary.safety_review !== "approve";
   // Unified progress from backend (0..100 across the whole pipeline).
   const progress = state?.progress;
   const rawPercent = progress?.percent ?? 0;
@@ -357,9 +399,9 @@ export default function ProductionReady() {
                 : isGeneratingMedia
                 ? "نُنتج الصور والسرد الصوتي لكل مشهد. هذا يستغرق دقائق قليلة."
                 : isMediaFailed
-                ? "لم تكتمل بعض الوسائط. فريقنا سيُراجع الطلب."
+                ? "لم تكتمل بعض الوسائط. جرّب «إعادة المحاولة»، والطلب بيظهر لفريقنا في قائمة المتابعة."
                 : approved
-                ? "سنبدأ إعداد قصة طفلك قريباً وسنُعلمك فور جاهزيتها."
+                ? "بدأنا نجهّز قصة طفلك. تقدر تقفل الصفحة وترجع لها من «قصصي» في أي وقت."
                 : isFailed
                 ? "حدث خلل بسيط أثناء إعداد الخطة. يمكنك إعادة المحاولة."
                 : isPlanning
@@ -526,6 +568,7 @@ export default function ProductionReady() {
                 </p>
               </div>
             </div>
+            <PhotoPrivacyCard orderId={id} deletedAt={state?.photos_deleted_at} onDeleted={() => fetchData({ silent: true })} />
             <style>{`
               @keyframes gheras-pop {
                 0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
@@ -554,7 +597,7 @@ export default function ProductionReady() {
                 <p className="font-body text-xs text-[#5A677D]" data-testid="progress-stage-label">
                   {progressMessage || (isAssembling ? "ندمج الصور والسرد في فيديو وكتاب..." :
                    isMediaReady ? "بانتظار خطوة التجميع النهائية" :
-                   isMediaFailed ? "يُراجع فريقنا الطلب وسنُعيد المحاولة" :
+                   isMediaFailed ? "جرّب إعادة المحاولة — والطلب ظاهر لفريقنا" :
                    "جاري إنتاج الوسائط...")}
                 </p>
               </div>
@@ -609,7 +652,7 @@ export default function ProductionReady() {
                 <Sprout className="w-4 h-4" /> الخطوة التالية
               </div>
               <p className="font-body text-sm text-[#2D3748]">
-                سنبدأ إعداد قصة طفلك قريباً — الصور، الفيديو، والكتاب. سنُرسل لك إشعاراً فور جاهزيتها.
+                سنبدأ إعداد قصة طفلك قريباً — الصور، الفيديو، والكتاب. تقدر تقفل الصفحة وترجع لها من «قصصي» لما تخلص.
               </p>
             </div>
           </div>
@@ -671,7 +714,8 @@ export default function ProductionReady() {
               </div>
               <div className="mt-4 text-xs font-body text-[#8A9AB0] inline-flex items-center gap-2 bg-[#FDFBF7] rounded-full px-3 py-1.5 border border-[#E2D8C9]">
                 <Award className="w-3 h-3 text-[#729352]" />
-                تم التحقق من مناسبة المحتوى لطفلك ({summary.safety_check === "ok" ? "آمن" : "قيد المراجعة"})
+                {summary.safety_check === "ok" ? "اتفحصت الخطة بقواعد أمان الأطفال"
+                  : needsReview ? "فريقنا بيراجع الخطة قبل الرسم" : "اتراجعت الخطة من فريقنا"}
               </div>
             </div>
 
@@ -689,6 +733,15 @@ export default function ProductionReady() {
                 <AlertTriangle className="w-5 h-5 text-[#B8612F] shrink-0 mt-0.5" />
                 <p className="font-body text-sm text-[#B8612F]">
                   لقد استخدمت محاولة إعادة التوليد. يمكنك اعتماد الخطة أو التواصل معنا للمساعدة.
+                </p>
+              </div>
+            )}
+
+            {needsReview && (
+              <div className="mb-4 rounded-2xl bg-[#FBEFD5] border border-[#D4A373]/40 p-4 flex items-start gap-3" data-testid="safety-review-wait">
+                <ShieldAlert className="w-5 h-5 text-[#8B5A2B] shrink-0 mt-0.5" />
+                <p className="font-body text-sm text-[#8B5A2B]">
+                  القصة فيها موضوع حسّاس، فريقنا بيراجعها قبل ما نرسم. هتقدر تعتمدها من هنا بعد المراجعة.
                 </p>
               </div>
             )}
@@ -719,7 +772,7 @@ export default function ProductionReady() {
                 <button
                   type="button"
                   onClick={approve}
-                  disabled={approving || regenerating}
+                  disabled={approving || regenerating || needsReview}
                   className="btn-primary inline-flex items-center gap-2 disabled:opacity-70"
                   data-testid="approve-plan-btn"
                 >
@@ -830,7 +883,7 @@ export default function ProductionReady() {
           <button
             type="button"
             onClick={approve}
-            disabled={approving || regenerating}
+            disabled={approving || regenerating || needsReview}
             className="flex-[2] btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-70"
           >
             {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

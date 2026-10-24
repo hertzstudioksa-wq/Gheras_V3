@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Beaker, Loader2, AlertTriangle, RefreshCw, Play, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { toast } from "sonner";
@@ -25,10 +26,48 @@ const STATUS_BADGE = {
   "reuse-from-other-stage":  { label: "reuse-from-other", bg: "bg-[#E8F0E1]", fg: "text-[#4F6B3B]" },
 };
 
+// Fill the lab inputs from a real order (audit AF-20: "pick an existing order").
+function inputsFromOrder(o) {
+  const d = o.data || {};
+  const sc = o.selected_scenario_snapshot || {};
+  return {
+    order_id: o.id,
+    child_name: d.child?.name || "",
+    child_age: d.child?.age || "",
+    child_gender: d.child?.gender || "",
+    duration_seconds: o.duration?.seconds || "",
+    scene_target: o.duration?.scene_target || "",
+    output_type: d.delivery?.output_type || "both",
+    context: d.goal?.context || "",
+    scenario_title: sc.title || "",
+    scenario_summary: sc.short_summary || "",
+    child_image_url: d.child?.image_url || "",
+    scene_index: 1,
+  };
+}
+
 export default function AdminStageLab() {
+  const [params] = useSearchParams();
   const [catalog, setCatalog] = useState([]);
   const [stageKey, setStageKey] = useState("scenario_generation");
   const [inputs, setInputs] = useState({});
+  const [recentOrders, setRecentOrders] = useState([]);
+
+  const loadOrder = async (orderId) => {
+    if (!orderId) return;
+    try {
+      const { data } = await api.get(`/admin/orders/${orderId}`);
+      setInputs((cur) => ({ ...cur, ...inputsFromOrder(data) }));
+      toast.success(`اتملت البيانات من طلب ${data.data?.child?.name || orderId.slice(0, 8)}`);
+    } catch { toast.error("تعذّر تحميل الطلب"); }
+  };
+
+  useEffect(() => {
+    api.get("/admin/orders", { params: { limit: 20 } })
+      .then((r) => setRecentOrders(r.data?.items || []))
+      .catch(() => {});
+    if (params.get("order")) loadOrder(params.get("order"));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [running, setRunning] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [latestRun, setLatestRun] = useState(null);
@@ -36,7 +75,13 @@ export default function AdminStageLab() {
 
   useEffect(() => {
     api.get("/admin/lab/stages")
-      .then((r) => setCatalog(r.data?.stages || []))
+      .then((r) => {
+        const stages = r.data?.stages || [];
+        setCatalog(stages);
+        // Deep link from the engine page / order page: /admin/lab?stage=…
+        const wanted = params.get("stage");
+        if (wanted && stages.some((s) => s.stage_key === wanted)) setStageKey(wanted);
+      })
       .catch(() => toast.error("تعذّر تحميل قائمة المراحل"));
     refreshHistory();
   }, []);
@@ -177,13 +222,25 @@ export default function AdminStageLab() {
           </div>
         )}
 
+        <label className="block mb-4">
+          <div className="text-xs text-[#5A677D] font-body mb-1">املا البيانات من طلب موجود</div>
+          <select className="input w-full" value={inputs.order_id || ""} onChange={(e) => loadOrder(e.target.value)} data-testid="lab-pick-order">
+            <option value="">— اختار طلب (اختياري) —</option>
+            {recentOrders.map((o) => (
+              <option key={o.id} value={o.id}>{o.child_name || "—"} · {o.id.slice(0, 8)} · {o.status_ar || o.status}</option>
+            ))}
+          </select>
+        </label>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
           <LabInput label="اسم الطفل (للـ context)" value={inputs.child_name} onChange={(v) => setInput("child_name", v)} testId="lab-input-child-name" />
           <LabInput label="عمر الطفل" type="number" value={inputs.child_age} onChange={(v) => setInput("child_age", v)} testId="lab-input-child-age" />
-          <LabInput label="جنس الطفل" value={inputs.child_gender} onChange={(v) => setInput("child_gender", v)} placeholder="male / female" testId="lab-input-gender" />
-          <LabInput label="مدة القصة (ثوانٍ)" type="number" value={inputs.duration_seconds} onChange={(v) => setInput("duration_seconds", v)} placeholder="60" testId="lab-input-duration" />
+          <LabSelect label="جنس الطفل" value={inputs.child_gender} onChange={(v) => setInput("child_gender", v)} testId="lab-input-gender"
+            options={[["", "—"], ["male", "ولد"], ["female", "بنت"]]} />
+          <LabSelect label="مدة القصة" value={String(inputs.duration_seconds || "")} onChange={(v) => setInput("duration_seconds", v ? Number(v) : "")} testId="lab-input-duration"
+            options={[["", "—"], ["30", "30 ثانية"], ["45", "45 ثانية"], ["60", "دقيقة"], ["90", "دقيقة ونص"]]} />
           <LabInput label="عدد المشاهد المستهدف" type="number" value={inputs.scene_target} onChange={(v) => setInput("scene_target", v)} placeholder="5" testId="lab-input-scenes" />
-          <LabInput label="output_type" value={inputs.output_type} onChange={(v) => setInput("output_type", v)} placeholder="both / video / pdf" testId="lab-input-output" />
+          <LabSelect label="نوع المخرج" value={inputs.output_type} onChange={(v) => setInput("output_type", v)} testId="lab-input-output"
+            options={[["", "—"], ["both", "فيديو + كتاب"], ["video", "فيديو"], ["pdf", "كتاب PDF"]]} />
         </div>
         <LabInput label="الموقف الحقيقي / context" value={inputs.context} onChange={(v) => setInput("context", v)} multiline testId="lab-input-context" />
 
@@ -381,6 +438,17 @@ export default function AdminStageLab() {
         .input:focus { outline: 2px solid #87A96B; outline-offset: 1px; }
       `}</style>
     </div>
+  );
+}
+
+function LabSelect({ label, value, onChange, options, testId }) {
+  return (
+    <label className="block mb-3">
+      <div className="text-xs text-[#5A677D] font-body mb-1">{label}</div>
+      <select className="input w-full" value={value || ""} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
   );
 }
 

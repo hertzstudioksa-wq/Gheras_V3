@@ -16,8 +16,8 @@ export default function Signup() {
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
-    if (form.password.length < 6) {
-      setErr("كلمة المرور يجب أن تكون 6 أحرف على الأقل");
+    if (form.password.length < 8) {
+      setErr("كلمة المرور يجب أن تكون 8 أحرف على الأقل");
       return;
     }
     setLoading(true);
@@ -80,10 +80,10 @@ export default function Signup() {
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={8}
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder="على الأقل 6 أحرف"
+                placeholder="على الأقل 8 أحرف"
                 className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-5 py-3 font-body focus:outline-none focus:ring-2 focus:ring-[#87A96B]"
                 data-testid="signup-password"
               />
@@ -105,6 +105,10 @@ export default function Signup() {
               <UserPlus className="w-4 h-4" />
               {loading ? "جاري الإنشاء..." : "إنشاء الحساب"}
             </button>
+            <p className="text-center text-xs text-[#8A9AB0] font-body">
+              بإنشاء الحساب إنت موافق على{" "}
+              <Link to="/terms" className="underline">الشروط</Link> و<Link to="/privacy" className="underline">سياسة الخصوصية</Link>.
+            </p>
           </form>
 
           <p className="text-center text-sm text-[#5A677D] mt-6 font-body">

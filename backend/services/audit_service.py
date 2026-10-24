@@ -49,6 +49,7 @@ ACTIONS = (
     # M6
     "pricing.settings", "pricing.override", "payment.paid", "payment.waived", "payment.refund",
     "wallet.topup", "wallet.charge", "wallet.refund", "wallet.adjust",
+    "privacy.photos_deleted", "privacy.account_deleted", "safety.review",
 )
 
 

@@ -32,6 +32,7 @@ const ENTITY_LABEL = {
   model_catalog: "كتالوج الموديلات",
   asset: "أصل",
   retention_policy: "سياسة الاحتفاظ",
+  wallet: "رصيد عميل",
 };
 const ACTION_LABEL = {
   create: "إضافة", update: "تعديل", delete: "مسح", grant: "منح", reserve: "حجز", consume: "استهلاك",
@@ -48,6 +49,10 @@ const ACTION_LABEL = {
   "dialect.create": "لهجة جديدة", "dialect.update": "تعديل لهجة", "pacing.update": "تعديل الإيقاع",
   "system_prompt.create": "نسخة برومبت", "system_prompt.activate": "تفعيل نسخة", "system_prompt.reset": "رجوع للأصلي",
   "prompt_template.create": "نسخة قالب", "prompt_template.activate": "تفعيل قالب", "prompt_template.reset": "رجوع للكود",
+  "pricing.settings": "إعدادات التسعير", "pricing.override": "سعر يدوي",
+  "payment.paid": "دفع", "payment.waived": "تعدية مجانية", "payment.refund": "استرداد",
+  "wallet.topup": "شحن رصيد", "wallet.charge": "خصم رصيد", "wallet.refund": "استرداد للرصيد", "wallet.adjust": "تعديل رصيد",
+  "privacy.photos_deleted": "مسح الصور الأصلية", "privacy.account_deleted": "مسح بيانات حساب",
 };
 const ACTION_COLORS = {
   create: "bg-[#E8F0E1] text-[#4F6B3B]",

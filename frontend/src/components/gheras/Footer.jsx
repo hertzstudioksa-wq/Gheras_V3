@@ -34,6 +34,8 @@ export default function Footer() {
               <li><Link to="/how-it-works" className="hover:text-[#87A96B]">كيف تعمل</Link></li>
               <li><Link to="/categories" className="hover:text-[#87A96B]">التصنيفات</Link></li>
               <li><Link to="/story/new" className="hover:text-[#87A96B]">ابدأ قصة</Link></li>
+              <li><Link to="/privacy" className="hover:text-[#87A96B]">سياسة الخصوصية</Link></li>
+              <li><Link to="/terms" className="hover:text-[#87A96B]">الشروط والأحكام</Link></li>
             </ul>
           </div>
 

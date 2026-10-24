@@ -34,7 +34,7 @@ export default function Landing() {
 
   const values = content["values.items"] || [
     { icon: "heart", title: "مصممة بحب", desc: "كل تفصيلة تراعي قلب طفلك" },
-    { icon: "shield", title: "محتوى آمن", desc: "نراجع كل قصة بعناية" },
+    { icon: "shield", title: "محتوى آمن", desc: "نفحص طلبك ونص القصة بقواعد أمان الأطفال قبل ما نرسمها" },
     { icon: "sprout", title: "تربية بالقصة", desc: "القيم تُغرس بحنان" },
     { icon: "sparkles", title: "تجربة فريدة", desc: "طفلك بطل القصة" },
   ];

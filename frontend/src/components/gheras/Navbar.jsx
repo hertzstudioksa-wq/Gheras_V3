@@ -41,6 +41,9 @@ export default function Navbar() {
           {user && (
             <NavLink to="/my-bundles" className={linkCls} data-testid="nav-wallet">رصيدي</NavLink>
           )}
+          {user && (
+            <NavLink to="/account" className={linkCls} data-testid="nav-account">حسابي</NavLink>
+          )}
           {user?.role === "admin" && (
             <NavLink to="/admin" className={linkCls} data-testid="nav-admin">
               <span className="inline-flex items-center gap-1"><Shield className="w-4 h-4" /> الإدارة</span>
@@ -94,6 +97,7 @@ export default function Navbar() {
             <NavLink to="/categories" onClick={() => setOpen(false)} className={linkCls}>التصنيفات</NavLink>
             {user && <NavLink to="/dashboard" onClick={() => setOpen(false)} className={linkCls}>قصصي</NavLink>}
             {user && <NavLink to="/my-bundles" onClick={() => setOpen(false)} className={linkCls}>رصيدي</NavLink>}
+            {user && <NavLink to="/account" onClick={() => setOpen(false)} className={linkCls}>حسابي</NavLink>}
             {user?.role === "admin" && (
               <NavLink to="/admin" onClick={() => setOpen(false)} className={linkCls}>لوحة الإدارة</NavLink>
             )}

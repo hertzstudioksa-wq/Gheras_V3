@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../../lib/api";
+import { api, fileSrc } from "../../lib/api";
 import { Library, Loader2, RefreshCw, Filter, ExternalLink, Archive, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -107,7 +107,7 @@ export default function AdminAssetLibrary() {
                         <td>
                           <div className="flex gap-1 flex-wrap">
                             {a.file_url && (
-                              <a href={a.file_url} target="_blank" rel="noreferrer" className="text-xs bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] rounded-full px-3 py-1 font-bold inline-flex items-center gap-1" data-testid={`download-${a.asset_id}`}><ExternalLink className="w-3 h-3" /> تحميل</a>
+                              <a href={fileSrc(a.file_url)} target="_blank" rel="noreferrer" className="text-xs bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] rounded-full px-3 py-1 font-bold inline-flex items-center gap-1" data-testid={`download-${a.asset_id}`}><ExternalLink className="w-3 h-3" /> تحميل</a>
                             )}
                             {a.lifecycle_status === "live" && (
                               <button onClick={() => doAction(a, "archive")} disabled={busy?.asset_id === a.asset_id} className="text-xs bg-[#F8F1E7] hover:bg-[#F2E8DA] text-[#8B5A2B] rounded-full px-3 py-1 font-bold inline-flex items-center gap-1 disabled:opacity-50" data-testid={`archive-${a.asset_id}`}><Archive className="w-3 h-3" /> أرشف</button>

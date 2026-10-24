@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api, refreshMediaToken, setMediaToken } from "../lib/api";
+
+const MEDIA_REFRESH_MS = 2 * 60 * 60 * 1000; // media tokens last 12 h
 
 const AuthContext = createContext(null);
 
@@ -25,9 +27,10 @@ export function AuthProvider({ children }) {
     console.debug("[auth] me:start");
     api
       .get("/auth/me")
-      .then((r) => {
+      .then(async (r) => {
         // eslint-disable-next-line no-console
         console.debug("[auth] me:success email=", r.data?.email, "role=", r.data?.role);
+        await refreshMediaToken();  // before pages render their images
         setUser(r.data);
       })
       .catch((err) => {
@@ -38,6 +41,7 @@ export function AuthProvider({ children }) {
         // For transient network/5xx errors, keep the token so a later retry succeeds.
         if (status === 401 || status === 403) {
           localStorage.removeItem("gheras_token");
+          setMediaToken(null);
           // eslint-disable-next-line no-console
           console.debug("[auth] token:cleared reason=me-", status);
         }
@@ -49,9 +53,16 @@ export function AuthProvider({ children }) {
     return () => clearTimeout(safety);
   }, []);
 
+  useEffect(() => {
+    if (!user) return undefined;
+    const iv = setInterval(refreshMediaToken, MEDIA_REFRESH_MS);
+    return () => clearInterval(iv);
+  }, [user]);
+
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     localStorage.setItem("gheras_token", data.access_token);
+    setMediaToken(data.media_token);
     // eslint-disable-next-line no-console
     console.debug("[auth] token:saved key=gheras_token");
     setUser(data.user);
@@ -61,6 +72,7 @@ export function AuthProvider({ children }) {
   const register = async (payload) => {
     const { data } = await api.post("/auth/register", payload);
     localStorage.setItem("gheras_token", data.access_token);
+    setMediaToken(data.media_token);
     // eslint-disable-next-line no-console
     console.debug("[auth] token:saved key=gheras_token (register)");
     setUser(data.user);
@@ -69,6 +81,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem("gheras_token");
+    setMediaToken(null);
     // eslint-disable-next-line no-console
     console.debug("[auth] token:cleared reason=logout");
     setUser(null);

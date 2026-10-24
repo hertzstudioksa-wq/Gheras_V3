@@ -38,11 +38,12 @@ async def generate_text(
     if provider == "gemini":
         return await _gemini(stage, model, system, user, json_schema, max_tokens, timeout)
     if provider == "fal_llm":
-        return await _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout)
+        return await _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout,
+                              reasoning=effort != "low")
     raise AIConfigError(f"No text executor for provider '{provider}' (stage {stage})")
 
 
-async def _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout) -> str:
+async def _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout, reasoning: bool = True) -> str:
     """OpenRouter via fal. The router has no structured-output switch, so the
     schema goes into the system prompt and callers keep validating the JSON."""
     from services.ai import fal
@@ -50,9 +51,18 @@ async def _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout)
     if json_schema:
         system = (f"{system}\n\nReturn ONLY one JSON object (no prose, no code fences) that validates "
                   f"against this JSON Schema:\n{json.dumps(json_schema, ensure_ascii=False)}")
-    result = await fal.run(stage=stage, env_key="FAL_KEY_TEXT", model=FAL_LLM_ENDPOINT, timeout=timeout,
-                           poll_interval=3.0, arguments={"model": model, "system_prompt": system, "prompt": user,
-                                                         "max_tokens": max_tokens, "reasoning": True})
+    async def call(reasoning_on: bool) -> dict:
+        return await fal.run(stage=stage, env_key="FAL_KEY_TEXT", model=FAL_LLM_ENDPOINT, timeout=timeout,
+                             poll_interval=3.0 if reasoning_on else 0.7,
+                             arguments={"model": model, "system_prompt": system, "prompt": user,
+                                        "max_tokens": max_tokens, "reasoning": reasoning_on})
+
+    try:
+        result = await call(reasoning)
+    except Exception as e:  # noqa: BLE001 — some models (Opus) refuse to run without reasoning
+        if reasoning or "reasoning is mandatory" not in str(e).lower():
+            raise
+        result = await call(True)
     if result.get("error"):
         raise AIError(f"fal LLM error ({stage}, {model}): {result['error']}")
     if result.get("partial"):

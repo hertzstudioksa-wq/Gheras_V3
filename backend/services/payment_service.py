@@ -116,11 +116,16 @@ async def order_amounts(order: dict) -> dict:
     return {"amount_sar": price, "vat_rate": vat["vat_rate"], "vat_sar": vat["vat_sar"], "total_sar": vat["total_sar"]}
 
 
-async def _start_production(order_id: str, from_status: str | None, background, reason: str) -> None:
-    from routes.production_routes import _append_status, trigger_production_planning
+async def _start_production(order_id: str, background, reason: str) -> bool:
+    """Planning starts once per order: only the request that moves it to
+    ready_for_ai triggers the run (double taps and concurrent payments lose)."""
+    from routes.production_routes import trigger_production_planning
+    from services.order_state import PLANNING_STARTABLE, claim
 
-    await _append_status(order_id, from_status, OrderStatus.READY_FOR_AI.value, "system", reason=reason)
+    if not await claim(order_id, PLANNING_STARTABLE, OrderStatus.READY_FOR_AI.value, "system", reason=reason):
+        return False
     await trigger_production_planning(order_id, background)
+    return True
 
 
 async def gate_production(order_id: str, background) -> dict:
@@ -128,7 +133,7 @@ async def gate_production(order_id: str, background) -> dict:
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     status = order.get("status")
     if (order.get("payment") or {}).get("status") == "paid" or not await payment_required():
-        await _start_production(order_id, status, background, "auto after selection")
+        await _start_production(order_id, background, "auto after selection")
         return {"next": "production"}
 
     # An older per-story bundle credit still pays for a story.
@@ -141,13 +146,14 @@ async def gate_production(order_id: str, background) -> dict:
         await db.orders.update_one({"id": order_id}, {"$set": {"payment": {
             **amounts, "status": "paid", "method": "bundle_credit", "paid_at": _now(),
             "bundle_purchase_id": reserved.get("bundle_purchase_id")}}})
-        await _start_production(order_id, status, background, "paid with bundle credit")
+        await _start_production(order_id, background, "paid with bundle credit")
         return {"next": "production"}
 
-    from routes.production_routes import _append_status
-    await db.orders.update_one({"id": order_id}, {"$set": {"payment": {**amounts, "status": "awaiting"}}})
-    await _append_status(order_id, status, OrderStatus.AWAITING_PAYMENT.value, "system",
-                         reason=f"awaiting payment {amounts['total_sar']} SAR")
+    from services.order_state import claim
+    if status != OrderStatus.AWAITING_PAYMENT.value:
+        await claim(order_id, (OrderStatus.SCENARIO_SELECTED.value,), OrderStatus.AWAITING_PAYMENT.value, "system",
+                    reason=f"awaiting payment {amounts['total_sar']} SAR",
+                    extra={"payment": {**amounts, "status": "awaiting"}})
     return {"next": "payment", **amounts}
 
 
@@ -176,7 +182,7 @@ async def mark_order_paid(order_id: str, *, method: str, background, payment_id:
                                + (f" — {note}" if note else ""),
                        metadata={"payment_id": payment_id})
     if order.get("status") == OrderStatus.AWAITING_PAYMENT.value:
-        await _start_production(order_id, order["status"], background, f"paid ({method})")
+        await _start_production(order_id, background, f"paid ({method})")
     return True
 
 

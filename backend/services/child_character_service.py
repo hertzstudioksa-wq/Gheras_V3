@@ -93,12 +93,16 @@ async def _resolve_prompt_safely(order: dict, plan: dict | None,
     return fallback, "default"
 
 
-async def _fetch_source_bytes(source_image_url: str) -> tuple[bytes, str] | None:
-    """Fetch the child photo bytes from internal storage (bypasses HTTP/auth)."""
+async def _fetch_source_bytes(source_image_url: str, owner_id: str | None = None) -> tuple[bytes, str] | None:
+    """Fetch file bytes from internal storage (bypasses HTTP/auth). With
+    `owner_id`, only a file that user uploaded is read (a parent's photo)."""
     try:
-        fid = source_image_url.rstrip("/").rsplit("/", 1)[-1]
+        fid = source_image_url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
         rec = await db.files.find_one({"id": fid, "is_deleted": False}, {"_id": 0})
         if not rec:
+            return None
+        if owner_id and rec.get("user_id") != owner_id:
+            logger.warning(f"[files] {fid} is not owned by {owner_id}; refusing to use it")
             return None
         from storage import get_object
         loop = asyncio.get_running_loop()
@@ -224,7 +228,7 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
     generated_url: str | None = None
     real_meta: dict[str, Any] = {}
     error: str | None = None
-    src_tuple = await _fetch_source_bytes(source_image_url)
+    src_tuple = await _fetch_source_bytes(source_image_url, owner_id=order["user_id"])
     if not src_tuple:
         error = "child photo could not be read from storage"
     else:

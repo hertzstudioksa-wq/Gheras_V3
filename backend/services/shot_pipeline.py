@@ -543,7 +543,8 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
     if not ((cfg.get("stages") or {}).get("video_generation") or {}).get("enabled", False):
         return {"ran": False, "reason": "video_generation disabled in pipeline_config"}
     # The parent's tier picks the renderer they paid for (premium = the admin's premium model).
-    provider, model = await video_model_for_tier(video_tier_of(order))
+    tier = video_tier_of(order)
+    provider, model = await video_model_for_tier(tier)
     if provider != "kling":
         return {"ran": False, "reason": f"video provider '{provider}' has no shot executor"}
 

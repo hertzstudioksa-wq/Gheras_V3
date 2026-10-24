@@ -25,7 +25,7 @@ class UserPublic(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     full_name: str = Field(min_length=1, max_length=80)
 
 
@@ -42,13 +42,14 @@ class UserUpdate(BaseModel):
 
 class PasswordChange(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=6, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserPublic
+    media_token: Optional[str] = None
 
 
 # =========================
@@ -301,6 +302,9 @@ ORDER_STATUS_AR = {
 
 class OrderCreate(BaseModel):
     data: StoryData
+    # The parent confirms they are the child's guardian and accept the privacy
+    # policy (audit CS-7). Required to place an order.
+    consent: bool = False
 
 
 class OrderStatusUpdate(BaseModel):

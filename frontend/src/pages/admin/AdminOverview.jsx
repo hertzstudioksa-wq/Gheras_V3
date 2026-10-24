@@ -12,6 +12,7 @@ import { formatDate, timeAgo } from "../../lib/orderStatus";
 const QUEUES = [
   { key: "failed", title: "إنتاج فشل", tone: "bad" },
   { key: "stuck", title: "شغّال ومتوقف", tone: "warn" },
+  { key: "safety_review", title: "محتاج مراجعة سلامة", tone: "warn" },
   { key: "waiting_customer", title: "مستني العميل يختار", tone: "neutral" },
 ];
 

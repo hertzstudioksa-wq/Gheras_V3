@@ -492,6 +492,7 @@ async def engine_stages():
             continue
         presets.append({"id": p["id"], "name": p.get("name"), "description": p.get("description"),
                         "intended_use": p.get("intended_use"), "is_active": bool(p.get("is_active")),
+                        "is_seeded": bool(p.get("is_seeded")),
                         "stages": sorted((p.get("stage_map") or {}).keys())})
     return {
         "stages": await model_catalog.stage_rows(),
@@ -576,6 +577,44 @@ async def set_video_premium(payload: PremiumVideoIn, admin: dict = Depends(requi
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"model_name": payload.model_name, "entry": entry}
+
+
+class PresetSaveIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str = Field(default="", max_length=300)
+
+
+@router.post("/engine/presets")
+async def save_engine_preset(payload: PresetSaveIn, admin: dict = Depends(require_admin)):
+    """Save the models every stage uses right now as a ready-made set (AF-21)."""
+    from services import model_catalog
+    from services.preset_stacks_service import create_preset
+
+    rows = await model_catalog.stage_rows()
+    stage_map = {r["stage_key"]: {"provider": r["provider"], "model_name": r["model_name"],
+                                  "env_key": model_catalog.env_key_for(r["provider"])}
+                 for r in rows if r["stage_key"] in model_catalog.CAPABILITY_OF_STAGE}
+    try:
+        p = await create_preset({"name": payload.name.strip(), "description": payload.description.strip(),
+                                 "stage_map": stage_map}, admin.get("id"), admin.get("email"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    p.pop("_id", None)
+    return {"ok": True, "preset": p}
+
+
+@router.delete("/engine/presets/{preset_id}")
+async def delete_engine_preset(preset_id: str, admin: dict = Depends(require_admin)):
+    """Admin-made sets only; the seeded ones stay."""
+    from services.preset_stacks_service import delete_preset, get_preset
+
+    p = await get_preset(preset_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="المجموعة غير موجودة")
+    if p.get("is_seeded"):
+        raise HTTPException(status_code=400, detail="المجموعات الأساسية ما تتمسحش")
+    await delete_preset(preset_id, admin.get("id"), admin.get("email"))
+    return {"ok": True}
 
 
 @router.post("/engine/presets/{preset_id}/apply")
@@ -900,16 +939,20 @@ async def operations_overview():
                              f"شغّال من أكتر من {STUCK_HOURS} ساعات من غير تحديث"),
         "waiting_customer": await queue({"status": "scenarios_ready", "updated_at": {"$lt": waiting_before}},
                                         f"السيناريوهات جاهزة والعميل ما اختارش من أكتر من {WAITING_CUSTOMER_HOURS} ساعة"),
+        "safety_review": await queue({"safety_flag": True, "safety_review": None, "status": "production_ready"},
+                                     "الخطة فيها موضوع حسّاس — راجعها قبل ما العميل يعتمدها"),
     }
 
     async def count_since(days: int, q: dict | None = None) -> int:
         return await db.orders.count_documents({**(q or {}), "created_at": {"$gte": (now - timedelta(days=days)).isoformat()}})
 
     async def revenue_since(days: int) -> float:
-        rows = await db.payments.find({"status": {"$in": ["paid", "completed", "succeeded"]},
-                                       "created_at": {"$gte": (now - timedelta(days=days)).isoformat()}},
-                                      {"_id": 0, "amount": 1}).to_list(5000)
-        return round(sum(float(r.get("amount") or 0) for r in rows), 2)
+        """Stories paid in the period (card, wallet or old bundle), before VAT.
+        Wallet top-ups aren't revenue until the credit buys a story."""
+        rows = await db.orders.find({"payment.status": "paid",
+                                     "payment.paid_at": {"$gte": (now - timedelta(days=days)).isoformat()}},
+                                    {"_id": 0, "payment.amount_sar": 1}).to_list(5000)
+        return round(sum(float((r.get("payment") or {}).get("amount_sar") or 0) for r in rows), 2)
 
     stages = await model_catalog.stage_rows()
     missing_keys = sorted({s["key"]["env_key"] for s in stages if s["selectable"] and not s["key"]["configured"]})

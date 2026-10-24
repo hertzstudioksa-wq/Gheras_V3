@@ -36,6 +36,8 @@ import AdminPaymentSettings from "./pages/admin/AdminPaymentSettings";
 import AdminAssetLibrary from "./pages/admin/AdminAssetLibrary";
 import AdminRetention from "./pages/admin/AdminRetention";
 import MyBundles from "./pages/MyBundles";
+import LegalPage from "./pages/LegalPage";
+import Account from "./pages/Account";
 import AdminSettings from "./pages/admin/AdminSettings";
 
 function App() {
@@ -59,6 +61,16 @@ function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/categories" element={<Categories />} />
+            <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+            <Route path="/terms" element={<LegalPage kind="terms" />} />
+            <Route
+              path="/account"
+              element={
+                <ProtectedRoute>
+                  <Account />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/story/new" element={<StoryBuilder />} />

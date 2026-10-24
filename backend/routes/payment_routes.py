@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_admin, get_current_user
 from db import db
-from services import moyasar, payment_service, wallet_service
+from services import moyasar, payment_service, rate_limit, wallet_service
 
 
 def _origin(request: Request) -> str:
@@ -199,6 +199,7 @@ async def pay_with_wallet(order_id: str, background: BackgroundTasks, current=De
 async def pay_with_card(order_id: str, request: Request, background: BackgroundTasks,
                         current=Depends(get_current_user)):
     order = await _own_order(order_id, current)
+    rate_limit.check(f"checkout:{current['id']}", 20, 3600)
     if not await moyasar.secret_key():
         raise HTTPException(503, "الدفع بالبطاقة مش متاح لسه")
     try:
@@ -238,6 +239,7 @@ async def my_wallet(current=Depends(get_current_user)):
 
 @wallet_router.post("/topup/{bundle_id}")
 async def start_topup(bundle_id: str, request: Request, current=Depends(get_current_user)):
+    rate_limit.check(f"checkout:{current['id']}", 20, 3600)
     if not await moyasar.secret_key():
         raise HTTPException(503, "الدفع بالبطاقة مش متاح لسه")
     try:
@@ -262,7 +264,7 @@ async def refresh_topup(payment_id: str, background: BackgroundTasks, current=De
 webhook_router = APIRouter(prefix="/webhook", tags=["webhook"])
 
 
-@webhook_router.post("/moyasar")
+@webhook_router.post("/moyasar", dependencies=[Depends(rate_limit.per_ip("moyasar-callback", 120, 60))])
 async def moyasar_callback(request: Request, background: BackgroundTasks):
     try:
         body = await request.json()

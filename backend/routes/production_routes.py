@@ -76,6 +76,9 @@ async def run_production_generation(order_id: str, run_id: str):
                 },
                 "production_approved": False,
                 "production_approved_at": None,
+                # The plan model marked a sensitive topic: an admin reviews it first (PL-13).
+                "safety_flag": (docs["plan"].get("safety_check") or "ok") != "ok",
+                "safety_review": None,
                 "updated_at": _now(),
             }},
         )
@@ -147,6 +150,7 @@ def _user_summary(plan: dict | None, order: dict) -> dict | None:
         "audio_background": plan.get("audio_background") or {"mode": "music"},
         "output_type": output_type,
         "safety_check": plan.get("safety_check"),
+        "safety_review": (order.get("safety_review") or {}).get("decision"),
         "generated_at": (order.get("production_plan_snapshot") or {}).get("generated_at"),
     }
 
@@ -183,6 +187,7 @@ async def get_production_summary(order_id: str, current=Depends(get_current_user
         "max_user_production_regenerations": MAX_USER_PRODUCTION_REGENERATIONS,
         "production_regenerations_remaining": max(0, MAX_USER_PRODUCTION_REGENERATIONS - used),
         "progress": progress,
+        "photos_deleted_at": order.get("photos_deleted_at"),
     }
 
 
@@ -193,12 +198,13 @@ async def user_approve_production(order_id: str, background: BackgroundTasks, cu
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     if order.get("status") != OrderStatus.PRODUCTION_READY.value:
         raise HTTPException(status_code=400, detail="خطة الإنتاج ليست جاهزة بعد")
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {"production_approved": True, "production_approved_at": _now(), "updated_at": _now()}},
-    )
-    await _append_status(order_id, order.get("status"), OrderStatus.PRODUCTION_APPROVED.value, "user",
-                         actor_id=current["id"], reason="user approved production plan")
+    if order.get("safety_flag") and (order.get("safety_review") or {}).get("decision") != "approve":
+        raise HTTPException(status_code=400, detail="القصة محتاجة مراجعة سريعة من فريقنا قبل الرسم — هتقدر تعتمدها هنا بعدها")
+    from services.order_state import claim
+    if not await claim(order_id, (OrderStatus.PRODUCTION_READY.value,), OrderStatus.PRODUCTION_APPROVED.value, "user",
+                       actor_id=current["id"], reason="user approved production plan",
+                       extra={"production_approved": True, "production_approved_at": _now()}):
+        raise HTTPException(status_code=409, detail="الخطة اتعتمدت بالفعل")
     # Trigger asset generation pipeline (phase 6A)
     from routes.media_routes import trigger_asset_generation
     run_id = await trigger_asset_generation(order_id, background)
@@ -210,8 +216,11 @@ async def user_regenerate_production(order_id: str, background: BackgroundTasks,
     order = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    if order.get("status") == OrderStatus.PRODUCTION_APPROVED.value or \
-       order.get("status") in (OrderStatus.GENERATING.value, OrderStatus.COMPLETED.value):
+    from services.order_state import PLAN_REGENERABLE, claim
+    plan_failed = order.get("status") == OrderStatus.FAILED.value and \
+        (order.get("production_generation") or {}).get("source") == "error"
+    if order.get("production_approved") or order.get("status") not in PLAN_REGENERABLE or \
+            (order.get("status") == OrderStatus.FAILED.value and not plan_failed):
         raise HTTPException(status_code=400, detail="لا يمكن إعادة التوليد بعد بدء الإنتاج")
     used = int(order.get("production_regeneration_count", 0))
     if used >= MAX_USER_PRODUCTION_REGENERATIONS:
@@ -220,13 +229,12 @@ async def user_regenerate_production(order_id: str, background: BackgroundTasks,
             detail="لقد استخدمت محاولة إعادة توليد خطة الإنتاج المتاحة.",
         )
     run_id = str(uuid.uuid4())
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$inc": {"production_regeneration_count": 1},
-         "$set": {"production_generation": {"run_id": run_id, "source": "pending", "error": None, "started_at": _now()}}},
-    )
-    await _append_status(order_id, order.get("status"), OrderStatus.PRODUCTION_PLANNING.value, "user",
-                         actor_id=current["id"], reason=f"user regenerate production ({used + 1}/{MAX_USER_PRODUCTION_REGENERATIONS})")
+    if not await claim(order_id, PLAN_REGENERABLE, OrderStatus.PRODUCTION_PLANNING.value, "user", actor_id=current["id"],
+                       reason=f"user regenerate production ({used + 1}/{MAX_USER_PRODUCTION_REGENERATIONS})",
+                       extra={"production_generation": {"run_id": run_id, "source": "pending", "error": None,
+                                                        "started_at": _now()}},
+                       inc={"production_regeneration_count": 1}):
+        raise HTTPException(status_code=409, detail="الطلب اتغيّر — حدّث الصفحة")
     background.add_task(run_production_generation, order_id, run_id)
     return {"ok": True, "run_id": run_id, "remaining": MAX_USER_PRODUCTION_REGENERATIONS - used - 1}
 

@@ -79,11 +79,6 @@ async def list_content():
     return {it["key"]: it["value"] for it in items}
 
 
-@router.get("/plans")
-async def list_plans():
-    return await db.plans.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(50)
-
-
 @router.get("/settings")
 async def list_settings():
     """Only the settings marked public (the rest stay server-side)."""

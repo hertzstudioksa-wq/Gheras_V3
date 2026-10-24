@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Clock, Save } from "lucide-react";
+import { Beaker, Clock, Save } from "lucide-react";
 import { api, fileSrc } from "../../lib/api";
 import OrderStatusBadge from "../../components/gheras/OrderStatusBadge";
 import { AdminPage, ConfirmAction, PageState } from "../../components/admin/AdminKit";
@@ -94,7 +94,14 @@ export default function OrderDetailPage() {
       title={`قصة ${child.name || "—"}`}
       description={`${order.user_name || order.user_email || ""}${order.user_name ? ` • ${order.user_email}` : ""} • ${formatDate(order.created_at)}`}
       back={{ to: "/admin/orders", label: "كل الطلبات" }}
-      actions={<><OrderStatusBadge status={order.status} /><StatusOverride order={order} onDone={load} /></>}
+      actions={<>
+        <OrderStatusBadge status={order.status} />
+        <Link to={`/admin/lab?order=${order.id}`} title="جرّب مرحلة على بيانات الطلب ده"
+          className="rounded-full bg-white border border-[#E2D8C9] px-3 py-1.5 text-xs font-body font-bold text-[#5A677D] inline-flex items-center gap-1">
+          <Beaker className="w-3.5 h-3.5" /> المختبر
+        </Link>
+        <StatusOverride order={order} onDone={load} />
+      </>}
       testId="order-page"
     >
       <div className="flex gap-1 mb-5 border-b border-[#E2D8C9] overflow-x-auto" role="tablist">
@@ -139,8 +146,42 @@ function Summary({ order, onSaved }) {
     } catch (err) { toast.error(err?.response?.data?.detail || "فشل"); }
     finally { setBusy(false); }
   };
+  const review = async (decision, reason) => {
+    try {
+      await api.post(`/admin/orders/${order.id}/safety-review`, { decision, reason });
+      toast.success(decision === "approve" ? "اتوافق — العميل يقدر يعتمد الخطة" : "اتوقف الطلب");
+      onSaved();
+    } catch (err) { toast.error(err?.response?.data?.detail || "فشل"); }
+  };
   return (
     <div data-testid="order-summary">
+      {order.safety_flag && !order.safety_review && (
+        <div className="bg-[#FBEFD5] border border-[#D4A373]/50 rounded-2xl p-4 mb-4 font-body" data-testid="safety-review-banner">
+          <div className="font-bold text-[#8B5A2B] mb-1">الخطة فيها موضوع حسّاس — محتاجة مراجعتك</div>
+          <p className="text-sm text-[#5A677D] mb-3">
+            موديل الخطة علّم القصة «للمراجعة». العميل مش هيقدر يعتمدها لحد ما توافق. اقرأ الخطة في تبويب «خطة الإنتاج» الأول.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <ConfirmAction title="توافق على الخطة؟" description="العميل هيقدر يعتمدها ويبدأ الرسم. اكتب سبب الموافقة."
+              requireReason tone="cost" confirmLabel="موافقة" onConfirm={(r) => review("approve", r)}
+              className="rounded-full bg-[#87A96B] text-white px-4 py-1.5 text-sm font-bold">موافقة</ConfirmAction>
+            <ConfirmAction title="توقف الطلب؟" description="الطلب هيتحوّل لفشل. لو كان مدفوع رجّع المبلغ لرصيده من تبويب التكلفة. اكتب السبب."
+              requireReason confirmLabel="وقّف الطلب" onConfirm={(r) => review("reject", r)}
+              className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-1.5 text-sm font-bold">رفض</ConfirmAction>
+          </div>
+        </div>
+      )}
+      {order.safety_review && (
+        <div className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl p-3 mb-4 font-body text-sm text-[#5A677D]">
+          مراجعة السلامة: <b>{order.safety_review.decision === "approve" ? "موافقة" : "رفض"}</b> — {order.safety_review.reason}
+          {" "}({order.safety_review.by}، {formatDate(order.safety_review.at)})
+        </div>
+      )}
+      {order.safety && order.safety.checked === false && (
+        <div className="bg-[#FDFBF7] border border-dashed border-[#E2D8C9] rounded-2xl p-3 mb-4 font-body text-xs text-[#8A9AB0]">
+          فحص نص ولي الأمر ما اشتغلش وقت الطلب (المزوّد ما ردّش) — اقرأ الموقف والملاحظات بنفسك.
+        </div>
+      )}
       <div className="flex gap-4 items-start flex-wrap mb-4">
         {d.child?.image_url && (
           <img src={fileSrc(d.child.image_url)} alt="" className="w-24 h-24 rounded-2xl object-cover border border-[#E2D8C9]" />
@@ -158,6 +199,8 @@ function Summary({ order, onSaved }) {
           <Field label="التسليم" value={{ both: "فيديو + كتاب", video: "فيديو", pdf: "كتاب PDF" }[d.delivery?.output_type || "both"]} />
           <Field label="جودة الفيديو" value={d.delivery?.video_tier === "premium" ? "فاخر" : "متوازن"} />
           <Field label="السعر" value={order.price_quote?.price_sar ? `${order.price_quote.price_sar} ر.س` : "—"} />
+          <Field label="موافقة ولي الأمر" value={order.consent?.accepted_at ? formatDate(order.consent.accepted_at) : "—"} />
+          <Field label="الصور الأصلية" value={order.data_deleted_at ? "الحساب اتمسح" : order.photos_deleted_at ? `اتمسحت ${formatDate(order.photos_deleted_at)}` : "موجودة"} />
         </div>
       </div>
       {(d.characters || []).length > 0 && (

@@ -3,14 +3,14 @@ import re
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from pydantic import BaseModel, Field
 
 from db import db
 from auth import require_admin
 from models import (
-    CategoryIn, SubcategoryIn, StoryOptionIn, OrderStatusUpdate, OrderNoteUpdate, PromptUpdate,
-    ContentBlockIn, PromptIn, PlanIn, SettingIn, UserUpdate, ORDER_STATUS_AR,
+    CategoryIn, SubcategoryIn, StoryOptionIn, OrderStatusUpdate, OrderNoteUpdate,
+    ContentBlockIn, SettingIn, UserUpdate, ORDER_STATUS_AR,
 )
-from prompt_engine import build_prompt
 from services.scenario_service import generate_scenarios, build_scenario_docs
 from routes.order_routes import append_status, run_scenario_generation
 
@@ -89,12 +89,55 @@ async def update_user(user_id: str, payload: UserUpdate, admin=Depends(require_a
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
     if "role" in updates:
         updates["role"] = str(getattr(updates["role"], "value", updates["role"]))
-    await db.users.update_one({"id": user_id}, {"$set": updates})
+    revoke = ("role" in updates and updates["role"] != before.get("role")) or \
+        ("is_active" in updates and updates["is_active"] != before.get("is_active", True))
+    await db.users.update_one({"id": user_id}, {"$set": updates, **({"$inc": {"token_version": 1}} if revoke else {})})
     await record_audit(entity_type="user", entity_id=user_id, action="user.update",
                        actor_id=admin.get("id"), actor_email=admin.get("email"),
                        summary=f"تعديل المستخدم {before.get('email')}: {', '.join(sorted(updates))}",
                        before={k: before.get(k) for k in updates}, after=updates)
     return {"ok": True}
+
+
+class SafetyReviewIn(BaseModel):
+    decision: str = Field(pattern="^(approve|reject)$")
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.post("/orders/{order_id}/safety-review")
+async def admin_safety_review(order_id: str, payload: SafetyReviewIn, admin=Depends(require_admin)):
+    """A plan the model marked as sensitive: let the parent approve it, or stop it."""
+    from services.audit_service import record_audit
+    o = await db.orders.find_one({"id": order_id}, {"_id": 0, "status": 1, "safety_flag": 1})
+    if not o:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if not o.get("safety_flag"):
+        raise HTTPException(status_code=400, detail="الطلب ده مش محتاج مراجعة")
+    review = {"decision": payload.decision, "reason": payload.reason, "by": admin.get("email"), "at": _now()}
+    await db.orders.update_one({"id": order_id}, {"$set": {"safety_review": review}})
+    if payload.decision == "reject" and o.get("status") == "production_ready":
+        await append_status(order_id, o["status"], "failed", "admin", actor_id=admin["id"],
+                            reason=f"safety review rejected: {payload.reason}")
+    await record_audit(entity_type="order", entity_id=order_id, action="safety.review",
+                       actor_id=admin.get("id"), actor_email=admin.get("email"),
+                       summary=f"مراجعة السلامة: {'موافقة' if payload.decision == 'approve' else 'رفض'} — {payload.reason}")
+    return {"ok": True, "safety_review": review}
+
+
+class DataDeleteIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=300)
+
+
+@router.post("/users/{user_id}/delete-data")
+async def admin_delete_user_data(user_id: str, payload: DataDeleteIn, admin=Depends(require_admin)):
+    """A parent asked (email/phone) to delete their data."""
+    from services.privacy_service import delete_account
+    try:
+        return {"ok": True, **(await delete_account(user_id, actor=admin, reason=payload.reason))}
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ---------- Orders ----------
@@ -190,34 +233,6 @@ async def update_order_note(order_id: str, payload: OrderNoteUpdate):
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     return {"ok": True}
-
-
-@router.patch("/orders/{order_id}/prompt")
-async def update_order_prompt(order_id: str, payload: PromptUpdate):
-    res = await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {
-            "ai_prompt_snapshot": payload.ai_prompt_snapshot,
-            "prompt_edited": True,
-            "updated_at": _now(),
-        }},
-    )
-    if not res.matched_count:
-        raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    return {"ok": True}
-
-
-@router.post("/orders/{order_id}/regenerate-prompt")
-async def regenerate_prompt(order_id: str):
-    o = await db.orders.find_one({"id": order_id}, {"_id": 0})
-    if not o:
-        raise HTTPException(status_code=404, detail="الطلب غير موجود")
-    prompt = build_prompt(o.get("data", {}), o.get("enriched", {}))
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {"ai_prompt_snapshot": prompt, "prompt_edited": False, "updated_at": _now()}},
-    )
-    return {"ok": True, "ai_prompt_snapshot": prompt}
 
 
 # ---------- Admin Scenarios ----------
@@ -494,69 +509,6 @@ async def delete_content(key: str, admin=Depends(require_admin)):
     if not res.deleted_count:
         raise HTTPException(status_code=404, detail="غير موجود")
     await _audit_catalog(admin, "content", key, "content.delete", f"مسح نص الموقع: {key}")
-    return {"ok": True}
-
-
-# ---------- Prompts (global templates) ----------
-@router.get("/prompts")
-async def list_prompts():
-    return await db.prompts.find({}, {"_id": 0}).sort("key", 1).to_list(100)
-
-
-@router.post("/prompts")
-async def create_prompt(payload: PromptIn):
-    if await db.prompts.find_one({"key": payload.key}):
-        raise HTTPException(status_code=400, detail="المفتاح مستخدم")
-    doc = {"id": str(uuid.uuid4()), **payload.model_dump(), "created_at": _now(), "updated_at": _now()}
-    await db.prompts.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
-
-
-@router.patch("/prompts/{pid}")
-async def update_prompt(pid: str, payload: PromptIn):
-    data = {**payload.model_dump(), "updated_at": _now()}
-    res = await db.prompts.update_one({"id": pid}, {"$set": data})
-    if not res.matched_count:
-        raise HTTPException(status_code=404, detail="غير موجود")
-    return {"ok": True}
-
-
-@router.delete("/prompts/{pid}")
-async def delete_prompt(pid: str):
-    res = await db.prompts.delete_one({"id": pid})
-    if not res.deleted_count:
-        raise HTTPException(status_code=404, detail="غير موجود")
-    return {"ok": True}
-
-
-# ---------- Plans ----------
-@router.get("/plans")
-async def list_plans():
-    return await db.plans.find({}, {"_id": 0}).sort("sort_order", 1).to_list(50)
-
-
-@router.post("/plans")
-async def create_plan(payload: PlanIn):
-    doc = {"id": str(uuid.uuid4()), **payload.model_dump(), "created_at": _now()}
-    await db.plans.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
-
-
-@router.patch("/plans/{pid}")
-async def update_plan(pid: str, payload: PlanIn):
-    res = await db.plans.update_one({"id": pid}, {"$set": payload.model_dump()})
-    if not res.matched_count:
-        raise HTTPException(status_code=404, detail="غير موجود")
-    return {"ok": True}
-
-
-@router.delete("/plans/{pid}")
-async def delete_plan(pid: str):
-    res = await db.plans.delete_one({"id": pid})
-    if not res.deleted_count:
-        raise HTTPException(status_code=404, detail="غير موجود")
     return {"ok": True}
 
 

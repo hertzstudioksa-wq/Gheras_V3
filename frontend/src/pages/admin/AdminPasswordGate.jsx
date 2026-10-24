@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { api } from "../../lib/api";
+import { api, setMediaToken } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { toast } from "sonner";
 import { Lock } from "lucide-react";
@@ -19,7 +19,10 @@ export default function AdminPasswordGate() {
     if (form.next !== form.confirm) return toast.error("تأكيد كلمة المرور غير مطابق");
     setSaving(true);
     try {
-      await api.post("/auth/change-password", { current_password: form.current, new_password: form.next });
+      const { data } = await api.post("/auth/change-password", { current_password: form.current, new_password: form.next });
+      // Older sessions are signed out; keep this one with the new token.
+      localStorage.setItem("gheras_token", data.access_token);
+      setMediaToken(data.media_token);
       toast.success("تم تحديث كلمة المرور");
       await refresh();
     } catch (err) {

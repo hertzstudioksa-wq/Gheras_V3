@@ -73,7 +73,7 @@ STORY_OPTIONS = [
 CONTENT_BLOCKS = [
     {"section": "hero", "key": "hero.title", "value": "نَغرِس القِيَم بقِصصٍ بَطلُها طِفلُك"},
     {"section": "hero", "key": "hero.subtitle",
-     "value": "منصة غِراس تصنع لطفلك قصصاً شخصيّة بصوته واسمه وصورته، تُعلّمه القيم الجميلة وتُعدّل سلوكياته بحُب."},
+     "value": "منصة غِراس تصنع لطفلك قصصاً شخصيّة باسمه وملامحه، تُعلّمه القيم الجميلة وتُعدّل سلوكياته بحُب."},
     {"section": "hero", "key": "hero.cta_primary", "value": "ابدأ أول قصة لطفلك"},
     {"section": "hero", "key": "hero.cta_secondary", "value": "كيف تعمل غِراس؟"},
     {"section": "how", "key": "how.title", "value": "كيف تعمل غِراس؟"},
@@ -89,31 +89,14 @@ CONTENT_BLOCKS = [
     {"section": "values", "key": "values.title", "value": "لماذا غِراس؟"},
     {"section": "values", "key": "values.items", "value": [
         {"icon": "heart", "title": "مصممة بحب", "desc": "كل تفصيلة تراعي قلب طفلك وبراءته"},
-        {"icon": "shield", "title": "محتوى آمن", "desc": "نراجع كل قصة قبل توصيلها لطفلك"},
+        {"icon": "shield", "title": "محتوى آمن", "desc": "نفحص طلبك ونص القصة بقواعد أمان الأطفال قبل ما نرسمها"},
         {"icon": "sprout", "title": "تربية بالقصة", "desc": "القيم تُغرس بحنان لا بأمر"},
         {"icon": "sparkles", "title": "تجربة فريدة", "desc": "طفلك بطل القصة باسمه وملامحه"},
     ]},
     {"section": "footer", "key": "footer.tagline", "value": "نَغرِس القيَم بقِصصٍ بَطلُها طِفلُك"},
     {"section": "footer", "key": "footer.copyright", "value": "© غِراس ٢٠٢٦ — جميع الحقوق محفوظة"},
-]
-
-PROMPTS = [
-    {
-        "key": "story.generate.master",
-        "title_ar": "برومبت توليد القصة الرئيسي",
-        "description": "القالب المرجعي الذي ستعتمد عليه محركات التوليد مستقبلاً. يُبنى البرومبت الفعلي لكل طلب ديناميكياً من JSON.",
-        "template": "يتم بناء البرومبت تلقائياً من البيانات المهيكلة للطلب. راجع ai_prompt_snapshot في كل طلب.",
-        "variables": [],
-    },
-]
-
-PLANS = [
-    {"name_ar": "الباقة المجانية", "price": 0, "currency": "SAR", "story_limit": 1,
-     "features": ["قصة مصوّرة واحدة", "ملف PDF", "مراجعة أساسية"], "sort_order": 1, "is_active": True},
-    {"name_ar": "الباقة العائلية", "price": 99, "currency": "SAR", "story_limit": 10,
-     "features": ["١٠ قصص شهرياً", "فيديو مع مؤثرات", "تخصيص كامل", "أولوية في التوليد"], "sort_order": 2, "is_active": True},
-    {"name_ar": "الباقة المميزة", "price": 249, "currency": "SAR", "story_limit": 999,
-     "features": ["قصص غير محدودة", "صوت احترافي", "شخصية مخصصة للطفل", "دعم مخصص"], "sort_order": 3, "is_active": True},
+    # Shown on the privacy page and in the footer when filled in (admin → نصوص الموقع).
+    {"section": "footer", "key": "footer.contact_email", "value": ""},
 ]
 
 SETTINGS = [
@@ -180,24 +163,6 @@ async def seed_content():
             {"$setOnInsert": {**block, "updated_at": _now()}},
             upsert=True,
         )
-
-
-async def seed_prompts():
-    for p in PROMPTS:
-        exists = await db.prompts.find_one({"key": p["key"]})
-        if exists:
-            continue
-        await db.prompts.insert_one({
-            "id": str(uuid.uuid4()), **p, "is_active": True,
-            "created_at": _now(), "updated_at": _now(),
-        })
-
-
-async def seed_plans():
-    if await db.plans.count_documents({}) > 0:
-        return
-    for p in PLANS:
-        await db.plans.insert_one({"id": str(uuid.uuid4()), **p, "created_at": _now()})
 
 
 async def seed_settings():
@@ -519,8 +484,6 @@ async def seed_all():
     await seed_categories()
     await seed_story_options()
     await seed_content()
-    await seed_prompts()
-    await seed_plans()
     await seed_settings()
     await seed_prompt_templates()
     # Wave 3 — default bundles (only inserted on a virgin install).

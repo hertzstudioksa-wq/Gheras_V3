@@ -188,6 +188,10 @@ async def _book_data(order_id: str, plan: dict, cover_url: str | None, book_asse
                                        ).sort([("scene_index", 1), ("shot_index", 1)]):
         shots.setdefault(r["scene_index"], []).append(r["keyframe_url"])
 
+    # Children read fully vowelled text (cached per page; plain text if it fails).
+    from services.tashkeel_service import vowelled_pages
+    vowelled = await vowelled_pages([ba for ba in book_assets if ba.get("id")])
+
     pages, strip, longest = [], [], 0
     for i, ba in enumerate(sorted(book_assets, key=lambda b: int(b.get("page_number") or 0))):
         scene_index = ba.get("scene_index") or ba.get("page_number")
@@ -200,8 +204,10 @@ async def _book_data(order_id: str, plan: dict, cover_url: str | None, book_asse
         if not images and cover:
             images = [cover]
         strip.extend(images[:1])
-        text = (ba.get("page_text") or "").strip()
-        longest = max(longest, len(text))
+        text = vowelled.get(ba.get("id")) or (ba.get("page_text") or "").strip()
+        # Line length is judged on the letters, not the vowel marks.
+        from services.tashkeel_service import strip_marks
+        longest = max(longest, len(strip_marks(text)))
         first, _, rest = text.partition(" ")
         number = i + 1
         pages.append({"layout": LAYOUTS[i % len(LAYOUTS)], "images": images,

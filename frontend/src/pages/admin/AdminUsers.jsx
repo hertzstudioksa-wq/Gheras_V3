@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Ban, Check, Search, ShieldCheck } from "lucide-react";
+import { Ban, Check, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { AdminPage, ConfirmAction, PageState, Pager, useDebounced } from "../../components/admin/AdminKit";
@@ -114,6 +114,23 @@ export default function AdminUsers() {
                             <ShieldCheck className="w-3 h-3" />
                             {u.role === "admin" ? "شيل الإدارة" : "خليه إدارة"}
                           </ConfirmAction>
+                          {u.role !== "admin" && !u.deleted_at && (
+                            <ConfirmAction
+                              title={`تمسح كل بيانات ${u.full_name}؟`}
+                              description="لما ولي الأمر يطلب: بيتمسح اسمه وإيميله وكل صوره وقصصه وبيانات أطفاله. سجل المدفوعات بيفضل من غير بيانات شخصية. ما ينفعش يترجع. اكتب مصدر الطلب."
+                              confirmLabel="امسح البيانات" requireReason
+                              onConfirm={async (reason) => {
+                                try {
+                                  const r = await api.post(`/admin/users/${u.id}/delete-data`, { reason });
+                                  toast.success(`اتمسح: ${r.data.files} ملف، ${r.data.orders} طلب`);
+                                  load();
+                                } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
+                              }}
+                              className="rounded-xl bg-[#FCE6D4] hover:bg-[#F5D8C0] text-[#B8612F] px-3 py-1.5 text-xs font-body font-bold inline-flex items-center gap-1"
+                              testId={`user-delete-${u.id}`}>
+                              <Trash2 className="w-3 h-3" /> مسح البيانات
+                            </ConfirmAction>
+                          )}
                         </div>
                       )}
                     </td>

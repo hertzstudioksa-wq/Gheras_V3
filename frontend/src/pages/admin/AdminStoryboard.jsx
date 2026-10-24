@@ -585,7 +585,7 @@ function OutVideoGeneration({ o, orderId, onReload }) {
             </div>
             {c.video_url ? (
               <video
-                src={c.video_url}
+                src={fileSrc(c.video_url)}
                 controls
                 className="w-full rounded-xl bg-black/5 max-h-64"
                 data-testid={`video-clip-player-${c.scene_index}`}
@@ -660,7 +660,7 @@ function OutMusicGeneration({ o, stage }) {
         </div>
       ) : o.audio_url ? (
         <audio
-          src={o.audio_url}
+          src={fileSrc(o.audio_url)}
           controls
           className="w-full"
           data-testid="music-player"

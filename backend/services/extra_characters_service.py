@@ -116,7 +116,7 @@ async def _run_one(order: dict, character_index: int, character: dict,
     generated_url: str | None = None
     real_meta: dict[str, Any] = {}
     error: str | None = None
-    src_tuple = await _fetch_source_bytes(source_url)
+    src_tuple = await _fetch_source_bytes(source_url, owner_id=order["user_id"])
     if not src_tuple:
         error = "character photo could not be read from storage"
     else:

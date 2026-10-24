@@ -252,15 +252,25 @@ async def user_retry_delivery(order_id: str, background: BackgroundTasks, curren
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     if not order.get("production_approved"):
         raise HTTPException(status_code=400, detail="لم يتم اعتماد خطة الإنتاج بعد")
-    # If cover + at least one scene image completed, we can safely retry final assembly.
-    # Otherwise restart the full asset pipeline (which auto-kicks assembly when done).
+    from services.order_state import MAX_USER_DELIVERY_RETRIES, claim
+    if order.get("status") != OrderStatus.MEDIA_FAILED.value:
+        raise HTTPException(status_code=400, detail="إعادة المحاولة متاحة بس لو التجهيز وقف")
+    if int(order.get("user_delivery_retries") or 0) >= MAX_USER_DELIVERY_RETRIES:
+        raise HTTPException(status_code=429, detail="استخدمت محاولات الإعادة المتاحة — فريقنا هيتابع الطلب")
+    # If the cover and the scene images (or shot keyframes) completed, only the
+    # final assembly is retried; otherwise the asset pipeline resumes.
     cover_done = await db.generation_jobs.count_documents({
         "order_id": order_id, "job_type": "cover_image", "status": "completed",
     })
     scene_done = await db.generation_jobs.count_documents({
-        "order_id": order_id, "job_type": "scene_image", "status": "completed",
+        "order_id": order_id, "job_type": {"$in": ["scene_image", "scene_keyframes"]}, "status": "completed",
     })
-    if cover_done >= 1 and scene_done >= 1:
+    assembly_only = cover_done >= 1 and scene_done >= 1
+    to_status = OrderStatus.ASSEMBLING.value if assembly_only else OrderStatus.ASSETS_GENERATING.value
+    if not await claim(order_id, (OrderStatus.MEDIA_FAILED.value,), to_status, "user", actor_id=current["id"],
+                       reason="user retry", inc={"user_delivery_retries": 1}):
+        raise HTTPException(status_code=409, detail="الطلب اتغيّر — حدّث الصفحة")
+    if assembly_only:
         run_id = str(uuid.uuid4())
         background.add_task(run_final_assembly, order_id, run_id)
     else:
