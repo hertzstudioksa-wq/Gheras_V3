@@ -100,7 +100,8 @@ export function StagesTab() {
     run(`preset-del-${p.id}`, () => api.delete(`/admin/engine/presets/${p.id}`), "اتمسحت");
   };
 
-  const videoModels = byCap.video || [];
+  // The premium tier stays on Kling (Wan on Comfy can only be the balanced tier's video stage).
+  const videoModels = (byCap.video || []).filter((m) => m.provider === "kling");
   const balanced = state.stages.find((s) => s.stage_key === "video_generation");
 
   return (
@@ -157,7 +158,8 @@ export function StagesTab() {
 
       <div className="space-y-3">
         {state.stages.map((row) => {
-          const options = byCap[row.capability] || [];
+          // Some models fit only certain stages (Comfy draws keyframes, not sheets).
+          const options = (byCap[row.capability] || []).filter((m) => !m.stages || m.stages.includes(row.stage_key));
           const current = `${row.provider}|${row.model_name}`;
           const t = tests[row.stage_key];
           return (

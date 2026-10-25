@@ -135,6 +135,21 @@ KNOWN_ENV_KEYS: list[dict] = [
         "optional": True,
     },
     {
+        "key": "COMFY_API_KEY",
+        "label": "Comfy Cloud",
+        "providers": ["comfy_image", "comfy_video"],
+        "purpose": "صور اللقطات (Qwen Image 2.1) ومقاطع اللقطات (Wan 2.2) على Comfy Cloud — أرخص من fal للمرحلتين دول. "
+                   "بيتسحب من رصيد باقة Comfy، والاختبار بيقرأ الرصيد ببلاش.",
+        "rotation_instructions": (
+            "1) من حساب Comfy: platform.comfy.org ← API Keys\n"
+            "2) أنشئ مفتاح جديد (بيبدأ بـ comfyui-).\n"
+            "3) احفظه هنا بزرار التحديث الآمن — مش محتاج restart.\n"
+            "4) اضغط اختبار: بيعرض الرصيد المتبقي."
+        ),
+        "test_provider_key": "comfy",
+        "optional": True,
+    },
+    {
         "key": "MOYASAR_SECRET_KEY",
         "label": "Moyasar — ميسر",
         "providers": ["moyasar"],

@@ -222,7 +222,7 @@ async def _fal_balance_locked() -> bool:
     few tokens of a real request are the only proof the balance works."""
     from services.engine_health import probe
 
-    return bool((await probe()).get("locked"))
+    return bool((await probe(("fal",))).get("locked"))
 
 
 async def _test_fal_key(env_key: str, label: str) -> dict:
@@ -307,6 +307,36 @@ async def test_fal_video() -> dict:
     return out
 
 
+# ---- Comfy Cloud (shot keyframes + clips) ---------------------------------
+async def test_comfy() -> dict:
+    """Reads the workspace credit (free): checks the key and the balance in one
+    call; falls back to the latest job when billing can't be read."""
+    secret, source = await get_secret_with_source("COMFY_API_KEY")
+    if not secret:
+        return _result("comfy", False, False, False, 0, None, "missing",
+                       "COMFY_API_KEY not configured")
+    from services.ai import AIConfigError, AIError, comfy
+    from services.engine_health import COMFY_MIN_BALANCE_USD
+
+    started = time.monotonic()
+    try:
+        usd = await comfy.balance_usd(stage="key_test")
+        if usd is None:
+            await comfy.ping(stage="key_test")
+    except AIConfigError as e:
+        latency = int((time.monotonic() - started) * 1000)
+        return _result("comfy", False, False, True, latency, secret, source, f"auth failed: {e}")
+    except AIError as e:
+        latency = int((time.monotonic() - started) * 1000)
+        return _result("comfy", False, False, False, latency, secret, source, str(e)[:200])
+    latency = int((time.monotonic() - started) * 1000)
+    low = usd is not None and usd < COMFY_MIN_BALANCE_USD
+    out = _result("comfy", not low, True, True, latency, secret, source,
+                  f"رصيد Comfy خلص (${usd:.2f}) — اشحن من حساب Comfy" if low else None, model_reachable=True)
+    out["balance_usd"] = usd
+    return out
+
+
 # ---- Moyasar --------------------------------------------------------------
 async def test_moyasar() -> dict:
     secret, source = await get_secret_with_source("MOYASAR_SECRET_KEY")
@@ -343,6 +373,7 @@ PROVIDERS = {
     "fal_narration":     test_fal_narration,
     "fal_music":         test_fal_music,
     "fal_video":         test_fal_video,
+    "comfy":             test_comfy,
     "moyasar":           test_moyasar,
 }
 

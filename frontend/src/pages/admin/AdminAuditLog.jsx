@@ -33,7 +33,7 @@ const ENTITY_LABEL = {
   asset: "أصل",
   retention_policy: "سياسة الاحتفاظ",
   wallet: "رصيد عميل",
-  engine: "محرك التوليد (رصيد fal)",
+  engine: "محرك التوليد (الرصيد)",
 };
 const ACTION_LABEL = {
   create: "إضافة", update: "تعديل", delete: "مسح", grant: "منح", reserve: "حجز", consume: "استهلاك",

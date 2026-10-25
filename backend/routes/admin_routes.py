@@ -13,6 +13,7 @@ from models import (
 )
 from services.scenario_service import generate_scenarios, build_scenario_docs
 from routes.order_routes import append_status, run_scenario_generation
+from services.ai.comfy import DEFAULT_USD_PER_GPU_SECOND
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -627,6 +628,26 @@ KNOWN_SETTINGS = {
                           "اللقطة اللي فيها غلط بتتعاد مرة واحدة تلقائي (~$0.03 للقصة + تكلفة اللقطة اللي بتتعاد).",
         "type": "bool", "default": True,
     },
+    "comfy.max_concurrent": {
+        "label_ar": "عدد طلبات Comfy في نفس الوقت",
+        "description_ar": "كام صورة أو مقطع يتبعتوا لـ Comfy Cloud مع بعض لكل الطلبات. باقة Standard بتشغّل طلب "
+                          "واحد بس؛ زوّده لو الباقة بتسمح بأكتر. التغيير بيسري في ثواني من غير restart.",
+        "type": "int", "min": 1, "max": 8, "default": 1,
+    },
+    "comfy.kling_rescue": {
+        "label_ar": "Kling كشبكة أمان لمقاطع Comfy",
+        "description_ar": "مقفول افتراضياً عشان التكلفة تفضل زي التسعير. وهو مقفول: المقطع اللي المراجعة بتعلّم عليه "
+                          "بيتعاد بحركة أهدى، وبعدين مرة كمان بـ seed جديد (≈ $0.15)، ويتسلّم أحسن نسخة. لو اتفتح: بعد "
+                          "الحركة الأهدى اللقطة دي بس بتترندر بـ Kling الفاخر (≈ $0.11 للثانية، 4–5 أضعاف Wan).",
+        "type": "bool", "default": False,
+    },
+    "comfy.usd_per_gpu_second": {
+        "label_ar": "سعر ثانية GPU على Comfy (دولار)",
+        "description_ar": "التكلفة الفعلية لصور اللقطات ومقاطع Wan على Comfy = ثواني GPU × السعر ده. الافتراضي 0.0019 = "
+                          "credits الباقة (0.39 credit للثانية، ~211 credit للدولار). على API deployment ≈ 0.00097. "
+                          "مش بيغيّر سعر البيع (ده من الكتالوج).",
+        "type": "float", "min": 0.0001, "max": 0.05, "step": 0.0001, "default": DEFAULT_USD_PER_GPU_SECOND,
+    },
 }
 
 
@@ -654,11 +675,12 @@ async def upsert_setting(payload: SettingIn, admin=Depends(require_admin)):
         value = str(value or "").strip()
         if value and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
             raise HTTPException(status_code=400, detail="الإيميل مش مظبوط")
-    if meta["type"] == "int":
+    if meta["type"] in ("int", "float"):
         try:
-            value = int(value)
+            value = int(value) if meta["type"] == "int" else float(value)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="القيمة لازم تكون رقم صحيح")
+            raise HTTPException(status_code=400, detail="القيمة لازم تكون رقم صحيح" if meta["type"] == "int"
+                                else "القيمة لازم تكون رقم")
         if not meta["min"] <= value <= meta["max"]:
             raise HTTPException(status_code=400, detail=f"القيمة لازم تكون بين {meta['min']} و{meta['max']}")
     before = await db.settings.find_one({"key": payload.key}, {"_id": 0, "value": 1})

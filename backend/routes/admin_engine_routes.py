@@ -440,15 +440,20 @@ async def prompt_preview(order_id: str):
                     for r in await shot_pipeline.shot_rows(order["id"], plan["id"])}
             child_name = ((order.get("data") or {}).get("child") or {}).get("name") or ""
             provider, model = await video_model_for_tier(video_tier_of(order))
+            image_provider, image_model = await shot_pipeline.keyframe_engine()
+            on_comfy = image_provider == "comfy_image"
+            toy = shot_pipeline.favourite_toy(order) if on_comfy else None
             rows = []
             for sc in scenes:
                 for sh in sc.get("shots") or []:
                     notes = [f"{sheets[t]['label']}'s character sheet" for t in shot_pipeline.by_likeness(
                         sh.get("characters") or [], sheets)[:shot_pipeline.MAX_KEYFRAME_SHEETS]]
-                    if sh["shot_index"] > 1:
+                    previous = "shot" if sh["shot_index"] > 1 else "scene" if sc["scene_index"] > 1 else None
+                    if previous == "shot":
                         notes.append(shot_pipeline.PREV_SHOT_NOTE)
-                    elif sc["scene_index"] > 1:
+                    elif previous == "scene":
                         notes.append(shot_pipeline.PREV_SCENE_NOTE)
+                    comfy_refs = shot_pipeline.comfy_references(sh, sc, sheets, toy, previous) if on_comfy else []
                     mapping = [f"{sheets[t]['label']} is @Element{i + 1}" for i, t in enumerate(
                         shot_pipeline.by_likeness(sh.get("characters") or [], sheets)[:shot_pipeline.MAX_ELEMENTS])
                     ] if "/v3/" in model else []
@@ -456,16 +461,20 @@ async def prompt_preview(order_id: str):
                     rows.append({
                         "scene_index": sc["scene_index"], "shot_index": sh["shot_index"],
                         "narration_line": sh.get("narration_line"),
-                        "keyframe_prompt": shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes,
-                                                                         style),
+                        "keyframe_prompt": shot_pipeline.keyframe_prompt_comfy(sc, sh, profiles, sheets, child_name,
+                                                                               comfy_refs) if on_comfy else
+                        shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes, style),
+                        "keyframe_references": shot_pipeline.describe_refs(comfy_refs, sheets) if on_comfy else
+                        [f"<image{i + 1}> {n}" for i, n in enumerate(notes)],
                         "keyframe_prompt_used": row.get("keyframe_prompt_used"),
                         "motion_prompt": shot_pipeline.motion_prompt(
                             sh.get("motion_prompt"), mapping, style,
                             shot_pipeline.cast_labels(sh.get("characters") or [], sheets)),
                         "motion_prompt_used": row.get("clip_prompt_used"),
-                        "negative_prompt": shot_pipeline.clip_negative(style),
+                        # Wan on Comfy runs at CFG 1: a negative prompt does nothing there.
+                        "negative_prompt": None if provider == "comfy_video" else shot_pipeline.clip_negative(style),
                     })
-            return {"image_model": "scene_image_generation",
+            return {"image_model": f"{image_provider}/{image_model}", "image_on_comfy": on_comfy,
                     "image_quality": house_style.image_quality("scene_image_generation", pacing["image_quality"]),
                     "video_model": f"{provider}/{model}", "shots": rows}
 
@@ -543,7 +552,7 @@ async def reset_engine_stage(stage: str, admin: dict = Depends(require_admin)):
 
 # Key / connection checks (no generation, nothing billed).
 _DIRECT_TESTS = {"anthropic": "anthropic", "openai": "openai", "gemini": "gemini", "gemini_tts": "gemini",
-                 "elevenlabs": "elevenlabs"}
+                 "elevenlabs": "elevenlabs", "comfy_image": "comfy", "comfy_video": "comfy"}
 
 
 # ============================================================================
@@ -1026,8 +1035,9 @@ def _disk_usage() -> dict | None:
 
 
 async def _engine_balance() -> dict:
-    """The fal balance as last seen by a real call (locked = top-up needed)."""
+    """The providers' balance as last seen by a real call (locked = top-up needed)."""
     from services import engine_health
 
     st = await engine_health.status()
-    return {"locked": st["locked"], "locked_at": st.get("locked_at"), "paused_orders": st.get("paused_orders", 0)}
+    return {"locked": st["locked"], "locked_at": st.get("locked_at"), "paused_orders": st.get("paused_orders", 0),
+            "provider_label": st.get("provider_label")}

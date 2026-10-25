@@ -224,11 +224,14 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
     if (row.get("redo") or {}).get("state") == "running":
         raise HTTPException(status_code=409, detail="اللقطة دي بتتعاد دلوقتي")
     await ensure_available()
-    reset = {"clip_url": None, "clip_request_id": None, "clip_state": None, "clip_error": None, "clip_review": None,
+    reset = {"clip_url": None, "clip_request_id": None, "clip_prompt_id": None, "clip_rescue": None,
+             "clip_state": None, "clip_error": None, "clip_review": None,
              "clip_run_id": None, "redo": {"state": "running", "target": payload.target, "by": admin.get("email"),
                                            "at": _now()}}
     if payload.target == "both":
-        reset.update({"keyframe_url": None, "keyframe_review": None})
+        # A stale Comfy job id would hand back the old picture instead of a new one.
+        reset.update({"keyframe_url": None, "keyframe_review": None, "keyframe_prompt_id": None,
+                      "keyframe_prompt_attempt": None})
     if payload.motion_prompt is not None and payload.motion_prompt.strip():
         reset["motion_prompt"] = payload.motion_prompt.strip()
         # The plan keeps the edit too, so a later full rerun uses it.

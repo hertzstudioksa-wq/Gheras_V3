@@ -596,6 +596,8 @@ async def _store_cover(job: dict, order: dict, plan: dict, image_bytes: bytes, m
         "prompt_used": meta.get("prompt_used"),
         "provider": meta.get("provider"),
         "source_type": meta.get("provider"),
+        "model": meta.get("model"),
+        "gpu_seconds": meta.get("gpu_seconds"),  # Comfy: what the cover cost
         "created_at": _now(),
     })
     return url, meta

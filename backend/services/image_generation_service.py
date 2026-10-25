@@ -97,4 +97,7 @@ async def generate_image(
         "fallback_path": "provider-no-image-input" if references and not support_true_refs else None,
         "fallback_reason": None,
         "usage": meta.get("usage"),
+        # Comfy keyframes: the job and its GPU time (what it costs).
+        "prompt_id": meta.get("prompt_id"),
+        "gpu_seconds": meta.get("gpu_seconds"),
     }

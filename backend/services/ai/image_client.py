@@ -1,6 +1,8 @@
 """Image generation: OpenAI GPT Image (generations + reference-guided edits);
-Gemini image models as a low-cost option for end-to-end testing."""
+Gemini image models as a low-cost option for end-to-end testing; shot keyframes
+on Comfy Cloud (Qwen Image 2.1 Edit, `comfy_image`)."""
 import base64
+import hashlib
 import io
 import logging
 from typing import Optional
@@ -9,7 +11,7 @@ from services.ai import AIConfigError, AIError, classify_http_error, gemini_comm
 
 logger = logging.getLogger("ai.image")
 
-IMAGE_PROVIDERS = {"openai", "gemini", "fal_image"}
+IMAGE_PROVIDERS = {"openai", "gemini", "fal_image", "comfy_image"}
 # 16:9 video keyframes / character sheets.
 WIDE = "1536x864"
 _GEMINI_ASPECT = {"1024x1024": "1:1", "1536x1024": "3:2", "1024x1536": "2:3", WIDE: "16:9"}
@@ -45,6 +47,9 @@ async def generate_image(
     endpoint so the likeness carries across pages."""
     if provider not in IMAGE_PROVIDERS:
         raise AIConfigError(f"No image executor for provider '{provider}' (stage {stage})")
+    if provider == "comfy_image":
+        # Before the generic rehearsal answer: the Comfy adapter has its own.
+        return await comfy_image(stage=stage, model=model, prompt=prompt, references=references, size=size)
     from services.ai import fake_providers
 
     if fake_providers.enabled():
@@ -172,4 +177,43 @@ async def _fal_image(stage, model, prompt, references, size, timeout, quality="h
         "references_count": len(references or []),
         "size": size,
         "usage": None,
+    }
+
+
+def comfy_workflow(model: str) -> str:
+    """Catalog model "comfy/keyframe_qwen21" -> workflow file keyframe_qwen21_api.json."""
+    return model.split("/", 1)[1] if model.startswith("comfy/") else model
+
+
+async def comfy_image(*, stage: str, model: str, prompt: str, references: Optional[list[bytes]] = None,
+                      size: str = WIDE, upload_cache: Optional[dict] = None, prompt_id: Optional[str] = None,
+                      on_submitted=None, seed: Optional[int] = None) -> tuple[bytes, str, dict]:
+    """A keyframe on Comfy Cloud. Each reference is its own <imageN>, in order.
+    `upload_cache` (sha1 -> uploaded name) saves re-sending the same sheet for
+    every shot; `prompt_id` resumes a job submitted before a restart."""
+    from services.ai import comfy
+
+    if size != WIDE:
+        logger.warning(f"[ai.image] stage={stage} Comfy keyframes are always {WIDE}; asked for {size}")
+    if not references:
+        raise AIConfigError(f"Comfy keyframes need at least one reference image (stage {stage})")
+    cache = upload_cache if upload_cache is not None else {}
+    names = []
+    for ref in references:
+        png = _as_png(ref)
+        digest = hashlib.sha1(png).hexdigest()
+        if digest not in cache:
+            cache[digest] = await comfy.upload(png, f"ref-{digest[:16]}.png", stage=stage)
+        names.append(cache[digest])
+    seed = seed or comfy.new_seed()
+    data, mime, job = await comfy.run(stage=stage, workflow=comfy_workflow(model),
+                                      fills={"scene_prompt": prompt, "seed": seed, "output_prefix": f"gheras/{stage}"},
+                                      refs=names, on_submitted=on_submitted, prompt_id=prompt_id,
+                                      timeout=600.0, poll_interval=3.0)
+    gpu = comfy.gpu_seconds(job)
+    logger.info(f"[ai.image] stage={stage} model={model} refs={len(names)} bytes={len(data)} gpu_s={gpu} "
+                f"prompt_id={job['prompt_id']}")
+    return data, mime, {
+        "provider": "comfy_image", "model": model, "references_count": len(names), "size": WIDE,
+        "prompt_id": job["prompt_id"], "gpu_seconds": gpu, "seed": seed, "usage": None,
     }

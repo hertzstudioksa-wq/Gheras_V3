@@ -24,7 +24,8 @@ def classify_http_error(stage: str, provider: str, status: int | None, message: 
     text = f"{provider} call failed ({stage}): HTTP {status}: {message}"
     message = message if isinstance(message, str) else str(message)  # fal sends 422 details as a list
     lowered = message.lower()
-    if status in (401, 403) or "insufficient_quota" in lowered or "no credits" in lowered \
+    # 402 Payment Required: Comfy Cloud's answer when the credits run out.
+    if status in (401, 402, 403) or "insufficient_quota" in lowered or "no credits" in lowered \
             or "credit balance" in lowered or "limit: 0" in lowered:
         return AIConfigError(text)
     if status in (400, 404, 422):

@@ -155,6 +155,8 @@ SHOT_SECONDS = 5
 SHOT_TYPES = ["wide", "medium", "close-up", "insert", "over-the-shoulder", "back view"]
 # Kling v3 clip length bounds (seconds).
 CLIP_MIN_SEC, CLIP_MAX_SEC = 3, 15
+# Wan 2.2 on Comfy: whole seconds (frames = 16 * s + 1); past 7 s it drifts.
+COMFY_CLIP_MIN_SEC, COMFY_CLIP_MAX_SEC = 3, 7
 # Silence kept after each narration line before the next shot.
 LINE_GAP_SEC = 0.35
 # Extra time on the very last shot so the story doesn't end mid-breath.
@@ -192,6 +194,11 @@ def clip_seconds_for(model: str, narration_seconds: float, line_gap: float | Non
                      five_second_stretch: float | None = None) -> int:
     """Clip length to request from a given video model for a narration line."""
     gap = LINE_GAP_SEC if line_gap is None else line_gap
+    if model.startswith("comfy/"):
+        # Exactly the line's length, not Kling's 5/10 s rounding; assembly slows a
+        # clip a little when a long line needs more than 7 s.
+        need = narration_seconds + gap + 0.15
+        return int(min(COMFY_CLIP_MAX_SEC, max(COMFY_CLIP_MIN_SEC, math.ceil(need))))
     if "/v3/" in model:
         return clip_seconds(narration_seconds, gap)  # any length 3–15 s
     need = narration_seconds + gap + 0.15
