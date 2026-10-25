@@ -100,3 +100,14 @@ def test_clips_keep_everyone_off_the_camera():
 
     assert "Nobody turns to look at the camera." in sp.motion_prompt("Omar claps.", [], engine_config.DEFAULT_STYLE,
                                                                     ["Omar"])
+
+
+def test_a_favourite_toy_without_a_photo_is_not_called_uploaded():
+    # "uploaded as a photo" made the plan leave a Sonic plush seen in every shot out of story_objects
+    order = {"data": {"child": {"name": "يمان"}, "goal": {}, "characters": [],
+                      "personalization": {"favorites": {"toy": {"selected": True, "name": "دبدوب سونيك"}},
+                                          "toy_image_url": ""}}, "duration": {"seconds": 45}}
+    text = ps._build_user_prompt(order, {}, 4)
+    assert "(بدون صورة)" in text and "مرفوع كصورة" not in text and "story_objects" in text
+    order["data"]["personalization"]["toy_image_url"] = "/api/uploads/file/x"
+    assert "مرفوع كصورة" in ps._build_user_prompt(order, {}, 4)
