@@ -51,7 +51,7 @@ export function formatDate(iso, withTime = true) {
 export function timeAgo(iso) {
   if (!iso) return "";
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return "دلوقتي";
+  if (diff < 60) return "الآن";
   if (diff < 3600) return `من ${Math.round(diff / 60)} دقيقة`;
   if (diff < 86400) return `من ${Math.round(diff / 3600)} ساعة`;
   return `من ${Math.round(diff / 86400)} يوم`;

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useSiteContent } from "../lib/siteContent";
 import { usePageTitle } from "../lib/usePageTitle";
+import { topicsLabel } from "../lib/arabic";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import {
@@ -50,15 +51,6 @@ const FAQ = [
   ["كيف أشارك القصة مع العائلة؟",
     "من صفحة القصة تنشئ رابط مشاهدة خاصاً ترسله على واتساب للجدّ والجدّة، وتلغيه متى أردت."],
 ];
-
-/** "3 مواضيع", "موضوعان", "11 موضوعاً" … and a hint for a free-text category. */
-function topicsLabel(n) {
-  if (!n) return "موقف تكتبه بنفسك";
-  if (n === 1) return "موضوع واحد";
-  if (n === 2) return "موضوعان";
-  if (n <= 10) return `${n} مواضيع`;
-  return `${n} موضوعاً`;
-}
 
 function useStartingPrices() {
   const [prices, setPrices] = useState(null);

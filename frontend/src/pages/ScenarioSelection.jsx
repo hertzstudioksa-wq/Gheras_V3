@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { TimeChips, useTicker } from "../components/gheras/LiveProgress";
 import { usePageTitle } from "../lib/usePageTitle";
 import JourneySteps from "../components/gheras/JourneySteps";
+import { scenesLabel } from "../lib/arabic";
 
 // The ideas take ~50 s: a bar that fills with time, a counter and changing
 // lines, instead of a spinner that looks stuck.
@@ -62,7 +63,7 @@ export default function ScenarioSelection() {
       const s = e?.response?.status;
       const isPermanent = s === 404 || s === 403 || s === 401;
       if (isPermanent && !silent && !errorShownRef.current) {
-        toast.error(e?.response?.data?.detail || "تعذّر تحميل السيناريوهات");
+        toast.error(e?.response?.data?.detail || "تعذّر تحميل الحكايات");
         errorShownRef.current = true;
       }
       if (isPermanent) setPolling(false);
@@ -123,7 +124,7 @@ export default function ScenarioSelection() {
     setSelectingId(sid);
     try {
       await api.post(`/orders/${id}/scenarios/${sid}/select`);
-      toast.success("تم اختيار السيناريو 🌱");
+      toast.success("تم اختيار الحكاية 🌱");
       navigate(`/orders/${id}/production-ready`);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "فشل الاختيار");
@@ -166,19 +167,19 @@ export default function ScenarioSelection() {
           <div className="relative">
             <JourneySteps status="scenarios_ready" className="mb-4" />
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
-              {isLoading ? "جاري تجهيز أفكار القصة لطفلك..." : isFailed ? "حدث تعطّل بسيط" : "اختر السيناريو الذي يناسبك"}
+              {isLoading ? "جاري تجهيز أفكار القصة لطفلك..." : isFailed ? "حدث تعطّل بسيط" : "اختر الحكاية التي تناسب طفلك"}
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
-              {isLoading ? "نقوم الآن بإعداد 3 سيناريوهات مخصصة"
-              : isFailed ? "لم نتمكن من إنشاء السيناريوهات. جرّب إعادة التوليد."
-              : "كل سيناريو له شخصية مختلفة. اختر الزاوية التي تشعر أنها الأقرب لطفلك."}
+              {isLoading ? "نكتب الآن 3 حكايات مخصصة لطفلك"
+              : isFailed ? "لم نتمكن من كتابة الحكايات. جرّب مرة أخرى."
+              : "لكل حكاية روح مختلفة. اختر الأقرب لطفلك."}
             </p>
             {state.duration?.label && (
               <div className="mt-4 inline-flex items-center gap-2 bg-white/80 backdrop-blur rounded-full px-3 py-1 text-xs font-body text-[#5A677D]" data-testid="hero-duration">
                 <Clock className="w-3 h-3 text-[#729352]" />
                 مدة الفيديو المطلوبة: <b className="text-[#2D3748]">{state.duration.label}</b>
                 <span>•</span>
-                <span>~{state.duration.scene_target} مشاهد</span>
+                <span>حوالي {scenesLabel(state.duration.scene_target)}</span>
               </div>
             )}
 
@@ -218,7 +219,7 @@ export default function ScenarioSelection() {
             <div className="w-20 h-20 rounded-3xl bg-[#FCE6D4] grid place-content-center mx-auto mb-5">
               <AlertTriangle className="w-10 h-10 text-[#B8612F]" />
             </div>
-            <h2 className="font-heading text-2xl font-bold text-[#2D3748] mb-2">تعذّر إنشاء السيناريوهات</h2>
+            <h2 className="font-heading text-2xl font-bold text-[#2D3748] mb-2">تعذّر كتابة الحكايات</h2>
             <p className="font-body text-[#5A677D] mb-6">يمكن أن يحدث هذا أحياناً. اضغط لإعادة المحاولة.</p>
             <button
               onClick={regenerate}
@@ -277,9 +278,9 @@ export default function ScenarioSelection() {
                     </div>
 
                     <div className="mb-2 inline-flex items-center gap-1 text-xs text-[#8A9AB0] font-body">
-                      <span>سيناريو {s.scenario_index}</span>
+                      <span>الحكاية {s.scenario_index}</span>
                       <span>•</span>
-                      <span>{s.estimated_scene_count} مشاهد</span>
+                      <span>{scenesLabel(s.estimated_scene_count)}</span>
                     </div>
 
                     <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-2 leading-tight">
@@ -293,7 +294,7 @@ export default function ScenarioSelection() {
                     {s.why_this_fits && (
                       <div className="bg-[#F8F1E7] rounded-2xl p-3 border border-[#D4A373]/30 mb-3" data-testid={`why-fits-${s.id}`}>
                         <div className="flex items-center gap-2 text-xs font-bold text-[#8B5A2B] mb-1">
-                          <Lightbulb className="w-3 h-3" /> لماذا هذا السيناريو يناسب طفلك؟
+                          <Lightbulb className="w-3 h-3" /> لماذا تناسب هذه الحكاية طفلك؟
                         </div>
                         <p className="font-body text-sm text-[#2D3748]">{s.why_this_fits}</p>
                       </div>
@@ -320,7 +321,7 @@ export default function ScenarioSelection() {
                         data-testid={`scenario-select-${s.id}`}
                       >
                         {selectingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sprout className="w-4 h-4" />}
-                        اختر هذا السيناريو
+                        اختر هذه الحكاية
                       </button>
                     )}
                   </div>

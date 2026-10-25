@@ -217,12 +217,12 @@ async def user_approve_production(order_id: str, background: BackgroundTasks, cu
     if order.get("status") != OrderStatus.PRODUCTION_READY.value:
         raise HTTPException(status_code=400, detail="خطة الإنتاج ليست جاهزة بعد")
     if order.get("safety_flag") and (order.get("safety_review") or {}).get("decision") != "approve":
-        raise HTTPException(status_code=400, detail="القصة محتاجة مراجعة سريعة من فريقنا قبل الرسم — هتقدر تعتمدها هنا بعدها")
+        raise HTTPException(status_code=400, detail="تحتاج القصة إلى مراجعة سريعة من فريقنا قبل الرسم — ستتمكن من اعتمادها هنا بعد ذلك")
     from services.order_state import claim
     if not await claim(order_id, (OrderStatus.PRODUCTION_READY.value,), OrderStatus.PRODUCTION_APPROVED.value, "user",
                        actor_id=current["id"], reason="user approved production plan",
                        extra={"production_approved": True, "production_approved_at": _now()}):
-        raise HTTPException(status_code=409, detail="الخطة اتعتمدت بالفعل")
+        raise HTTPException(status_code=409, detail="اعتُمدت الخطة بالفعل")
     # Trigger asset generation pipeline (phase 6A)
     from routes.media_routes import trigger_asset_generation
     run_id = await trigger_asset_generation(order_id, background)
@@ -254,7 +254,7 @@ async def user_regenerate_production(order_id: str, background: BackgroundTasks,
                        extra={"production_generation": {"run_id": run_id, "source": "pending", "error": None,
                                                         "started_at": _now()}},
                        inc={"production_regeneration_count": 1}):
-        raise HTTPException(status_code=409, detail="الطلب اتغيّر — حدّث الصفحة")
+        raise HTTPException(status_code=409, detail="تغيّر الطلب — حدّث الصفحة")
     background.add_task(run_production_generation, order_id, run_id)
     return {"ok": True, "run_id": run_id, "remaining": MAX_USER_PRODUCTION_REGENERATIONS - used - 1}
 
@@ -301,7 +301,7 @@ async def admin_regenerate_production(order_id: str, background: BackgroundTasks
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     # Need a selected scenario
     if not order.get("selected_scenario_snapshot"):
-        raise HTTPException(status_code=400, detail="لم يتم اختيار سيناريو بعد")
+        raise HTTPException(status_code=400, detail="لم تُختر الحكاية بعد")
     run_id = str(uuid.uuid4())
     await db.orders.update_one(
         {"id": order_id},

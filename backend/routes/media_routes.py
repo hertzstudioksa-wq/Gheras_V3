@@ -376,7 +376,7 @@ async def user_retry_delivery(order_id: str, background: BackgroundTasks, curren
         raise HTTPException(status_code=400, detail="لم يتم اعتماد خطة الإنتاج بعد")
     from services.order_state import MAX_USER_DELIVERY_RETRIES, claim
     if order.get("status") != OrderStatus.MEDIA_FAILED.value:
-        raise HTTPException(status_code=400, detail="إعادة المحاولة متاحة بس لو التجهيز وقف")
+        raise HTTPException(status_code=400, detail="إعادة المحاولة متاحة فقط إذا توقف التجهيز")
     if int(order.get("user_delivery_retries") or 0) >= MAX_USER_DELIVERY_RETRIES:
         raise HTTPException(status_code=429, detail="استخدمت محاولات الإعادة المتاحة — فريقنا هيتابع الطلب")
     from services.engine_health import ensure_available

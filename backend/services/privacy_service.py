@@ -114,10 +114,10 @@ async def delete_account(user_id: str, *, actor: dict | None, reason: str) -> di
     if user.get("role") == "admin":
         raise ValueError("حساب الأدمن ما يتمسحش من هنا")
     if await db.orders.count_documents({"user_id": user_id, "status": {"$in": list(BUSY_STATUSES)}}):
-        raise ValueError("فيه قصة بتتجهّز دلوقتي — استنى لحد ما تخلص وبعدين امسح الحساب")
+        raise ValueError("لديك قصة قيد التجهيز — انتظر حتى تكتمل ثم احذف الحساب")
     credit = await balance(user_id)
     if credit > 0:
-        raise ValueError(f"عندك رصيد {credit / 100:.2f} ر.س — تواصل معانا نرجّعه قبل مسح الحساب")
+        raise ValueError(f"لديك رصيد {credit / 100:.2f} ر.س — تواصل معنا لاسترداده قبل حذف الحساب")
 
     from services.share_service import revoke_for_user
     await revoke_for_user(user_id)  # family watch links stop working first

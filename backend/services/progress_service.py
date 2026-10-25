@@ -31,7 +31,7 @@ STAGE_LABELS_AR = {
     "assembly": "تجميع الفيديو والكتاب",
     "delivered": "جاهز",
     "failed": "تعذّر الإنشاء",
-    "paused": "تأخير بسيط عندنا",
+    "paused": "تأخير بسيط من جهتنا",
 }
 
 # Real-world seconds per unit, measured on the first full test order.
@@ -39,15 +39,16 @@ EXPECT = {"planning": 115, "sheet": 95, "cover": 45, "keyframe": 50, "narration"
           "clip": 270, "review": 5, "assembly": 80}
 CLIP_CONCURRENCY = 4
 PLANNING_MESSAGES = [
-    "بنكتب حكاية {name} مشهد مشهد ✍️",
-    "بنختار أماكن المشاهد والإضاءة 🌄",
-    "بنظبط كلام الراوي باللهجة 🎙️",
-    "بنراجع القصة عشان تناسب سن {name} 💚",
+    "نكتب حكاية {name} مشهداً مشهداً ✍️",
+    "نختار أماكن المشاهد والإضاءة 🌄",
+    "نضبط كلام الراوي باللهجة المختارة 🎙️",
+    "نراجع القصة لتناسب عمر {name} 💚",
 ]
 MAX_PREVIEWS = 16
 # How the parent sees the rest of the cast in the previews (sheet labels are English).
-CAST_AR = {"father": "بابا", "mother": "ماما", "sibling": "الأخ/الأخت", "grandparent": "الجد/الجدة",
-           "friend": "الصاحب", "teacher": "المعلّم/ة", "other": "شخصية من القصة"}
+CAST_AR = {"father": "شخصية الأب", "mother": "شخصية الأم", "sibling": "شخصية الأخ/الأخت",
+           "grandparent": "شخصية الجد/الجدة", "friend": "شخصية الصديق", "teacher": "شخصية المعلّم",
+           "other": "شخصية من القصة"}
 
 
 def _bounded(v: float, lo: int = 0, hi: int = 100) -> int:
@@ -165,14 +166,14 @@ async def _shot_progress(order: dict, now: datetime) -> dict | None:
 
     name = _child_name(order)
     if sheets_done < sheets_total:
-        message = f"بنرسم {name} كرتون 🎨" if "child" not in sheets else "بنرسم باقي العيلة 🎨"
+        message = f"نرسم {name} بأسلوب الكرتون 🎨" if "child" not in sheets else "نرسم بقية أفراد العائلة 🎨"
     elif kf_done < n:
         scene_of = planned[kf_done][0]
-        message = f"بنرسم المشهد {scene_of} من {len(scenes)} — لقطة {kf_done + 1} من {n} 🖌️"
+        message = f"نرسم المشهد {scene_of} من {len(scenes)} — اللقطة {kf_done + 1} من {n} 🖌️"
     elif clips_left:
-        message = f"بنحرّك اللقطات: {clips_done} من {n} جاهزة 🎬"
+        message = f"نحرّك اللقطات: {clips_done} من {n} جاهزة 🎬"
     else:
-        message = "اللقطات جاهزة — بنكمّل اللمسات الأخيرة ✨"
+        message = "اللقطات جاهزة — نضع اللمسات الأخيرة ✨"
 
     def step(key, label, done, total, active):
         state = "done" if done >= total else "active" if active else "waiting"
@@ -217,14 +218,14 @@ async def compute_pipeline_progress(order: dict) -> dict:
         if order.get("engine_paused"):
             # Stopped by our engine's balance, not by the story: we resume it.
             return {"stage": "paused", "stage_ar": STAGE_LABELS_AR["paused"], "percent": 0, "paused": True,
-                    "message_ar": "حصل تأخير بسيط عندنا — هنكمّل قصتك من نفس المكان أول ما يتحل، "
-                                  "ومش محتاج تعمل أي حاجة."}
+                    "message_ar": "حدث تأخير بسيط من جهتنا — سنكمل قصتك من حيث توقفت فور حلّه، "
+                                  "ولا تحتاج إلى فعل أي شيء."}
         return {"stage": "failed", "stage_ar": STAGE_LABELS_AR["failed"], "percent": 0,
                 "message_ar": "تعذّر إكمال بعض الخطوات"}
 
     if status == OrderStatus.AWAITING_PAYMENT.value:
         return {"stage": "plan", "stage_ar": STAGE_LABELS_AR["plan"], "percent": 12,
-                "message_ar": "اخترت القصة — ادفع عشان نبدأ نجهّزها"}
+                "message_ar": "اخترت الحكاية — ادفع لنبدأ تجهيزها"}
 
     # --- Planning range (0..20) ---
     if status == OrderStatus.PRODUCTION_PLANNING.value:
@@ -289,7 +290,7 @@ async def compute_pipeline_progress(order: dict) -> dict:
         into = _since(started, now)
         creep = min(into / _seconds("assembly"), 0.95)
         return {"stage": "assembly", "stage_ar": STAGE_LABELS_AR["assembly"], "percent": _bounded(92 + 7 * creep),
-                "message_ar": "بنجمّع الصور والصوت في فيديو وكتاب 📦", "elapsed_seconds": int(elapsed),
+                "message_ar": "نجمع الصور والصوت في فيديو وكتاب 📦", "elapsed_seconds": int(elapsed),
                 "eta_seconds": int(max(_seconds("assembly") - into, 5))}
 
     # Fallback

@@ -30,7 +30,7 @@ export function formatRemaining(seconds) {
   const m = Math.round(s / 60);
   if (m === 1) return "حوالي دقيقة";
   if (m === 2) return "حوالي دقيقتين";
-  if (m <= 10) return `حوالي ${m} دقايق`;
+  if (m <= 10) return `حوالي ${m} دقائق`;
   return `حوالي ${m} دقيقة`;
 }
 
@@ -72,7 +72,7 @@ export function TimeChips({ elapsed, eta }) {
       )}
       {eta != null && (
         <span className="inline-flex items-center gap-1.5 bg-white rounded-full px-3 py-1 border border-[#E2D8C9] text-[#5A677D]" data-testid="live-eta">
-          <Hourglass className="w-3.5 h-3.5 text-[#D4A373]" /> باقي <b className="text-[#2D3748]">{formatRemaining(eta)}</b>
+          <Hourglass className="w-3.5 h-3.5 text-[#D4A373]" /> المتبقي <b className="text-[#2D3748]">{formatRemaining(eta)}</b>
         </span>
       )}
     </div>
@@ -147,7 +147,7 @@ export function NotifyWhenReady() {
   if (perm === "granted") {
     return (
       <p className="text-xs font-body text-[#4F6B3B] mt-3 inline-flex items-center gap-1.5" data-testid="notify-on">
-        <Bell className="w-3.5 h-3.5" /> هنبلغك بإشعار أول ما القصة تخلص — تقدر تقفل الصفحة.
+        <Bell className="w-3.5 h-3.5" /> سنرسل لك إشعاراً فور جاهزية القصة — يمكنك إغلاق الصفحة.
       </p>
     );
   }
@@ -155,7 +155,7 @@ export function NotifyWhenReady() {
     <button type="button" data-testid="notify-btn"
             onClick={async () => setPerm(await Notification.requestPermission())}
             className="mt-3 inline-flex items-center gap-2 rounded-full bg-white border border-[#E2D8C9] px-4 py-2 text-xs font-bold text-[#2D3748]">
-      <Bell className="w-3.5 h-3.5 text-[#87A96B]" /> بلّغني لما تخلص
+      <Bell className="w-3.5 h-3.5 text-[#87A96B]" /> نبّهني عند الانتهاء
     </button>
   );
 }
@@ -163,7 +163,7 @@ export function NotifyWhenReady() {
 export function notifyReady(childName) {
   try {
     if ("Notification" in window && Notification.permission === "granted" && document.visibilityState !== "visible") {
-      new Notification(`قصة ${childName || "طفلك"} جاهزة 🎉`, { body: "الفيديو والكتاب مستنيينك في غِراس.", icon: "/favicon.ico" });
+      new Notification(`قصة ${childName || "طفلك"} جاهزة 🎉`, { body: "الفيديو والكتاب بانتظارك في غِراس.", icon: "/favicon.ico" });
     }
   } catch { /* notifications are a nicety */ }
 }

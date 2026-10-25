@@ -46,7 +46,7 @@ REFUSE only when the request asks for or contains:
 - anything else clearly unfit for a young child     -> "other"
 
 Answer with ONE JSON object only: {"safe": true|false, "category": "<one of: ok, sexual, violence, self_harm, hate,
-harassment, adult, injection, other>", "reason_ar": "<one short sentence in Egyptian Arabic for the parent when unsafe,
+harassment, adult, injection, other>", "reason_ar": "<one short sentence in simple Modern Standard Arabic for the parent when unsafe,
 else empty>"}"""
 
 SCHEMA = {
@@ -110,5 +110,5 @@ async def check_parent_text(data: dict) -> dict:
 
 
 def refusal_message(result: dict) -> str:
-    reason = result.get("reason_ar") or "الطلب فيه حاجة مش مناسبة لقصة أطفال."
-    return f"{reason} عدّل الكلام وجرّب تاني."
+    reason = result.get("reason_ar") or "في الطلب ما لا يناسب قصة للأطفال."
+    return f"{reason} عدّل النص وحاول مرة أخرى."

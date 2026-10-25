@@ -59,7 +59,7 @@ async def login(payload: UserLogin):
     email = payload.email.lower()
     fail_key = f"login-fail:{email}"
     if rate_limit.count(fail_key, LOGIN_FAILURES[1]) >= LOGIN_FAILURES[0]:
-        raise HTTPException(status_code=429, detail="محاولات دخول كتير غلط — جرّب بعد ربع ساعة")
+        raise HTTPException(status_code=429, detail="محاولات دخول خاطئة كثيرة — حاول مرة أخرى بعد ربع ساعة")
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(payload.password, user.get("hashed_password", "")):
         rate_limit.record(fail_key)

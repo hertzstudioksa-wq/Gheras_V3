@@ -88,8 +88,8 @@ export default function OrderDetail() {
             <Info label="الجنس" value={child.gender === "male" ? "ولد" : "بنت" + (child.hijab ? " (حجاب)" : "")} />
             <Info label="نوع القصة" value={e.type_name || "تلقائي"} />
             <Info label="النبرة" value={e.tone_name || "تلقائي"} />
-            <Info label="البيئة" value={e.setting_name || "تلقائي"} />
-            <Info label="اللغة" value={e.language_name || "تلقائي"} />
+            <Info label="مكان الأحداث" value={e.setting_name || "تلقائي"} />
+            <Info label="لغة السرد" value={e.language_name || "تلقائي"} />
           </div>
 
           {goal.context && (
@@ -135,22 +135,22 @@ export default function OrderDetail() {
           <Sprout className="w-12 h-12 text-[#729352] mx-auto mb-3" />
           <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-2">
             {order.status === "delivered" ? "القصة جاهزة 🎉"
-            : order.status === "failed" ? "وقف تجهيز القصة"
-            : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اختر سيناريو القصة"
-            : order.selected_scenario_snapshot ? "السيناريو مختار وجاهز للتوليد"
+            : order.status === "failed" ? "توقف تجهيز القصة"
+            : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اختر حكاية القصة"
+            : order.selected_scenario_snapshot ? "اخترت الحكاية"
             : "القصة قيد التحضير"}
           </h3>
           <p className="font-body text-[#5A677D] max-w-lg mx-auto mb-4">
-            {order.status === "delivered" ? "تقدر تشوف الفيديو وتحمّله، وتحمّل القصة المصوّرة"
+            {order.status === "delivered" ? "يمكنك مشاهدة الفيديو وتحميله، وتحميل القصة المصوّرة"
             : order.status === "failed" ? "افتح صفحة القصة وأعد المحاولة من حيث توقفت"
-            : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اضغط لاختيار السيناريو الذي يناسب طفلك"
-            : "بنجهّز قصة طفلك. هتلاقيها هنا وفي «قصصي» أول ما تخلص."}
+            : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اضغط لاختيار الحكاية التي تناسب طفلك"
+            : "نجهّز قصة طفلك، وستجدها هنا وفي «قصصي» فور اكتمالها."}
           </p>
           {orderPath(order) !== `/orders/${order.id}` && (
             <Link to={orderPath(order)} className="btn-primary inline-flex items-center gap-2" data-testid="order-continue-link">
               <Sprout className="w-4 h-4" />
-              {["scenarios_generating","scenarios_ready"].includes(order.status) ? "اذهب لاختيار السيناريو"
-               : order.status === "delivered" ? "شوف القصة" : "افتح صفحة القصة"}
+              {["scenarios_generating","scenarios_ready"].includes(order.status) ? "اختر الحكاية"
+               : order.status === "delivered" ? "شاهد القصة" : "افتح صفحة القصة"}
             </Link>
           )}
         </div>
@@ -158,7 +158,7 @@ export default function OrderDetail() {
         {order.selected_scenario_snapshot && (
           <div className="bg-white rounded-[2rem] p-6 md:p-8 border border-[#E2D8C9] mt-6" data-testid="selected-scenario">
             <div className="flex items-center gap-2 text-[#4F6B3B] font-body text-sm font-bold mb-2">
-              <CheckCircle2 className="w-4 h-4" /> السيناريو المختار
+              <CheckCircle2 className="w-4 h-4" /> الحكاية المختارة
             </div>
             <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-2">
               {order.selected_scenario_snapshot.title}

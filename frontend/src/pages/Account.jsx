@@ -32,7 +32,7 @@ export default function Account() {
       localStorage.setItem("gheras_token", data.access_token);
       setMediaToken(data.media_token);
       setPw({ current: "", next: "", confirm: "" });
-      toast.success("اتغيّرت كلمة المرور — أي جهاز تاني هيطلب دخول من جديد");
+      toast.success("تم تغيير كلمة المرور — ستطلب الأجهزة الأخرى تسجيل الدخول من جديد");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "تعذّر تغيير كلمة المرور");
     } finally {
@@ -44,11 +44,11 @@ export default function Account() {
     setDeleting(true);
     try {
       await api.post("/auth/delete-account", { password: del.password });
-      toast.success("اتمسح حسابك وكل بياناته");
+      toast.success("حُذف حسابك وكل بياناته");
       logout();
       navigate("/");
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "تعذّر مسح الحساب");
+      toast.error(err?.response?.data?.detail || "تعذّر حذف الحساب");
       setDeleting(false);
     }
   };
@@ -67,7 +67,7 @@ export default function Account() {
         <section className="bg-white rounded-3xl border border-[#E2D8C9] p-5 mb-6 font-body">
           <div className="text-sm text-[#5A677D]">الاسم</div>
           <div className="font-bold text-[#2D3748] mb-3">{user?.full_name}</div>
-          <div className="text-sm text-[#5A677D]">الإيميل</div>
+          <div className="text-sm text-[#5A677D]">البريد الإلكتروني</div>
           <div className="font-bold text-[#2D3748]" dir="ltr" style={{ textAlign: "right" }}>{user?.email}</div>
           <div className="mt-4 flex gap-4 text-sm">
             <Link to="/my-bundles" className="font-bold text-[#4F6B3B] underline">رصيدي</Link>
@@ -90,25 +90,25 @@ export default function Account() {
 
         {user?.role !== "admin" && (
         <section className="bg-white rounded-3xl border-2 border-[#F5D8C0] p-5" data-testid="delete-account">
-          <h2 className="font-heading text-xl font-bold text-[#B8612F] inline-flex items-center gap-2"><Trash2 className="w-5 h-5" /> مسح الحساب</h2>
+          <h2 className="font-heading text-xl font-bold text-[#B8612F] inline-flex items-center gap-2"><Trash2 className="w-5 h-5" /> حذف الحساب</h2>
           <p className="font-body text-sm text-[#5A677D] mt-2">
-            بيمسح اسمك وإيميلك، وكل الصور والقصص والملفات، وبيانات أطفالك من الطلبات. ما ينفعش يترجع.
-            لو عندك رصيد أو قصة بتتجهّز، خلّصهم الأول.
+            يحذف اسمك وبريدك، وكل الصور والقصص والملفات، وبيانات أطفالك من الطلبات، ولا يمكن التراجع عنه.
+            إذا كان لديك رصيد أو قصة قيد التجهيز، فأنهِها أولاً.
           </p>
           {!del.open ? (
             <button onClick={() => setDel({ ...del, open: true })} className="mt-4 rounded-full bg-[#FCE6D4] text-[#B8612F] px-5 py-2 text-sm font-bold font-body">
-              عايز أمسح حسابي
+              أريد حذف حسابي
             </button>
           ) : (
             <div className="mt-4 space-y-3">
               <input type="password" autoComplete="current-password" placeholder="كلمة المرور" className={input}
                 value={del.password} onChange={(e) => setDel({ ...del, password: e.target.value })} />
-              <input placeholder='اكتب "امسح" للتأكيد' className={input}
+              <input placeholder='اكتب "احذف" للتأكيد' className={input}
                 value={del.typed} onChange={(e) => setDel({ ...del, typed: e.target.value })} />
               <div className="flex gap-2">
-                <button onClick={deleteAccount} disabled={deleting || !del.password || del.typed.trim() !== "امسح"}
+                <button onClick={deleteAccount} disabled={deleting || !del.password || del.typed.trim() !== "احذف"}
                   className="rounded-full bg-[#B8612F] hover:bg-[#9C4F25] text-white px-5 py-2 text-sm font-bold font-body disabled:opacity-40 inline-flex items-center gap-2">
-                  {deleting && <Loader2 className="w-4 h-4 animate-spin" />} امسح نهائياً
+                  {deleting && <Loader2 className="w-4 h-4 animate-spin" />} احذف نهائياً
                 </button>
                 <button onClick={() => setDel({ open: false, password: "", typed: "" })} className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-5 py-2 text-sm font-bold font-body">
                   إلغاء

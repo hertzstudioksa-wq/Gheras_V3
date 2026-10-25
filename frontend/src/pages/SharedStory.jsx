@@ -38,8 +38,8 @@ export default function SharedStory() {
         </div>
         {gone ? (
           <div className="bg-white rounded-[2rem] p-8 border border-[#E2D8C9] text-center" data-testid="share-gone">
-            <h1 className="font-heading text-2xl font-bold text-[#2D3748] mb-2">الرابط ده انتهى</h1>
-            <p className="text-[#5A677D]">صاحب القصة قفله أو مدته خلصت. اطلب منه رابط جديد.</p>
+            <h1 className="font-heading text-2xl font-bold text-[#2D3748] mb-2">انتهت صلاحية هذا الرابط</h1>
+            <p className="text-[#5A677D]">ألغاه صاحب القصة أو انتهت مدته. اطلب منه رابطاً جديداً.</p>
           </div>
         ) : !story ? (
           <div className="flex items-center justify-center gap-2 text-[#8A9AB0] py-20"><Loader2 className="w-5 h-5 animate-spin" /> جاري التحميل…</div>
@@ -55,10 +55,10 @@ export default function SharedStory() {
               data-testid="shared-video"
             />
             <div className="bg-gradient-to-br from-[#E8F0E1] to-[#F8F1E7] rounded-[2rem] p-6 border border-[#E2D8C9] mt-6 text-center">
-              <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-1">عايز قصة زي دي لطفلك؟</h2>
-              <p className="text-sm text-[#5A677D] mb-4">احكيلنا موقف حصل، وطفلك يبقى بطل حكايته — فيديو متحرك وكتاب مصوّر.</p>
+              <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-1">تريد قصة مثلها لطفلك؟</h2>
+              <p className="text-sm text-[#5A677D] mb-4">احكِ لنا موقفاً عاشه طفلك، ليصبح بطل حكايته — فيلم كرتون وكتاب مصوّر.</p>
               <Link to="/" className="btn-primary inline-flex items-center gap-2" data-testid="shared-cta">
-                <Sprout className="w-4 h-4" /> اعمل قصة لطفلك
+                <Sprout className="w-4 h-4" /> اصنع قصة لطفلك
               </Link>
             </div>
           </>

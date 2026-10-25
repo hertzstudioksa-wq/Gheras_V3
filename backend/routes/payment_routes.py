@@ -1,6 +1,7 @@
 """Payment routes (M6): order payment (wallet / Moyasar card), wallet top-ups,
 the Moyasar callback, and the admin side (settings, ledger, waive, refund,
 wallet adjustments)."""
+import logging
 import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -10,6 +11,8 @@ from auth import require_admin, get_current_user
 from db import db
 from services import engine_health, moyasar, payment_service, rate_limit, wallet_service
 
+logger = logging.getLogger("payment_routes")
+
 
 def _origin(request: Request) -> str:
     return request.headers.get("X-Origin") or request.headers.get("Origin") or str(request.base_url).rstrip("/")
@@ -17,7 +20,9 @@ def _origin(request: Request) -> str:
 
 def _card_error(e: Exception) -> HTTPException:
     if isinstance(e, moyasar.MoyasarError):
-        return HTTPException(502, str(e))
+        # The gateway's own text (key problems, API errors) is for the logs, not the parent.
+        logger.warning(f"[payment] Moyasar: {e}")
+        return HTTPException(502, "تعذّر بدء الدفع بالبطاقة الآن — حاول بعد قليل أو ادفع من رصيدك")
     if isinstance(e, LookupError):
         return HTTPException(404, str(e))
     return HTTPException(400, str(e))
@@ -205,7 +210,7 @@ async def pay_with_card(order_id: str, request: Request, background: BackgroundT
     order = await _own_order(order_id, current)
     rate_limit.check(f"checkout:{current['id']}", 20, 3600)
     if not await moyasar.secret_key():
-        raise HTTPException(503, "الدفع بالبطاقة مش متاح لسه")
+        raise HTTPException(503, "الدفع بالبطاقة غير متاح حالياً")
     await engine_health.ensure_available()
     try:
         return await payment_service.start_order_checkout(order, current, _origin(request), background)
@@ -246,7 +251,7 @@ async def my_wallet(current=Depends(get_current_user)):
 async def start_topup(bundle_id: str, request: Request, current=Depends(get_current_user)):
     rate_limit.check(f"checkout:{current['id']}", 20, 3600)
     if not await moyasar.secret_key():
-        raise HTTPException(503, "الدفع بالبطاقة مش متاح لسه")
+        raise HTTPException(503, "الدفع بالبطاقة غير متاح حالياً")
     try:
         return await payment_service.start_topup_checkout(bundle_id, current, _origin(request))
     except (ValueError, LookupError, moyasar.MoyasarError) as e:

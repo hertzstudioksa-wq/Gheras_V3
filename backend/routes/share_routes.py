@@ -32,7 +32,7 @@ async def _own_delivered(order_id: str, user: dict) -> dict:
     if not order:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     if order.get("status") != "delivered":
-        raise HTTPException(status_code=400, detail="الرابط بيتعمل بعد ما القصة تخلص")
+        raise HTTPException(status_code=400, detail="يمكن إنشاء الرابط بعد اكتمال القصة")
     return order
 
 
@@ -59,7 +59,7 @@ async def revoke_share(order_id: str, current=Depends(get_current_user)):
 async def _shared(token: str) -> dict:
     found = await share_service.resolve(token)
     if not found:
-        raise HTTPException(status_code=404, detail="الرابط ده انتهى أو اتقفل", headers=NOINDEX)
+        raise HTTPException(status_code=404, detail="انتهت صلاحية هذا الرابط أو أُلغي", headers=NOINDEX)
     return found
 
 

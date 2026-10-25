@@ -22,7 +22,7 @@ export default function OrderPayment({ orderId, onPaid }) {
     setBusy("wallet");
     try {
       await api.post(`/orders/${orderId}/payment/wallet`);
-      toast.success("تم الدفع من رصيدك — بدأنا نجهّز القصة 🌱");
+      toast.success("تم الدفع من رصيدك — بدأنا تجهيز القصة 🌱");
       onPaid?.();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "تعذّر الدفع");

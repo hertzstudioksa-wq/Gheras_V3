@@ -28,8 +28,8 @@ LOCK_MARKERS = ("exhausted balance", "user is locked", "insufficient balance", "
                 "out of credit")
 CACHE_SECONDS = 15
 PAUSABLE = ("failed", "media_failed")
-BUSY_AR = ("التوليد متوقف دقايق عندنا لصيانة سريعة. جرّب تاني بعد شوية — "
-           "مفيش أي مبلغ اتخصم منك.")
+BUSY_AR = ("التوليد متوقف دقائق لصيانة سريعة من جهتنا. حاول مرة أخرى بعد قليل — "
+           "لم يُخصم منك أي مبلغ.")
 PROBE_MODEL = "anthropic/claude-haiku-5.5"
 # The status an order is put back in for the step it resumes at.
 RESUME_STATUS = {"scenarios": "scenarios_generating", "planning": "production_planning",

@@ -4,7 +4,7 @@ import { api, API } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/gheras/Navbar";
 import ImageUploader from "../components/gheras/ImageUploader";
-import { ageLabel, scenesLabel } from "../lib/arabic";
+import { ageLabel, scenesLabel, topicsLabel } from "../lib/arabic";
 import {
   ChevronRight, ChevronLeft, Check, Sprout, User, Users, Sparkles, BookOpen,
   PenTool, Heart, Sun, Award, Moon, Rocket, CheckCircle2, Plus, Trash2, X,
@@ -221,7 +221,7 @@ export default function StoryBuilder() {
     }
     if (step === 3) return true; // optional
     if (step === 4) return true;
-    if (step === 5) return !!data.style.type_id && !!data.style.tone_id; // require at least type + tone
+    if (step === 5) return true; // every style choice has a sensible default
     return true;
   };
 
@@ -242,7 +242,7 @@ export default function StoryBuilder() {
 
   const submit = async () => {
     if (!consent) {
-      toast.error("وافق على استخدام الصور الأول");
+      toast.error("يرجى الموافقة على استخدام الصور أولاً");
       return;
     }
     if (!user) {
@@ -254,7 +254,7 @@ export default function StoryBuilder() {
     try {
       const { data: created } = await api.post("/orders", { data, consent });
       localStorage.removeItem(LS_KEY);
-      toast.success("تم الإرسال — جاري إعداد السيناريوهات 🌱");
+      toast.success("تم الإرسال — نكتب لك ثلاث حكايات 🌱");
       navigate(`/orders/${created.id}/scenarios`);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "تعذّر إنشاء الطلب");
@@ -332,7 +332,7 @@ export default function StoryBuilder() {
                         <Icon className="w-5 h-5 md:w-6 md:h-6" style={{ color: c.color }} />
                       </div>
                       <h3 className="font-heading font-bold text-[#2D3748] text-sm md:text-base">{c.name_ar}</h3>
-                      <p className="font-body text-xs text-[#8A9AB0]">{c.subcategories?.length || 0} مواضيع</p>
+                      <p className="font-body text-xs text-[#8A9AB0]">{topicsLabel(c.subcategories?.length || 0)}</p>
                     </button>
                   );
                 })}
@@ -496,7 +496,7 @@ export default function StoryBuilder() {
                         className="w-5 h-5 accent-[#87A96B]"
                         data-testid="child-hijab"
                       />
-                      <span className="font-body text-[#2D3748]">تظهر القصة البنت بالحجاب</span>
+                      <span className="font-body text-[#2D3748]">تظهر البنت في القصة بالحجاب</span>
                     </label>
                   )}
                 </div>
@@ -728,11 +728,6 @@ export default function StoryBuilder() {
                 onChange={updateDuration}
               />
 
-              <AudioBackgroundPicker
-                mode={data.audio_background?.mode || "music"}
-                onChange={updateAudioBg}
-              />
-
               <OutputTypePicker
                 value={data.delivery?.output_type || "both"}
                 onChange={updateOutputType}
@@ -745,11 +740,26 @@ export default function StoryBuilder() {
                 onChange={updateVideoTier}
               />
 
-              <OptionGroup label="نوع القصة" icon={Palette} items={options.type} value={data.style.type_id} onChange={(v) => updateStyle({ type_id: v })} testId="style-type" required />
-              <OptionGroup label="النبرة" icon={Heart} items={options.tone} value={data.style.tone_id} onChange={(v) => updateStyle({ tone_id: v })} testId="style-tone" required />
-              <OptionGroup label="البيئة" icon={MapPin} items={options.setting} value={data.style.setting_id} onChange={(v) => updateStyle({ setting_id: v })} testId="style-setting" />
-              <OptionGroup label="اللغة" icon={Languages} items={options.language} value={data.style.language_id} onChange={(v) => updateStyle({ language_id: v })} testId="style-language" />
+              <OptionGroup label="لغة السرد" icon={Languages} items={options.language} value={data.style.language_id} onChange={(v) => updateStyle({ language_id: v })} testId="style-language" />
               <OptionGroup label="صوت الراوي" icon={Mic} items={options.voice} value={data.style.voice_id} onChange={(v) => updateStyle({ voice_id: v })} testId="style-voice" />
+
+              {/* Ten choices on one screen was too much: the ones the story
+                  writer can decide well are optional and folded away. */}
+              <details className="group mt-2 bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-3" data-testid="style-more">
+                <summary className="cursor-pointer list-none flex items-center justify-between gap-2 font-body font-bold text-[#2D3748]">
+                  <span>خيارات إضافية للحكاية <span className="font-normal text-xs text-[#8A9AB0]">(اختياري — نختارها نحن إن تركتها)</span></span>
+                  <ChevronLeft className="w-4 h-4 text-[#87A96B] transition group-open:-rotate-90" />
+                </summary>
+                <div className="pt-4">
+                  <OptionGroup label="نوع القصة" icon={Palette} items={options.type} value={data.style.type_id} onChange={(v) => updateStyle({ type_id: v })} testId="style-type" />
+                  <OptionGroup label="النبرة" icon={Heart} items={options.tone} value={data.style.tone_id} onChange={(v) => updateStyle({ tone_id: v })} testId="style-tone" />
+                  <OptionGroup label="مكان الأحداث" icon={MapPin} items={options.setting} value={data.style.setting_id} onChange={(v) => updateStyle({ setting_id: v })} testId="style-setting" />
+                  <AudioBackgroundPicker
+                    mode={data.audio_background?.mode || "music"}
+                    onChange={updateAudioBg}
+                  />
+                </div>
+              </details>
             </div>
           )}
 
@@ -870,7 +880,7 @@ function DurationPicker({ seconds, onChange }) {
             <Sparkles className="w-3 h-3" /> عدد المشاهد التقريبي
           </div>
           <div className="font-heading font-bold text-[#2D3748]" data-testid="duration-scene-target">
-            {meta.scene_target} مشاهد
+            {scenesLabel(meta.scene_target)}
           </div>
         </div>
         <div className="rounded-2xl px-4 py-3 border bg-[#E8F0E1] text-[#4F6B3B] border-[#87A96B]/40">
@@ -1152,11 +1162,11 @@ function Review({ data, categories, options, artStyles }) {
         <Field label="عدد الشخصيات" value={data.characters.length} />
         <Field label="نوع القصة" value={findOpt("type", data.style.type_id)} />
         <Field label="النبرة" value={findOpt("tone", data.style.tone_id)} />
-        <Field label="البيئة" value={findOpt("setting", data.style.setting_id)} />
-        <Field label="اللغة" value={findOpt("language", data.style.language_id)} />
+        <Field label="مكان الأحداث" value={findOpt("setting", data.style.setting_id)} />
+        <Field label="لغة السرد" value={findOpt("language", data.style.language_id)} />
         {artStyles?.length > 0 && (
           <Field
-            label="ستايل الرسم"
+            label="أسلوب الرسم"
             value={(artStyles.find((s) => s.key === data.style.art_style) || artStyles.find((s) => s.is_default) || artStyles[0]).name_ar}
           />
         )}

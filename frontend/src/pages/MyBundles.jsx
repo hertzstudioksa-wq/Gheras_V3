@@ -28,7 +28,7 @@ export default function MyBundles() {
     if (pid) {
       // Back from the Moyasar page: confirm the top-up with the server.
       api.post(`/wallet/topup/refresh/${pid}`)
-        .then((r) => (r.data.status === "paid" ? toast.success("تم شحن رصيدك 🎉") : toast("الدفع لسه ما اكتملش")))
+        .then((r) => (r.data.status === "paid" ? toast.success("تم شحن رصيدك 🎉") : toast("لم يكتمل الدفع بعد")))
         .catch(() => {})
         .finally(() => { setSearchParams({}, { replace: true }); load(); });
     } else {
@@ -64,7 +64,7 @@ export default function MyBundles() {
                 <Wallet className="w-3.5 h-3.5" /> رصيدي
               </div>
               <div className="font-heading text-4xl md:text-5xl font-bold text-[#2D3748]" data-testid="wallet-balance">{sar(wallet.balance_halalas / 100)}</div>
-              <p className="font-body text-[#5A677D] mt-2">ادفع منه أي قصة بضغطة واحدة. الضريبة (لو فيه) بتتحسب وقت شراء القصة.</p>
+              <p className="font-body text-[#5A677D] mt-2">ادفع منه ثمن أي قصة بضغطة واحدة. تُحتسب الضريبة (إن وُجدت) عند شراء القصة.</p>
             </div>
 
             <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-3">اشحن رصيدك</h2>
@@ -80,7 +80,7 @@ export default function MyBundles() {
                     )}
                     <div className="font-body text-sm text-[#5A677D]">ادفع</div>
                     <div className="font-heading text-3xl font-bold text-[#2D3748]">{sar(b.price)}</div>
-                    <div className="font-body text-sm text-[#4F6B3B] font-bold mb-4">رصيدك يزيد {sar(b.credit_sar)}</div>
+                    <div className="font-body text-sm text-[#4F6B3B] font-bold mb-4">يُضاف إلى رصيدك {sar(b.credit_sar)}</div>
                     <button onClick={() => topup(b)} disabled={!wallet.card_available || !!busy}
                       className="mt-auto w-full btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-50" data-testid={`buy-topup-${b.id}`}>
                       {busy === b.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} اشحن
@@ -90,7 +90,7 @@ export default function MyBundles() {
               })}
             </div>
             {!wallet.card_available && (
-              <p className="font-body text-sm text-[#8B5A2B] mb-8">الشحن بالبطاقة هيتفعّل قريب.</p>
+              <p className="font-body text-sm text-[#8B5A2B] mb-8">سيتاح الشحن بالبطاقة قريباً.</p>
             )}
 
             {purchases.length > 0 && (
@@ -113,7 +113,7 @@ export default function MyBundles() {
 
             <h2 className="font-heading text-xl font-bold text-[#2D3748] mt-8 mb-3">الحركات</h2>
             <div className="bg-white rounded-3xl border border-[#E2D8C9] divide-y divide-[#F0E9DD]" data-testid="wallet-history">
-              {wallet.history.length === 0 && <div className="p-6 text-center font-body text-[#8A9AB0]">مفيش حركات لسه</div>}
+              {wallet.history.length === 0 && <div className="p-6 text-center font-body text-[#8A9AB0]">لا توجد حركات بعد</div>}
               {wallet.history.map((h) => (
                 <div key={h.id} className="p-4 flex items-center justify-between gap-3 font-body">
                   <div className="min-w-0">

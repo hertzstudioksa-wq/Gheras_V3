@@ -39,10 +39,10 @@ function PhotoPrivacyCard({ orderId, deletedAt, onDeleted }) {
     setBusy(true);
     try {
       await api.post(`/orders/${orderId}/photos/delete`);
-      toast.success("اتمسحت الصور الأصلية — القصة والرسومات زي ما هي");
+      toast.success("حُذفت الصور الأصلية — القصة والرسومات كما هي");
       onDeleted?.();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "تعذّر المسح");
+      toast.error(e?.response?.data?.detail || "تعذّر الحذف");
     } finally {
       setBusy(false);
       setConfirm(false);
@@ -328,7 +328,7 @@ export default function ProductionReady() {
               نُعِدّ خطة القصة لطفلك...
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
-              نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية.
+              نحوّل الحكاية التي اخترتها إلى خطة كاملة: مشاهد ونصوص وتوجيهات للرسم.
             </p>
             <div className="mt-5 bg-white/70 backdrop-blur rounded-2xl p-4 border border-[#E2D8C9]" data-testid="hero-progress-indeterminate">
               <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
@@ -421,16 +421,16 @@ export default function ProductionReady() {
                 : isGeneratingMedia
                 ? "نُنتج الصور والسرد الصوتي لكل مشهد. هذا يستغرق دقائق قليلة."
                 : isMediaFailed
-                ? "لم تكتمل بعض الوسائط. جرّب «إعادة المحاولة»، والطلب بيظهر لفريقنا في قائمة المتابعة."
+                ? "لم تكتمل بعض الوسائط. جرّب «إعادة المحاولة»، والطلب يظهر لفريقنا في قائمة المتابعة."
                 : approved
-                ? "بدأنا نجهّز قصة طفلك. تقدر تقفل الصفحة وترجع لها من «قصصي» في أي وقت."
+                ? "بدأنا تجهيز قصة طفلك. يمكنك إغلاق الصفحة والعودة إليها من «قصصي» في أي وقت."
                 : isFailed
                 ? "حدث خلل بسيط أثناء إعداد الخطة. يمكنك إعادة المحاولة."
                 : isPlanning
-                ? "نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية."
+                ? "نحوّل الحكاية التي اخترتها إلى خطة كاملة: مشاهد ونصوص وتوجيهات للرسم."
                 : planReady
                 ? "اطلع على ملخص الخطة، ثم اعتمدها لنبدأ إعداد قصة طفلك."
-                : "نُحوّل السيناريو إلى خطة كاملة: مشاهد، نصوص، وتوجيهات فنية."}
+                : "نحوّل الحكاية التي اخترتها إلى خطة كاملة: مشاهد ونصوص وتوجيهات للرسم."}
             </p>
 
             {/* Unified pipeline progress bar — always visible from planning to delivery */}
@@ -603,7 +603,7 @@ export default function ProductionReady() {
                 <h2 className="font-heading text-xl font-bold text-[#2D3748]">
                   {isAssembling ? "جاري التجميع النهائي" :
                    isMediaReady ? "الوسائط جاهزة" :
-                   isMediaFailed ? (isPaused ? "متوقفة مؤقتاً — هنكمّلها إحنا" : "تعذّر إكمال الوسائط") :
+                   isMediaFailed ? (isPaused ? "متوقفة مؤقتاً — سنكملها نحن" : "تعذّر إكمال الوسائط") :
                    "جاري إنتاج الوسائط"}
                 </h2>
                 <p className="font-body text-xs text-[#5A677D]" data-testid="progress-stage-label">
@@ -618,7 +618,7 @@ export default function ProductionReady() {
               <p className="font-body text-sm text-[#5A677D]" data-testid="media-hint">
                 {isAssembling ? "قد يستغرق هذا دقيقة إلى دقيقتين. يمكنك تصفح بقية التطبيق والعودة لاحقاً." :
                  isMediaReady ? "تمت هذه الخطوة. جارٍ تحضير الفيديو والكتاب..." :
-                 "تقدر تقفل الصفحة وترجع لها من «قصصي» — وهي بتتحدّث لوحدها."}
+                 "يمكنك إغلاق الصفحة والعودة إليها من «قصصي» — تتحدّث تلقائياً."}
               </p>
             )}
             {!isMediaFailed && <StepList steps={progress?.steps} />}
@@ -672,7 +672,7 @@ export default function ProductionReady() {
                 <Sprout className="w-4 h-4" /> الخطوة التالية
               </div>
               <p className="font-body text-sm text-[#2D3748]">
-                سنبدأ إعداد قصة طفلك قريباً — الصور، الفيديو، والكتاب. تقدر تقفل الصفحة وترجع لها من «قصصي» لما تخلص.
+                سنبدأ إعداد قصة طفلك قريباً — الصور والفيديو والكتاب. يمكنك إغلاق الصفحة والعودة إليها من «قصصي» عند اكتمالها.
               </p>
             </div>
           </div>

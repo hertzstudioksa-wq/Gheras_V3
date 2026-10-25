@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, ExternalLink, Plus, Save, Trash2 } from "lucide-react";
+import {
+  ArrowDown, ArrowUp, Award, ExternalLink, Heart, Moon, PenTool, Plus, Rocket, Save, Shield, Sparkles, Sprout, Star, Sun,
+  Trash2,
+} from "lucide-react";
 import { api } from "../../lib/api";
 import { AdminPage, PageState } from "../../components/admin/AdminKit";
 
@@ -13,7 +16,15 @@ const SECTIONS = {
   business: "بيانات المنشأة (تظهر في الشروط والخصوصية والتذييل)",
 };
 const ORDER = ["business", "hero", "how", "values", "footer"];
-const ICONS = ["heart", "sparkles", "award", "sun", "moon", "rocket", "sprout", "pen-tool"];
+// Business details read in the order a registration certificate lists them.
+const BUSINESS_ORDER = ["business.legal_name", "business.cr_number", "business.vat_number", "business.address",
+  "business.phone"];
+// The icons the homepage cards can show (Landing.ICON_MAP), picked by sight.
+const ICONS = [
+  ["heart", Heart, "قلب"], ["shield", Shield, "درع"], ["sprout", Sprout, "نبتة"], ["sparkles", Sparkles, "لمعة"],
+  ["award", Award, "وسام"], ["star", Star, "نجمة"], ["sun", Sun, "شمس"], ["moon", Moon, "قمر"],
+  ["rocket", Rocket, "صاروخ"], ["pen-tool", PenTool, "قلم"],
+];
 
 function fieldLabel(key) {
   const tail = key.split(".").slice(1).join(".");
@@ -42,7 +53,9 @@ export default function AdminContent() {
   const grouped = useMemo(() => {
     const g = {};
     (blocks || []).forEach((b) => { (g[b.section || "other"] = g[b.section || "other"] || []).push(b); });
-    Object.values(g).forEach((list) => list.sort((a, b) => a.key.localeCompare(b.key, "en", { numeric: true })));
+    const rank = (k) => { const i = BUSINESS_ORDER.indexOf(k); return i < 0 ? 99 : i; };
+    Object.values(g).forEach((list) => list.sort((a, b) =>
+      rank(a.key) - rank(b.key) || a.key.localeCompare(b.key, "en", { numeric: true })));
     return g;
   }, [blocks]);
 
@@ -105,11 +118,17 @@ function CardsEditor({ items, onChange }) {
   return (
     <div className="space-y-3 mb-3">
       {items.map((it, i) => (
-        <div key={i} className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl p-3 grid md:grid-cols-[110px_1fr_auto] gap-3 items-start">
-          <select value={it.icon || ""} onChange={(e) => update(i, { icon: e.target.value })}
-            className="bg-white border border-[#E2D8C9] rounded-xl px-2 py-1.5 text-sm font-body" dir="ltr">
-            {ICONS.map((ic) => <option key={ic} value={ic}>{ic}</option>)}
-          </select>
+        <div key={i} className="bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl p-3 grid md:grid-cols-[120px_1fr_auto] gap-3 items-start">
+          <div className="grid grid-cols-5 md:grid-cols-3 gap-1" role="radiogroup" aria-label="الأيقونة">
+            {ICONS.map(([ic, Icon, label]) => (
+              <button key={ic} type="button" role="radio" aria-checked={it.icon === ic} title={label} aria-label={label}
+                onClick={() => update(i, { icon: ic })}
+                className={`h-8 rounded-lg grid place-content-center border ${it.icon === ic
+                  ? "bg-[#87A96B] border-[#87A96B] text-white" : "bg-white border-[#E2D8C9] text-[#729352] hover:border-[#87A96B]"}`}>
+                <Icon className="w-4 h-4" />
+              </button>
+            ))}
+          </div>
           <div className="space-y-2">
             <input value={it.title || ""} onChange={(e) => update(i, { title: e.target.value })} placeholder="العنوان"
               className="w-full bg-white border border-[#E2D8C9] rounded-xl px-3 py-1.5 font-body font-bold" />

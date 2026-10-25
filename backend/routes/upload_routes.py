@@ -56,7 +56,7 @@ async def upload_image(
 ):
     if scope not in ALLOWED_SCOPES:
         raise HTTPException(status_code=400, detail="نطاق الرفع غير صالح")
-    rate_limit.check(f"upload:{current['id']}", 40, 3600, "رفعت صور كتير — جرّب بعد شوية")
+    rate_limit.check(f"upload:{current['id']}", 40, 3600, "رفعت صوراً كثيرة — حاول مرة أخرى بعد قليل")
     if scope in ADMIN_SCOPES and current.get("role") != "admin":
         raise HTTPException(status_code=403, detail="ممنوع الوصول")
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
@@ -77,7 +77,7 @@ async def upload_image(
     try:
         result = put_object(storage_path, data, content_type)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"تعذّر رفع الملف: {e}")
+        raise HTTPException(status_code=502, detail="تعذّر رفع الملف، حاول مرة أخرى")
 
     # Persist reference
     await db.files.insert_one({

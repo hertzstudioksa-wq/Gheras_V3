@@ -127,15 +127,15 @@ async def _check_own_photos(data: dict, user: dict) -> None:
         fid = str(url).rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
         rec = await db.files.find_one({"id": fid, "is_deleted": False}, {"_id": 0, "user_id": 1})
         if not rec or rec.get("user_id") != user["id"]:
-            raise HTTPException(status_code=400, detail="صورة من الصور مش موجودة في حسابك — ارفعها تاني")
+            raise HTTPException(status_code=400, detail="إحدى الصور غير موجودة في حسابك — ارفعها مرة أخرى")
 
 
 @router.post("")
 async def create_order(payload: OrderCreate, background: BackgroundTasks, current=Depends(get_current_user)):
     from services import rate_limit
-    rate_limit.check(f"order-create:{current['id']}", 10, 3600, "طلبات كتير في ساعة واحدة — جرّب بعد شوية")
+    rate_limit.check(f"order-create:{current['id']}", 10, 3600, "طلبات كثيرة خلال ساعة واحدة — حاول مرة أخرى بعد قليل")
     if not payload.consent:
-        raise HTTPException(status_code=400, detail="لازم توافق على استخدام الصور حسب سياسة الخصوصية")
+        raise HTTPException(status_code=400, detail="يجب الموافقة على استخدام الصور وفق سياسة الخصوصية")
     data = payload.data.model_dump()
     if not await db.categories.find_one({"id": data["goal"]["category_id"], "is_active": True}):
         raise HTTPException(status_code=400, detail="التصنيف غير موجود")
@@ -415,7 +415,7 @@ async def delete_my_photos(order_id: str, current=Depends(get_current_user)):
     if not o:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     if o.get("status") not in ("delivered", "completed"):
-        raise HTTPException(status_code=400, detail="تقدر تمسح الصور بعد ما القصة تتسلّم")
+        raise HTTPException(status_code=400, detail="يمكنك حذف الصور بعد تسليم القصة")
     n = await delete_order_photos(o, actor=current, reason="طلب ولي الأمر")
     return {"ok": True, "deleted": n}
 
@@ -448,7 +448,7 @@ async def regenerate_scenarios(order_id: str, background: BackgroundTasks, curre
         inc={"regeneration_count": 1},
     )
     if not claimed:
-        raise HTTPException(status_code=409, detail="الطلب اتغيّر — حدّث الصفحة")
+        raise HTTPException(status_code=409, detail="تغيّر الطلب — حدّث الصفحة")
     background.add_task(run_scenario_generation, order_id, new_batch_id)
     return {"ok": True, "batch_id": new_batch_id, "regeneration_count": used + 1, "regenerations_remaining": max_regen - used - 1}
 
@@ -460,12 +460,12 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
     from services.order_state import SCENARIO_SELECTABLE, claim
     if o.get("status") not in SCENARIO_SELECTABLE:
-        raise HTTPException(status_code=400, detail="القصة اتختارت وبدأ تجهيزها بالفعل")
+        raise HTTPException(status_code=400, detail="اخترت الحكاية وبدأ تجهيزها بالفعل")
     from services.engine_health import ensure_available
     await ensure_available()
     scenario = await db.scenarios.find_one({"id": scenario_id, "order_id": order_id}, {"_id": 0})
     if not scenario:
-        raise HTTPException(status_code=404, detail="السيناريو غير موجود")
+        raise HTTPException(status_code=404, detail="الحكاية غير موجودة")
 
     # Wave 1 — scenarios from a PREVIOUS batch are allowed. Selecting one
     # promotes its batch back to current so the rest of the pipeline (which
@@ -487,7 +487,7 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     )
     if not await claim(order_id, SCENARIO_SELECTABLE, OrderStatus.SCENARIO_SELECTED.value, "user",
                        actor_id=current["id"], reason=reason, extra=update_fields):
-        raise HTTPException(status_code=409, detail="الطلب اتغيّر — حدّث الصفحة")
+        raise HTTPException(status_code=409, detail="تغيّر الطلب — حدّث الصفحة")
     await db.scenarios.update_many({"order_id": order_id}, {"$set": {"is_selected": False}})
     await db.scenarios.update_one({"id": scenario_id}, {"$set": {"is_selected": True}})
     # M6 — production starts now, or once the order is paid.

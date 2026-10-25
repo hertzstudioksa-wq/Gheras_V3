@@ -189,12 +189,12 @@ async def mark_order_paid(order_id: str, *, method: str, background, payment_id:
 async def pay_order_with_wallet(order: dict, user: dict, background) -> dict:
     payment = order.get("payment") or {}
     if payment.get("status") != "awaiting":
-        raise ValueError("الطلب مش مستني دفع")
+        raise ValueError("الطلب لا ينتظر الدفع")
     amount = wallet_service.to_halalas(payment["total_sar"])
     debit = await wallet_service.debit(user["id"], amount, "order_charge", order_id=order["id"], actor=user,
                                        note=f"قصة {((order.get('data') or {}).get('child') or {}).get('name') or ''}".strip())
     if not debit["ok"]:
-        raise ValueError(f"رصيدك {debit['balance_halalas'] / 100:.2f} ر.س — مش كفاية")
+        raise ValueError(f"رصيدك {debit['balance_halalas'] / 100:.2f} ر.س — غير كافٍ")
     if not await mark_order_paid(order["id"], method="wallet", background=background, actor=user):
         # Paid some other way meanwhile: give the credit back.
         await wallet_service.credit(user["id"], amount, "refund", note="دفعة مكررة", order_id=order["id"],
@@ -259,7 +259,7 @@ async def start_order_checkout(order: dict, user: dict, origin: str | None, back
 async def start_topup_checkout(bundle_id: str, user: dict, origin: str | None) -> dict:
     bundle = await db.bundles.find_one({"id": bundle_id, "is_active": True, "credit_sar": {"$gt": 0}}, {"_id": 0})
     if not bundle:
-        raise LookupError("الباقة مش متاحة")
+        raise LookupError("الباقة غير متاحة")
     base = app_origin(origin)
     doc = await _new_payment(
         purpose="topup", user=user, total_sar=float(bundle["price"]), bundle=bundle,

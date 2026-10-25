@@ -51,7 +51,7 @@ def record(key: str) -> None:
     _sweep(now)
 
 
-def check(key: str, limit: int, window: float, message: str = "طلبات كتير ورا بعض — جرّب كمان شوية") -> None:
+def check(key: str, limit: int, window: float, message: str = "طلبات كثيرة متتالية — حاول مرة أخرى بعد قليل") -> None:
     """Count this call against `key`; refuse with 429 once over the limit."""
     if count(key, window) >= limit:
         raise HTTPException(status_code=429, detail=message, headers={"Retry-After": str(int(window))})

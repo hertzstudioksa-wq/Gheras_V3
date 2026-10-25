@@ -35,9 +35,9 @@ router = APIRouter(
 KNOWN_ENV_KEYS: list[dict] = [
     {
         "key": "OPENAI_API_KEY",
-        "label": "OpenAI",
+        "label": "OpenAI (مباشر)",
         "providers": ["openai"],
-        "purpose": "صور الكتاب: شخصية الطفل + صور المشاهد + الغلاف (GPT Image)",
+        "purpose": "بديل: صور GPT Image من OpenAI مباشرة. المحرك الحالي بيرسم عبر fal.",
         "rotation_instructions": (
             "استخدم زرّ 'تحديث آمن' أعلاه — يُحفظ مشفّراً في DB ولا يحتاج إعادة تشغيل.\n"
             "أو يدوياً: ضع المفتاح في .env تحت OPENAI_API_KEY ثم: sudo supervisorctl restart backend."
@@ -46,9 +46,9 @@ KNOWN_ENV_KEYS: list[dict] = [
     },
     {
         "key": "ANTHROPIC_API_KEY",
-        "label": "Anthropic (Claude)",
+        "label": "Anthropic (مباشر)",
         "providers": ["anthropic"],
-        "purpose": "كتابة القصة: السيناريوهات + خطة الإنتاج (Claude)",
+        "purpose": "بديل: كتابة القصة بـ Claude من Anthropic مباشرة. المحرك الحالي بيكتب بـ Claude عبر fal.",
         "rotation_instructions": (
             "أنشئ مفتاحاً جديداً من console.anthropic.com → API Keys، "
             "ضعه في .env تحت ANTHROPIC_API_KEY ثم أعد تشغيل خدمة gheras، واحذف القديم من الكونسول."
@@ -68,9 +68,9 @@ KNOWN_ENV_KEYS: list[dict] = [
     },
     {
         "key": "ELEVENLABS_API_KEY",
-        "label": "ElevenLabs (TTS + Music)",
+        "label": "ElevenLabs (مباشر)",
         "providers": ["elevenlabs"],
-        "purpose": "Text-to-Speech للسرد العربي + Music API لخلفية الفيديو (Music API يحتاج خطّة Creator+).",
+        "purpose": "بديل: السرد والموسيقى من ElevenLabs مباشرة (الموسيقى محتاجة خطة Creator+). المحرك الحالي بيستخدمهم عبر fal.",
         "rotation_instructions": (
             "1) سجّل دخول إلى https://elevenlabs.io/app/settings/api-keys\n"
             "2) أنشئ مفتاحاً جديداً.\n"
@@ -83,52 +83,54 @@ KNOWN_ENV_KEYS: list[dict] = [
     },
     {
         "key": "FAL_KEY",
-        "label": "fal.ai (legacy shared — optional fallback)",
+        "label": "fal.ai — المفتاح العام",
         "providers": ["kling", "luma", "fal_image", "fal_tts", "fal_music"],
-        "purpose": "مفتاح fal.ai الافتراضي — يُستخدم كـ fallback فقط عند غياب المفاتيح المتخصّصة لكل قدرة (FAL_KEY_SCENE / FAL_KEY_NARRATION / FAL_KEY_MUSIC / FAL_KEY_VIDEO).",
+        "purpose": "بيتستخدم لأي مرحلة على fal مالهاش مفتاح خاص (زي كتابة النص والمراجعة الآلية). "
+                   "لو مش موجود، المراحل بتستلف أي مفتاح fal تاني موجود.",
         "rotation_instructions": (
-            "استخدم مفاتيح متخصّصة لكل قدرة بدلاً من هذا. هذا المفتاح اختياري ويعمل كغطاء."
+            "1) https://fal.ai/dashboard/keys\n"
+            "2) أنشئ مفتاح واحفظه هنا — شغّال على طول.\n"
+            "كل مفاتيح fal على نفس الحساب بتسحب من نفس الرصيد."
         ),
         "test_provider_key": "fal",
         "optional": True,
     },
     {
         "key": "FAL_KEY_SCENE",
-        "label": "fal.ai — Images (Gemini Nano Banana)",
+        "label": "fal.ai — الصور",
         "providers": ["fal_image"],
-        "purpose": "يُستخدم لتوليد صور المشاهد + صفحات الكتاب (fal-ai/gemini-25-flash-image). عزل الفوترة لقدرة الصور فقط.",
+        "purpose": "رسم الشخصيات وصور المشاهد والغلاف (الموديل حسب «المحرك والموديلات»).",
         "rotation_instructions": (
             "1) https://fal.ai/dashboard/keys\n"
-            "2) أنشئ مفتاحاً جديداً مخصَّصاً لقدرة Images فقط.\n"
-            "3) ضعه هنا — لا يحتاج إعادة تشغيل."
+            "2) أنشئ مفتاح واحفظه هنا — شغّال على طول."
         ),
         "test_provider_key": "fal_scene",
         "optional": True,
     },
     {
         "key": "FAL_KEY_NARRATION",
-        "label": "fal.ai — ElevenLabs TTS (narration)",
+        "label": "fal.ai — صوت الراوي",
         "providers": ["fal_tts"],
-        "purpose": "يُستخدم لتوليد السرد الصوتي العربي (fal-ai/elevenlabs/tts/multilingual-v2). بديل أنظف من مفتاح ElevenLabs المباشر (لا يحتاج خطّة Creator+).",
-        "rotation_instructions": "أنشئ مفتاحاً مخصَّصاً لقدرة TTS من لوحة fal.ai.",
+        "purpose": "تسجيل السرد بصوت الراوي (الموديل حسب «المحرك والموديلات»).",
+        "rotation_instructions": "أنشئ مفتاح من https://fal.ai/dashboard/keys واحفظه هنا.",
         "test_provider_key": "fal_narration",
         "optional": True,
     },
     {
         "key": "FAL_KEY_MUSIC",
-        "label": "fal.ai — ElevenLabs Music",
+        "label": "fal.ai — الموسيقى",
         "providers": ["fal_music"],
-        "purpose": "يُستخدم لموسيقى خلفيّة الفيديو (fal-ai/elevenlabs/music). يتجنّب قيد خطّة ElevenLabs المباشر.",
-        "rotation_instructions": "أنشئ مفتاحاً مخصَّصاً لقدرة Music من لوحة fal.ai.",
+        "purpose": "موسيقى خلفية الفيديو (الموديل حسب «المحرك والموديلات»).",
+        "rotation_instructions": "أنشئ مفتاح من https://fal.ai/dashboard/keys واحفظه هنا.",
         "test_provider_key": "fal_music",
         "optional": True,
     },
     {
         "key": "FAL_KEY_VIDEO",
-        "label": "fal.ai — Kling Video",
+        "label": "fal.ai — تحريك اللقطات",
         "providers": ["kling", "luma"],
-        "purpose": "يُستخدم لتوليد لقطات الفيديو per-scene (fal-ai/kling-video/v3/pro/image-to-video).",
-        "rotation_instructions": "أنشئ مفتاحاً مخصَّصاً لقدرة Video من لوحة fal.ai.",
+        "purpose": "تحريك كل لقطة في الفيديو (الموديل حسب «المحرك والموديلات» وجودة الباقة).",
+        "rotation_instructions": "أنشئ مفتاح من https://fal.ai/dashboard/keys واحفظه هنا.",
         "test_provider_key": "fal_video",
         "optional": True,
     },
@@ -162,10 +164,9 @@ KNOWN_ENV_KEYS: list[dict] = [
         "key": "MONGO_URL",
         "label": "MongoDB",
         "providers": ["mongo"],
-        "purpose": "تخزين كل بيانات التطبيق (orders, scenarios, plans, …)",
+        "purpose": "قاعدة البيانات: كل الطلبات والقصص والحسابات.",
         "rotation_instructions": (
-            "MongoDB URL يُدار على مستوى البنية التحتية فقط.\n"
-            "لا يمكن حفظه كـ override آمن. تواصل مع DevOps."
+            "عنوان قاعدة البيانات بيتظبط في ملف الإعدادات على السيرفر بس، ومينفعش يتحفظ من هنا."
         ),
         "system": True,  # not user-rotatable via override
     },
@@ -202,6 +203,7 @@ async def get_secrets_status():
       rotation_instructions, system, optional
     """
     overrides = {o["env_key"]: o for o in await list_overrides_status()}
+    used_by = await _keys_in_use()
 
     items = []
     for spec in KNOWN_ENV_KEYS:
@@ -231,6 +233,9 @@ async def get_secrets_status():
             "system": bool(spec.get("system", False)),
             "optional": bool(spec.get("optional", False)),
             "test_provider_key": spec.get("test_provider_key"),
+            "used_by": used_by.get(key, []),
+            "group": ("system" if spec.get("system") else "business" if key in BUSINESS_KEYS
+                      else "engine" if key in used_by else "alternative"),
         })
 
     return {
@@ -243,6 +248,31 @@ async def get_secrets_status():
             "ترتيب الأولوية: secure override → .env → غير موجود."
         ),
     }
+
+
+BUSINESS_KEYS = {"MOYASAR_SECRET_KEY", "SMTP_URL"}
+
+
+async def _keys_in_use() -> dict[str, list[str]]:
+    """env key -> the running stages that read it (a missing fal key borrows
+    another fal key at call time, so that one counts as used too)."""
+    from services import model_catalog
+
+    out: dict[str, list[str]] = {}
+    try:
+        rows = await model_catalog.stage_rows()
+    except Exception:  # noqa: BLE001 — the page still lists the keys
+        return out
+    for s in rows:
+        if not s["selectable"] or (s["toggleable"] and not s["enabled"]):
+            continue
+        key = s["key"]
+        env_key = key.get("shared_from") or key.get("env_key")
+        if env_key:
+            out.setdefault(env_key, [])
+            if s["name_ar"] not in out[env_key]:
+                out[env_key].append(s["name_ar"])
+    return out
 
 
 # ---- Phase H — secure write/delete + provider tests -----------------------
