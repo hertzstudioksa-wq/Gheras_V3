@@ -138,14 +138,18 @@ async def tag_if_paused(order_id: str, to_status: str) -> bool:
 
 
 async def probe() -> dict:
-    """One tiny real request (a few tokens of Haiku through fal, a fraction of a
-    cent): the only way to know the balance works — fal's status endpoint
+    """A free one-byte upload and a few tokens of Haiku through fal (a fraction of
+    a cent): the only way to know the balance works — fal's status endpoint
     answers fine on a locked account."""
-    from services.ai import AIError
+    from services.ai import AIError, fal
     from services.ai.text_client import generate_text
 
     started = time.monotonic()
     try:
+        # A free one-byte upload first: on an exhausted account fal still served
+        # small text requests while uploads (and every image, clip and voice)
+        # were refused.
+        await fal.upload(env_key="FAL_KEY_SCENE", data=b"ok", content_type="text/plain", file_name="probe.txt")
         await generate_text(stage="engine_probe", provider="fal_llm", model=PROBE_MODEL,
                             system="Reply with the single word OK.", user="ping", effort="low",
                             max_tokens=16, timeout=45.0)

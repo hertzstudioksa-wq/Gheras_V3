@@ -69,11 +69,34 @@ def style_reference() -> bytes | None:
 _SAME_AS_PHOTO = ("same as photo", "same as in the photo", "as in the photo", "from the photo", "photo outfit")
 
 
+def _costume_extras(outfit: str) -> str:
+    """What a plan adds to the photo's clothes ("same as in the photo, plus a blue
+    police cap and a silver whistle" → "a blue police cap and a silver whistle")."""
+    low = outfit.lower()
+    for k in sorted(_SAME_AS_PHOTO, key=len, reverse=True):
+        i = low.find(k)
+        if i >= 0:
+            outfit, low = outfit[:i] + outfit[i + len(k):], low[:i] + low[i + len(k):]
+    rest = outfit.strip(" ,.;:+-")
+    for lead in ("plus ", "and ", "with ", "wearing ", "also "):
+        if rest.lower().startswith(lead):
+            rest = rest[len(lead):].strip(" ,.;:+-")
+    return rest
+
+
 def outfit_rule(outfit: str | None) -> str:
     """Keep the photo's outfit (what makes a child recognisable to their parents)
-    unless the story needs specific clothes."""
+    unless the story needs specific clothes. A costume worn through the story
+    (a police cap, a cape) is drawn on the sheet too: the video model pulls a
+    character back to their sheet, and a cap missing from the sheet flew off
+    mid-shot in the first real story."""
     o = (outfit or "").strip()
     if not o or any(k in o.lower() for k in _SAME_AS_PHOTO):
+        extras = _costume_extras(o) if o else ""
+        if extras:
+            return ("dress the character in the person's own everyday clothes from the photo, with the same colors "
+                    "and details (casual instead of formal wear, no tie, no safety or sports gear), and add what they "
+                    f"wear through the whole story: {extras}. If the feet are bare, add simple shoes")
         # Parents upload holiday and sports photos: the person's own clothes carry
         # over, the gear of the moment (life jacket, harness, helmet) doesn't.
         return ("dress the character in the person's own everyday clothes from the photo, with the same colors and "

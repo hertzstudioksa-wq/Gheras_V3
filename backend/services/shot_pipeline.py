@@ -216,7 +216,11 @@ async def ensure_character_sheets(order: dict, plan: dict, photo_free_only: bool
 # Shared by the executors and the admin prompt preview, so the preview shows
 # exactly what the image and video models receive.
 # Appended when the reviewer flagged a start frame or a clip.
-REDRAW_NOTE = "Draw every person exactly once, each fully separate from the others, and no written words at all."
+REDRAW_NOTE = ("Draw every person exactly once, each fully separate from the others and looking exactly like their "
+               "own reference sheet (face, hair, skin, clothes and colors), and no written words at all.")
+# A clip redone because clothes changed mid-shot.
+OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, badge, bag and piece of clothing stays "
+                    "exactly as in the first frame until the last frame.")
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
 PREV_SHOT_NOTE = "the previous shot of this scene — keep the same place, furniture, lighting and outfits"
 PREV_SCENE_NOTE = ("the last shot of the previous scene — if the story is still in the same place, keep the "
@@ -388,7 +392,10 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                  "shot_index": sh["shot_index"]},
                 {"$inc": {"paid_keyframes": 1}, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now()}},
                 upsert=True)
-            review = await clip_review.review_keyframe(shot_key, img, mime, cast, sh.get("keyframe_prompt") or "")
+            review = await clip_review.review_keyframe(
+                shot_key, img, mime, cast, sh.get("keyframe_prompt") or "",
+                [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
+                 [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes])
             review["redrawn"] = attempt == 2
             if review.get("ok"):
                 break
@@ -589,7 +596,8 @@ async def story_seconds(order_id: str, plan_id: str) -> float:
 
 # ---------------------------------------------------------------- clips
 async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict, tail: float = 0.0,
-                          style: dict | None = None, pacing: dict | None = None, calm: bool = False) -> dict:
+                          style: dict | None = None, pacing: dict | None = None, calm: bool = False,
+                          outfit: bool = False) -> dict:
     style = style or engine_config.DEFAULT_STYLE
     pacing = pacing or engine_config.DEFAULT_PACING
     img = await _fetch_source_bytes(row["keyframe_url"])
@@ -613,6 +621,8 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
     prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast)
     if calm:
         prompt = f"{CALM_NOTE} {prompt}"
+    if outfit:
+        prompt = f"{OUTFIT_REDO_NOTE} {prompt}"
     args = {
         "prompt": prompt[:2400],
         "duration": str(house_style.clip_seconds_for(model, (row.get("narration_seconds") or 0) + tail,
@@ -653,7 +663,20 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
     style = await engine_config.style_for_order(order)
     pacing = await engine_config.get_pacing()
     sheet_urls: dict[str, str] = {}
+    sheet_files: dict[str, tuple[bytes, str]] = {}
     sem = sem or asyncio.Semaphore(CLIP_CONCURRENCY)
+
+    async def review_refs(row: dict) -> tuple[list, tuple | None]:
+        """The shot's sheets and start frame, for the clip review."""
+        refs = []
+        for t in by_likeness(row.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]:
+            if t not in sheet_files:
+                got = await _fetch_source_bytes(sheets[t]["url"])
+                if got:
+                    sheet_files[t] = got
+            if t in sheet_files:
+                refs.append((sheets[t]["label"], *sheet_files[t]))
+        return refs, await _fetch_source_bytes(row["keyframe_url"])
     key = {"order_id": order["id"], "production_plan_id": plan["id"]}
 
     async def _save(row: dict, patch: dict) -> None:
@@ -671,14 +694,14 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
         shot_key = f"{row['scene_index']}_{row['shot_index']}"
         async with sem:
             request_id = row.get("clip_request_id") if row.get("clip_state") == "submitted" else None
-            calm = False
+            calm = outfit = False
             attempt = 0
             while attempt < 2:
                 attempt += 1
                 try:
                     if not request_id:
                         tail = pacing["end_tail_sec"] if (row["scene_index"], row["shot_index"]) == last else 0.0
-                        args = await _clip_arguments(row, model, sheets, sheet_urls, tail, style, pacing, calm)
+                        args = await _clip_arguments(row, model, sheets, sheet_urls, tail, style, pacing, calm, outfit)
                         request_id = await fal.submit(stage="video_generation", env_key="FAL_KEY_VIDEO",
                                                       model=model, arguments=args)
                         await db.shot_assets.update_one(
@@ -693,11 +716,13 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                     if not remote:
                         raise RuntimeError("Kling returned no video url")
                     data = await fal.download(remote)
+                    refs, first = await review_refs(row)
                     review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
-                                                           row.get("motion_prompt") or "")
+                                                           row.get("motion_prompt") or "", refs, first)
                     if not review.get("ok") and not calm:
                         # One calmer redo; it doesn't use up the error retry.
                         calm, attempt, request_id = True, attempt - 1, None
+                        outfit = "outfit_change" in (review.get("problems") or [])
                         await _save(row, {"clip_state": "retrying", "clip_review": {**review, "redone": True},
                                           "clip_error": "review: " + ", ".join(review.get("problems") or [])})
                         continue

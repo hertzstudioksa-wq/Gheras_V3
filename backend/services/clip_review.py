@@ -12,6 +12,7 @@ or the setting is off, the shot is used as is.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -26,7 +27,13 @@ logger = logging.getLogger("clip_review")
 
 REVIEW_MODEL = "anthropic/claude-haiku-5.5"
 CLIP_FRAMES = 4
-PROBLEMS = ("duplicate", "extra_person", "clipping", "vanishing", "text", "deformed")
+PROBLEMS = ("duplicate", "extra_person", "clipping", "vanishing", "text", "deformed", "wrong_look", "outfit_change")
+# Other words models use for the same problems.
+SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": "outfit_change",
+            "accessor": "outfit_change", "hat": "outfit_change", "cap": "outfit_change",
+            "identity": "wrong_look", "lookalike": "wrong_look", "look_alike": "wrong_look", "mismatch": "wrong_look",
+            "clone": "duplicate", "twin": "duplicate"}
+REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and colors
 
 SYSTEM = (
     "You check frames of a 2D cartoon shot from a children's story before a family sees it. You get the people who "
@@ -38,6 +45,13 @@ SYSTEM = (
     "- vanishing: a character disappears or pops in between frames\n"
     "- text: written words or letters anywhere\n"
     "- deformed: a badly broken face or body\n"
+    "- wrong_look: someone doesn't look like their reference sheet (face, hair, skin, colors), or two different "
+    "characters look like the same person (the same face and clothes twice)\n"
+    "- outfit_change: someone's clothes or accessories (hat, cap, glasses, bag, cape) differ from the shot's first "
+    "frame or disappear during the clip\n"
+    "The images come in this order: one reference sheet per name in reference_sheets (when given), then the "
+    "shot's first frame (when given), then the frames to check. Costumes and accessories are allowed to differ "
+    "from a sheet; faces, hair and skin are not.\n"
     "A natural cartoon pose, motion blur, or someone partly out of frame is fine. A count that differs from the "
     "expected people is not a problem by itself: someone can be hidden in a hug, behind another person or at the "
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
@@ -55,7 +69,18 @@ async def enabled() -> bool:
 def _problem(raw) -> str | None:
     """The known problem a model's wording names ("duplicate person", "Clipping through railing"...)."""
     text = re.sub(r"[\s\-]+", "_", str(raw or "").strip().lower())
-    return next((p for p in PROBLEMS if p in text or text.startswith(p.split("_")[0])), None)
+    return next((p for p in PROBLEMS if p in text or text.startswith(p.split("_")[0])), None) or \
+        next((p for k, p in SYNONYMS.items() if k in text), None)
+
+
+def _shrink(data: bytes, side: int = REF_SIDE) -> tuple[bytes, str]:
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    img.thumbnail((side, side))
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=85)
+    return out.getvalue(), "image/jpeg"
 
 
 def _verdict(answer: str) -> dict:
@@ -66,19 +91,26 @@ def _verdict(answer: str) -> dict:
             "note": str(data.get("note") or "")[:200]}
 
 
-async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expected: list[str], action: str) -> dict:
-    """{ok, problems, people_seen, note} — or ok with `skipped` when the check can't run."""
+async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expected: list[str], action: str,
+               sheets: list[tuple[str, bytes, str]] | None = None, first: tuple[bytes, str] | None = None) -> dict:
+    """{ok, problems, people_seen, note} — or ok with `skipped` when the check can't run.
+    `sheets` (label, bytes, mime) let it tell who is who; `first` is the shot's
+    start frame, for clothes that change during a clip."""
     if not await enabled():
         return {"ok": True, "skipped": "off"}
     from services.ai import fal
     from services.ai.text_client import generate_vision
 
     try:
+        refs = [await asyncio.to_thread(_shrink, data) for _, data, _ in (sheets or [])]
+        if first:
+            refs.append(await asyncio.to_thread(_shrink, first[0], 768))
         urls = [await fal.upload(env_key="FAL_KEY_TEXT", data=data, content_type=mime,
                                  file_name=f"review-{shot_key}-{i}.{mime.split('/')[-1]}")
-                for i, (data, mime) in enumerate(images)]
-        user = json.dumps({"shot": shot_key, "frames": len(urls), "expected_people": expected or ["nobody"],
-                           "expected_count": len(expected), "action": (action or "")[:400]}, ensure_ascii=False)
+                for i, (data, mime) in enumerate([*refs, *images])]
+        user = json.dumps({"shot": shot_key, "frames_to_check": len(images), "expected_people": expected or ["nobody"],
+                           "expected_count": len(expected), "reference_sheets": [label for label, _, _ in sheets or []],
+                           "first_frame_given": bool(first), "action": (action or "")[:400]}, ensure_ascii=False)
         answer = await generate_vision(stage=stage, model=REVIEW_MODEL, system=SYSTEM, user=user, image_urls=urls,
                                        max_tokens=300)
         verdict = _verdict(answer)
@@ -90,8 +122,9 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
     return verdict
 
 
-async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list[str], action: str) -> dict:
-    return await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action)
+async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list[str], action: str,
+                          sheets: list[tuple[str, bytes, str]] | None = None) -> dict:
+    return await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets)
 
 
 def _clip_frames(data: bytes, count: int = CLIP_FRAMES) -> list[bytes]:
@@ -121,11 +154,12 @@ def _clip_frames(data: bytes, count: int = CLIP_FRAMES) -> list[bytes]:
         shutil.rmtree(work, ignore_errors=True)
 
 
-async def review_clip(shot_key: str, data: bytes, expected: list[str], action: str) -> dict:
+async def review_clip(shot_key: str, data: bytes, expected: list[str], action: str,
+                      sheets: list[tuple[str, bytes, str]] | None = None, first: tuple[bytes, str] | None = None) -> dict:
     if not await enabled():
         return {"ok": True, "skipped": "off"}
     try:
         frames = await asyncio.to_thread(_clip_frames, data)
     except Exception as e:  # noqa: BLE001
         return {"ok": True, "skipped": "frames", "error": f"{type(e).__name__}: {str(e)[:160]}"}
-    return await _ask("clip_review", shot_key, [(f, "image/jpeg") for f in frames], expected, action)
+    return await _ask("clip_review", shot_key, [(f, "image/jpeg") for f in frames], expected, action, sheets, first)

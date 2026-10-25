@@ -11,6 +11,7 @@ import { ConfirmAction, PageState } from "../../../components/admin/AdminKit";
 const PROBLEM_AR = {
   duplicate: "شخصية متكررة", extra_person: "شخص زيادة", clipping: "جسم بيخترق حاجة",
   vanishing: "شخصية بتختفي", text: "كتابة", deformed: "تشوّه",
+  wrong_look: "شكل مش مطابق للشخصية", outfit_change: "اللبس أو الإكسسوار اتغيّر",
 };
 
 function ReviewBadge({ label, review, redoneKey }) {

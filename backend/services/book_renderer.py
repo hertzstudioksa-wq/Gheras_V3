@@ -231,6 +231,12 @@ async def _book_data(order_id: str, plan: dict, cover_url: str | None, book_asse
                      "role": role, "type": t})
 
     enriched = order.get("enriched") or {}
+    goal = data.get("goal") or {}
+    category = await db.categories.find_one({"id": goal.get("category_id")}, {"_id": 0, "slug": 1}) \
+        if goal.get("category_id") else None
+    # The ambition topics are roles (a doctor, a policeman), not values: "learned
+    # the meaning of policeman" read wrong on the first real story's certificate.
+    role = enriched.get("subcategory_name") if (category or {}).get("slug") == "imagination" else None
     from datetime import datetime
     months = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
     now = datetime.now()
@@ -251,7 +257,8 @@ async def _book_data(order_id: str, plan: dict, cover_url: str | None, book_asse
         "lesson": plan.get("main_message") or "",
         # A topic the parent typed is a sentence, not a value name: the certificate
         # then gives the lesson alone instead of the broad category.
-        "value": enriched.get("subcategory_name") or (
+        "role": role,
+        "value": None if role else enriched.get("subcategory_name") or (
             None if (data.get("goal") or {}).get("custom_subcategory")
             else enriched.get("category_name") or "القيم الجميلة"),
         "cover": cover, "logo": "logo.png" if LOGO.exists() else None,
