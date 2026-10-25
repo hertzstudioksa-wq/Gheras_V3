@@ -109,7 +109,7 @@ def test_keyframes_references_toy_previous_and_cost_fields():
         await _story("k")
         r11, r12, r21 = await _row("k", 1, 1), await _row("k", 1, 2), await _row("k", 2, 1)
         assert r11["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> Omar (the child's father)'s sheet"]
-        assert r12["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> the child's toy", "<image3> the previous shot"]
+        assert r12["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> the child's toy"]
         assert r21["keyframe_refs"] == ["<image1> the previous scene's last shot"]
         assert "<image2> shows only the child's Bunbun" in r12["keyframe_prompt_used"]
         assert sp.COMFY_NOBODY in r21["keyframe_prompt_used"]
@@ -175,4 +175,22 @@ def test_actual_cost_uses_gpu_time():
         assert kf["quantity"] == 60 and kf["unit"] == "ثانية GPU" and abs(kf["cost_usd"] - 0.12) < 1e-9
         # all keyframes on Comfy: the old one-picture-per-scene count must not add GPT images
         assert not any(i["key"] == "keyframes" and i["unit"] == "صورة" for i in cost["items"])
+    run(go())
+
+
+def test_a_flagged_comfy_keyframe_gets_three_takes_and_the_least_broken_is_kept(monkeypatch):
+    async def go():
+        from services import clip_review
+
+        verdicts = iter([{"ok": False, "problems": ["duplicate"]}, {"ok": False, "problems": ["deformed"]},
+                         {"ok": False, "problems": ["text"]}] + [{"ok": True, "problems": []}] * 10)
+
+        async def review(*a, **k):
+            return dict(next(verdicts))
+
+        monkeypatch.setattr(clip_review, "review_keyframe", review)
+        await _story("t")
+        r = await _row("t", 1, 1)
+        assert r["paid_keyframes"] == 3 and r["keyframe_gpu_seconds"] == 60
+        assert r["keyframe_review"]["problems"] == ["text"] and r["keyframe_review"]["redrawn"]
     run(go())

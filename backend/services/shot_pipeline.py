@@ -224,6 +224,12 @@ REDRAW_NOTE = ("Draw every person exactly once, each fully separate from the oth
 OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, badge, bag and piece of clothing stays "
                     "exactly as in the first frame until the last frame.")
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
+# How bad a flagged frame is, to keep the least broken of several takes.
+FLAW_WEIGHT = {"deformed": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2, "vanishing": 2}
+
+
+def flaw(review: dict) -> int:
+    return sum(FLAW_WEIGHT.get(p, 1) for p in review.get("problems") or []) or 1
 PREV_SHOT_NOTE = "the previous shot of this scene — keep the same place, furniture, lighting and outfits"
 PREV_SCENE_NOTE = ("the last shot of the previous scene — if the story is still in the same place, keep the "
                    "same room design and furniture (lighting may change)")
@@ -318,14 +324,16 @@ def _toy_ref(toy: dict, named: str) -> dict:
 
 def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, previous: str | None) -> list[dict]:
     """What each <imageN> of a Comfy keyframe is, in order: the cast's sheets (the
-    family first), the child's toy when the shot shows it, then the previous frame
-    for continuity (`previous` = "shot", "scene" or None). A shot with nobody, no
-    toy and no earlier frame gets one sheet as a style reference only."""
+    family first) and the child's toy when the shot shows it. The previous frame
+    (`previous` = "shot", "scene" or None) only goes with a shot that has nobody
+    in it: Qwen copies the people it sees there too, and the first real story got
+    the child twice (once from his sheet, once from the previous shot). A shot
+    with nobody, no toy and no earlier frame gets one sheet as a style reference."""
     refs = [{"kind": "sheet", "type": t} for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]]
     named = toy_named_in(sh.get("keyframe_prompt") or "", toy, scene.get("key_objects")) if toy else None
     if named:
         refs.append(_toy_ref(toy, named))
-    if previous:
+    if previous and not sh.get("characters"):
         refs.append({"kind": f"prev_{previous}"})
     if not refs and sheets:
         refs.append({"kind": "style", "type": by_likeness(sorted(sheets), sheets)[0]})
@@ -578,7 +586,10 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         # A Comfy job submitted before a restart is waited on, not paid for again.
         resume_id = row.get("keyframe_prompt_id") if on_comfy else None
         first = (row.get("keyframe_prompt_attempt") or 1) if resume_id else 1
-        for attempt in range(first, 3):
+        # A Comfy draw costs ~3 cents, so a flagged frame gets one more try; then the
+        # least broken take is kept (Qwen once returned pure noise on a redraw).
+        best = None
+        for attempt in range(first, (3 if on_comfy else 2) + 1):
             text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
             if on_comfy:
                 async def submitted(prompt_id: str, attempt: int = attempt) -> None:
@@ -618,9 +629,14 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 shot_key, img, mime, cast, sh.get("keyframe_prompt") or "",
                 [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
                  [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes])
-            review["redrawn"] = attempt == 2
+            review["redrawn"] = attempt >= 2
             if review.get("ok"):
                 break
+            if best is None or flaw(review) < flaw(best[3]):
+                best = (img, mime, meta, review)
+        else:
+            if best:
+                img, mime, meta, review = best
         url = await _store(order, "keyframe", img, mime, "png")
         model = meta.get("model")
         await _set_shot(order, plan, scene, sh["shot_index"], {
@@ -1014,7 +1030,12 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 refs, first = await review_refs(row)
                 review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
                                                        row.get("motion_prompt") or "", refs, first)
-                if not review.get("ok"):
+                if not review.get("ok") and wan and not (row.get("keyframe_review") or {}).get("ok", True):
+                    # The start frame itself was still flagged after its redraw: another
+                    # Wan take animates the same picture, so none is paid for. The admin
+                    # redoes frame + clip from the shots tab.
+                    review = {**review, "start_frame_flagged": True}
+                elif not review.get("ok"):
                     problems = "review: " + ", ".join(review.get("problems") or [])
                     if wan and (best is None or len(review.get("problems") or []) <= len(best[1].get("problems") or [])):
                         best = (data, review)

@@ -469,7 +469,11 @@ async def run(*, stage: str, workflow: str, fills: dict, refs: list[str] | None 
     `on_submitted(prompt_id)` runs before the wait, so the caller can save the id
     and a crash resumes the paid job instead of paying again. Returns
     (bytes, mime, job); `gpu_seconds(job)` is what the job cost."""
-    async with _gate.slot(await order_priority(fake_providers.CURRENT_ORDER.get())):
+    # Within an order, keyframes go before clips: a keyframe takes ~20 s against a
+    # clip's ~110 s, and the scene pictures (the parent's previews, every clip's
+    # start frame) waited behind clips for half an hour in the first real story.
+    rank = "1" if workflow.startswith("clip") else "0"
+    async with _gate.slot(f"{await order_priority(fake_providers.CURRENT_ORDER.get())}|{rank}"):
         if not prompt_id:
             prompt_id = await submit(stage=stage, workflow=workflow, fills=fills, refs=refs)
             if on_submitted:
