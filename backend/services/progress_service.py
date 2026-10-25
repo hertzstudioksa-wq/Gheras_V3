@@ -259,6 +259,14 @@ async def compute_pipeline_progress(order: dict) -> dict:
     if status in (OrderStatus.PRODUCTION_READY.value, OrderStatus.PRODUCTION_APPROVED.value):
         # Plan ready. We still show 20% until assets begin; the UI treats
         # production_ready as its own state (approval waiting), no bar flicker.
+        queue = order.get("generation_queue") or {}
+        if status == OrderStatus.PRODUCTION_APPROVED.value and queue.get("position"):
+            ahead = int(queue["position"]) - 1
+            count = ("قصة واحدة" if ahead == 1 else "قصتان" if ahead == 2
+                     else f"{ahead} قصص" if ahead <= 10 else f"{ahead} قصة")
+            return {"stage": "plan", "stage_ar": "في الطابور", "percent": 20, "queued": True,
+                    "message_ar": ("قصتك التالية في الطابور ⏳" if ahead <= 0
+                                   else f"قصتك في الطابور — أمامها {count} ⏳")}
         return {"stage": "plan", "stage_ar": STAGE_LABELS_AR["plan"], "percent": 20,
                 "message_ar": ("الخطة جاهزة لاعتمادك" if status == OrderStatus.PRODUCTION_READY.value
                                else "بدأنا تحضير القصة...")}

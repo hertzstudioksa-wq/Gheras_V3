@@ -95,11 +95,17 @@ async def purge_old_photos(days: int = ORIGINAL_PHOTO_DAYS) -> int:
 
 async def sweep_forever() -> None:
     """Started at boot: the photo-retention promise runs on its own."""
+    from services.retention_service import prune_delivered
+
     while True:
         try:
             await purge_old_photos()
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[privacy] sweep failed: {type(e).__name__}: {e}")
+        try:
+            await prune_delivered()  # off until retention.intermediate_days is set
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[retention] sweep failed: {type(e).__name__}: {e}")
         await asyncio.sleep(SWEEP_EVERY_SECONDS)
 
 

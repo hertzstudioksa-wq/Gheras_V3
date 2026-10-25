@@ -55,7 +55,7 @@ const ACTION_LABEL = {
   "wallet.topup": "شحن رصيد", "wallet.charge": "خصم رصيد", "wallet.refund": "استرداد للرصيد", "wallet.adjust": "تعديل رصيد",
   "privacy.photos_deleted": "مسح الصور الأصلية", "privacy.account_deleted": "مسح بيانات حساب",
   "engine.resume_paused": "استكمال الطلبات الموقوفة بعد الشحن", "shot.redo": "إعادة لقطة",
-  secret_rotation_attempt: "محاولة تغيير مفتاح", "safety.review": "مراجعة أمان", "order.feedback": "تقييم/بلاغ من العميل", "order.narration_edit": "تعديل سطور الراوي (العميل)",
+  secret_rotation_attempt: "محاولة تغيير مفتاح", "safety.review": "مراجعة أمان", "order.feedback": "تقييم/بلاغ من العميل", "order.narration_edit": "تعديل سطور الراوي (العميل)", "retention.pruned": "مسح ملفات وسيطة (مساحة)",
 };
 const ACTION_COLORS = {
   create: "bg-[#E8F0E1] text-[#4F6B3B]",

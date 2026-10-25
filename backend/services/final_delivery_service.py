@@ -124,7 +124,10 @@ async def _process_with_retry(job: dict, order: dict, plan: dict, executor) -> b
     for attempt in range(1, MAX_ATTEMPTS + 1):
         await _update_job(job["id"], {"status": "processing", "attempt_count": attempt})
         try:
-            out = await executor(job, order, plan)
+            # ffmpeg (~0.6 GB) and Chromium (~1.1 GB): only a few at once.
+            from services.limits import render_gate
+            async with render_gate.slot():
+                out = await executor(job, order, plan)
             await _update_job(job["id"], {
                 "status": "completed",
                 "provider": out.get("provider"),

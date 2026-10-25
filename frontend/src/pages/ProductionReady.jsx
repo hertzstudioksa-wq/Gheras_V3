@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import JourneySteps from "../components/gheras/JourneySteps";
 import StoryFeedbackCard from "../components/gheras/StoryFeedbackCard";
 import PlanScriptCard from "../components/gheras/PlanScriptCard";
-import { scenesLabel, imagesLabel, pagesLabel } from "../lib/arabic";
+import { scenesLabel, imagesLabel, pagesLabel, countLabel } from "../lib/arabic";
 
 const audioBgLabel = (mode) => ({
   music: "موسيقى هادئة",
@@ -672,9 +672,18 @@ export default function ProductionReady() {
               <div className="flex items-center gap-2 mb-1 text-[#8B5A2B] font-body font-bold text-sm">
                 <Sprout className="w-4 h-4" /> الخطوة التالية
               </div>
-              <p className="font-body text-sm text-[#2D3748]">
-                سنبدأ إعداد قصة طفلك قريباً — الصور والفيديو والكتاب. يمكنك إغلاق الصفحة والعودة إليها من «قصصي» عند اكتمالها.
-              </p>
+              {state?.queue ? (
+                <p className="font-body text-sm text-[#2D3748]" data-testid="queue-position">
+                  {state.queue.position <= 1
+                    ? "قصتك التالية في الطابور — سنبدأ رسمها خلال دقائق."
+                    : `قصتك في الطابور — أمامها ${countLabel(state.queue.position - 1, ["قصة واحدة", "قصتان", "قصص", "قصة"])}، وسنبدأ فور وصول دورها.`}
+                  {" "}يمكنك إغلاق الصفحة، وستجدها في «قصصي».
+                </p>
+              ) : (
+                <p className="font-body text-sm text-[#2D3748]">
+                  سنبدأ إعداد قصة طفلك قريباً — الصور والفيديو والكتاب. يمكنك إغلاق الصفحة والعودة إليها من «قصصي» عند اكتمالها.
+                </p>
+              )}
             </div>
           </div>
         )}

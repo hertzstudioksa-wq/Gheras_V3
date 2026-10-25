@@ -211,6 +211,9 @@ async def get_production_summary(order_id: str, current=Depends(get_current_user
         "production_regenerations_remaining": max(0, MAX_USER_PRODUCTION_REGENERATIONS - used),
         "progress": progress,
         "photos_deleted_at": order.get("photos_deleted_at"),
+        # Waiting for a generation slot (services/limits.py): its place in line.
+        "queue": ({k: order["generation_queue"].get(k) for k in ("position", "since")}
+                  if status == OrderStatus.PRODUCTION_APPROVED.value and order.get("generation_queue") else None),
     }
 
 

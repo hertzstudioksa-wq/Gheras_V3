@@ -61,6 +61,17 @@ def get_object(path: str) -> tuple[bytes, str]:
     return target.read_bytes(), content_type
 
 
+def local_file(path: str) -> Path | None:
+    """The file on disk for a stored object (local backend), for streaming it
+    instead of reading it whole into memory. None for remote backends."""
+    if STORAGE_BACKEND == "emergent":
+        return None
+    target = _local_path(path)
+    if not target.is_file():
+        raise FileNotFoundError(path)
+    return target
+
+
 def delete_object(path: str) -> bool:
     """Remove a stored object. Returns False when it was already gone."""
     if STORAGE_BACKEND == "emergent":

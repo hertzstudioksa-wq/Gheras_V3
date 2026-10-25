@@ -32,12 +32,20 @@ echo "[$(date -Is)] dumping $DB_NAME"
 nice -n 10 mongodump --uri="$MONGO_URL" --db="$DB_NAME" --gzip --archive="$DEST/db-$stamp.archive.gz" --quiet
 
 if [ -d "$MEDIA" ]; then
-  echo "[$(date -Is)] archiving $MEDIA"
-  nice -n 10 tar -czf "$DEST/media-$stamp.tar.gz" -C "$(dirname "$MEDIA")" "$(basename "$MEDIA")"
+  # Incremental snapshots: unchanged files are hardlinks to yesterday's copy, so
+  # each day costs only what changed (a full tar of hundreds of GB would not).
+  echo "[$(date -Is)] snapshot $MEDIA"
+  mkdir -p "$DEST/media"
+  link=()
+  [ -d "$DEST/media/latest" ] && link=(--link-dest="$DEST/media/latest")
+  nice -n 10 rsync -a --delete "${link[@]}" "$MEDIA/" "$DEST/media/$stamp/"
+  ln -sfn "$DEST/media/$stamp" "$DEST/media/latest"
+  find "$DEST/media" -mindepth 1 -maxdepth 1 -type d -name '20*' -mtime +"$KEEP_DAYS" -exec rm -rf {} +
 fi
 
-find "$DEST" -maxdepth 1 -type f \( -name 'db-*.archive.gz' -o -name 'media-*.tar.gz' \) -mtime +"$KEEP_DAYS" -delete
+find "$DEST" -maxdepth 1 -type f -name 'db-*.archive.gz' -mtime +"$KEEP_DAYS" -delete
 echo "[$(date -Is)] done: $(du -sh "$DEST" | cut -f1) in $DEST"
+# Off the server too (recommended): rclone sync /var/backups/gheras remote:gheras-backups
 
 # Restore (only when needed, into gheras_prod only):
 #   mongorestore --uri="$MONGO_URL" --nsInclude="gheras_prod.*" --gzip --archive=/var/backups/gheras/db-YYYY-MM-DD.archive.gz --drop

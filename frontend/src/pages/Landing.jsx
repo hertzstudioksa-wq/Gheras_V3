@@ -183,16 +183,16 @@ export default function Landing() {
               </div>
             )}
             {sampleSteps.length === 3 && (
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-4" data-testid="showcase-steps">
+              <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1.5 sm:gap-4" data-testid="showcase-steps">
                 {sampleSteps.map((src, i) => (
                   <React.Fragment key={src}>
-                    <figure className="bg-white rounded-3xl p-3 border border-[#E2D8C9]">
-                      <img src={fileSrc(src)} alt="" loading="lazy" className="w-full aspect-square object-cover rounded-2xl" />
-                      <figcaption className="font-heading font-bold text-[#2D3748] mt-3">
+                    <figure className="bg-white rounded-2xl sm:rounded-3xl p-1.5 sm:p-3 border border-[#E2D8C9]">
+                      <img src={fileSrc(src)} alt="" loading="lazy" className="w-full aspect-square object-cover rounded-xl sm:rounded-2xl" />
+                      <figcaption className="font-heading font-bold text-[#2D3748] mt-2 sm:mt-3 text-xs sm:text-base leading-tight">
                         {["صورة الطفل", "شخصيته الكرتونية", "مشهد من قصته"][i]}
                       </figcaption>
                     </figure>
-                    {i < 2 && <ArrowLeft className="w-6 h-6 text-[#87A96B] mx-auto rotate-90 sm:rotate-0" />}
+                    {i < 2 && <ArrowLeft className="w-4 h-4 sm:w-6 sm:h-6 text-[#87A96B] mx-auto" />}
                   </React.Fragment>
                 ))}
               </div>

@@ -1066,9 +1066,12 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
 # ---------------- Run (entrypoint) ----------------
 async def run_asset_generation(order_id: str, run_id: str):
     """The asset pipeline, with a heartbeat on the order (see order_heartbeat)."""
+    from services.limits import wait_for_generation_slot
     from services.order_heartbeat import beating
 
     async with beating(order_id):
+        # A busy day queues approved orders instead of starting them all at once.
+        await wait_for_generation_slot(order_id)
         await _run_asset_generation(order_id, run_id)
 
 
@@ -1117,6 +1120,8 @@ async def _run_asset_generation(order_id: str, run_id: str):
     )
     await _append_status(order_id, order.get("status"), OrderStatus.ASSETS_GENERATING.value, "system",
                          reason=f"start assets generation (run {run_id[:8]}, {len(jobs)} jobs)")
+    # The status now holds the generation slot (services/limits.py).
+    await db.orders.update_one({"id": order_id}, {"$unset": {"generation_queue": 1}})
 
     shot_mode = any(j["job_type"] == "scene_keyframes" for j in jobs)
 

@@ -1,5 +1,6 @@
 """Image uploads (child, character, toy) stored via storage.py."""
 import io
+import mimetypes
 import os
 from collections import OrderedDict
 import uuid
@@ -7,12 +8,13 @@ from datetime import datetime, timezone
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header, Response
+from fastapi.responses import StreamingResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from db import db
 from auth import get_current_user, decode_token
 from services import rate_limit
-from storage import put_object, get_object, ALLOWED_EXT, MIME_TYPES, MAX_BYTES, APP_NAME
+from storage import put_object, get_object, local_file, ALLOWED_EXT, MIME_TYPES, MAX_BYTES, APP_NAME
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -202,24 +204,69 @@ def _resized(rec: dict, width: int) -> Response:
     return Response(content=data, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
 
 
+STREAM_CHUNK = 256 * 1024
+
+
+def _byte_range(range_header: str | None, size: int) -> tuple[int, int] | None | bool:
+    """(start, end) for a satisfiable Range header, None without one, False if unsatisfiable."""
+    m = _RANGE.match((range_header or "").strip())
+    if not (m and (m.group(1) or m.group(2))):
+        return None
+    if m.group(1):
+        start = int(m.group(1))
+        end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+    else:  # last N bytes
+        start, end = max(0, size - int(m.group(2))), size - 1
+    return False if start >= size or start > end else (start, end)
+
+
+def _read_chunks(path, start: int, length: int):
+    with open(path, "rb") as f:
+        f.seek(start)
+        while length > 0:
+            chunk = f.read(min(STREAM_CHUNK, length))
+            if not chunk:
+                break
+            length -= len(chunk)
+            yield chunk
+
+
 async def file_response(rec: dict, range_header: str | None, cache: str = "private, max-age=3600") -> Response:
-    """A stored file as a response, honouring byte ranges (shared by family links)."""
+    """A stored file as a response, honouring byte ranges (shared by family links).
+
+    Local files are streamed from disk in chunks: reading a whole video into
+    memory per request meant 100 viewers of a 20 MB story held 2 GB."""
     try:
-        data, ct = get_object(rec["storage_path"])
+        path = local_file(rec["storage_path"])
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="الملف غير موجود")
     except Exception:
         raise HTTPException(status_code=502, detail="تعذّر تحميل الملف")
-    media_type = rec.get("content_type", ct)
     headers = {"Accept-Ranges": "bytes", "Cache-Control": cache}
-    m = _RANGE.match((range_header or "").strip())
-    if m and (m.group(1) or m.group(2)):
-        size = len(data)
-        if m.group(1):
-            start = int(m.group(1))
-            end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
-        else:  # last N bytes
-            start, end = max(0, size - int(m.group(2))), size - 1
-        if start >= size or start > end:
-            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
-        return Response(content=data[start:end + 1], status_code=206, media_type=media_type,
-                        headers={**headers, "Content-Range": f"bytes {start}-{end}/{size}"})
-    return Response(content=data, media_type=media_type, headers=headers)
+    if path is None:  # remote backend: bytes in memory, as before
+        try:
+            data, ct = get_object(rec["storage_path"])
+        except Exception:
+            raise HTTPException(status_code=502, detail="تعذّر تحميل الملف")
+        media_type = rec.get("content_type", ct)
+        rng = _byte_range(range_header, len(data))
+        if rng is False:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{len(data)}"})
+        if rng:
+            start, end = rng
+            return Response(content=data[start:end + 1], status_code=206, media_type=media_type,
+                            headers={**headers, "Content-Range": f"bytes {start}-{end}/{len(data)}"})
+        return Response(content=data, media_type=media_type, headers=headers)
+
+    size = path.stat().st_size
+    media_type = rec.get("content_type") or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    rng = _byte_range(range_header, size)
+    if rng is False:
+        return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+    if rng:
+        start, end = rng
+        return StreamingResponse(_read_chunks(path, start, end - start + 1), status_code=206, media_type=media_type,
+                                 headers={**headers, "Content-Range": f"bytes {start}-{end}/{size}",
+                                          "Content-Length": str(end - start + 1)})
+    return StreamingResponse(_read_chunks(path, 0, size), media_type=media_type,
+                             headers={**headers, "Content-Length": str(size)})
