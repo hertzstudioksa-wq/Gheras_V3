@@ -318,14 +318,16 @@ def _toy_ref(toy: dict, named: str) -> dict:
 
 def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, previous: str | None) -> list[dict]:
     """What each <imageN> of a Comfy keyframe is, in order: the cast's sheets (the
-    family first), the child's toy when the shot shows it, then the previous frame
-    for continuity (`previous` = "shot", "scene" or None). A shot with nobody, no
-    toy and no earlier frame gets one sheet as a style reference only."""
+    family first) and the child's toy when the shot shows it. The previous frame
+    (`previous` = "shot", "scene" or None) only goes with a shot that has nobody
+    in it: Qwen copies the people it sees there too, and the first real story got
+    the child twice (once from his sheet, once from the previous shot). A shot
+    with nobody, no toy and no earlier frame gets one sheet as a style reference."""
     refs = [{"kind": "sheet", "type": t} for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]]
     named = toy_named_in(sh.get("keyframe_prompt") or "", toy, scene.get("key_objects")) if toy else None
     if named:
         refs.append(_toy_ref(toy, named))
-    if previous:
+    if previous and not sh.get("characters"):
         refs.append({"kind": f"prev_{previous}"})
     if not refs and sheets:
         refs.append({"kind": "style", "type": by_likeness(sorted(sheets), sheets)[0]})
@@ -1014,7 +1016,12 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 refs, first = await review_refs(row)
                 review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
                                                        row.get("motion_prompt") or "", refs, first)
-                if not review.get("ok"):
+                if not review.get("ok") and wan and not (row.get("keyframe_review") or {}).get("ok", True):
+                    # The start frame itself was still flagged after its redraw: another
+                    # Wan take animates the same picture, so none is paid for. The admin
+                    # redoes frame + clip from the shots tab.
+                    review = {**review, "start_frame_flagged": True}
+                elif not review.get("ok"):
                     problems = "review: " + ", ".join(review.get("problems") or [])
                     if wan and (best is None or len(review.get("problems") or []) <= len(best[1].get("problems") or [])):
                         best = (data, review)

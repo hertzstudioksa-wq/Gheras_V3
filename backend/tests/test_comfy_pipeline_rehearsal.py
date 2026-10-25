@@ -109,7 +109,7 @@ def test_keyframes_references_toy_previous_and_cost_fields():
         await _story("k")
         r11, r12, r21 = await _row("k", 1, 1), await _row("k", 1, 2), await _row("k", 2, 1)
         assert r11["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> Omar (the child's father)'s sheet"]
-        assert r12["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> the child's toy", "<image3> the previous shot"]
+        assert r12["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> the child's toy"]
         assert r21["keyframe_refs"] == ["<image1> the previous scene's last shot"]
         assert "<image2> shows only the child's Bunbun" in r12["keyframe_prompt_used"]
         assert sp.COMFY_NOBODY in r21["keyframe_prompt_used"]

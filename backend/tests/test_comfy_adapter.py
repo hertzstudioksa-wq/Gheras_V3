@@ -412,3 +412,25 @@ def test_a_failed_job_carries_its_gpu_time(monkeypatch):
     with pytest.raises(AIError) as e:
         run(comfy.wait(stage="t", prompt_id="p", poll_interval=0))
     assert e.value.gpu_seconds == 30 and e.value.prompt_id == "p"  # still billed: callers count it
+
+
+
+def test_keyframes_go_before_clips_of_the_same_order(offline):
+    """With one slot busy, a clip queued first still waits for a keyframe of the same order."""
+    gate, order = comfy._Gate(), []
+
+    async def job(priority, name, hold=0.0):
+        async with gate.slot(priority):
+            order.append(name)
+            await asyncio.sleep(hold)
+
+    async def go():
+        first = asyncio.ensure_future(job("2026-10-25T10:00|0", "running", 0.05))
+        await asyncio.sleep(0.01)
+        clip = asyncio.ensure_future(job("2026-10-25T10:00|1", "clip"))
+        await asyncio.sleep(0.005)
+        keyframe = asyncio.ensure_future(job("2026-10-25T10:00|0", "keyframe"))
+        await asyncio.gather(first, clip, keyframe)
+
+    run(go())
+    assert order == ["running", "keyframe", "clip"]

@@ -1044,13 +1044,24 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
     cover_tasks = [asyncio.create_task(process(j)) for j in jobs if j["job_type"] == "cover_image"]
     clip_sem = asyncio.Semaphore(shot_pipeline.CLIP_CONCURRENCY)
     clip_tasks = []
-    for job in sorted((j for j in jobs if j["job_type"] == "scene_keyframes"),
-                      key=lambda j: (j.get("meta") or {}).get("scene_index") or 0):
+
+    async def scene(job: dict) -> None:
         if await process(job):
             await asyncio.gather(narration_task, return_exceptions=True)  # long done by now
             clip_tasks.append(asyncio.create_task(shot_pipeline.run_shot_clips(
                 order, plan, run_id, scene_index=(job.get("meta") or {}).get("scene_index"), sem=clip_sem,
                 summarize=False)))
+
+    scene_jobs = sorted((j for j in jobs if j["job_type"] == "scene_keyframes"),
+                        key=lambda j: (j.get("meta") or {}).get("scene_index") or 0)
+    if (await shot_pipeline.keyframe_engine())[0] == "comfy_image":
+        # Comfy keyframes don't need the scene before them (people shots take no
+        # previous frame), and its queue serves keyframes before clips: every scene
+        # waits in it at once, so the GPU never idles while a picture is reviewed.
+        await asyncio.gather(*(scene(j) for j in scene_jobs))
+    else:
+        for job in scene_jobs:
+            await scene(job)
     await _run_jobs([j for j in jobs if j["job_type"] == "book_page_asset"], process)
     await asyncio.gather(*cover_tasks, narration_task, return_exceptions=True)
     for res in await asyncio.gather(*clip_tasks, return_exceptions=True):

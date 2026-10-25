@@ -45,10 +45,11 @@ def numbering(prompt):
 
 
 # ---------------------------------------------------------------- references
-def test_sheets_family_first_then_toy_then_previous_shot():
+def test_sheets_family_first_then_toy_and_no_previous_frame_with_people():
+    # Qwen copied the people of a previous frame: the child came out twice.
     sh = shot(["grandmother", "father", "child"], "Lina hugs her blue knitted rabbit.")
     refs = sp.comfy_references(sh, SCENE, SHEETS, TOY, "shot")
-    assert [r["kind"] for r in refs] == ["sheet", "sheet", "sheet", "toy", "prev_shot"]
+    assert [r["kind"] for r in refs] == ["sheet", "sheet", "sheet", "toy"]
     assert [r.get("type") for r in refs[:3]] == ["child", "father", "grandmother"]
     assert refs[3]["name"] == "Bunbun"
 
@@ -57,7 +58,7 @@ def test_at_most_five_sheets_and_previous_scene():
     sh = shot(["child", "father", "grandmother", "dog", "uncle"])
     refs = sp.comfy_references(sh, SCENE, {**SHEETS, "uncle": {"url": "/u/5", "label": "the child's uncle"},
                                            "aunt": {"url": "/u/6", "label": "the child's aunt"}}, None, "scene")
-    assert len([r for r in refs if r["kind"] == "sheet"]) == 5 and refs[-1] == {"kind": "prev_scene"}
+    assert len([r for r in refs if r["kind"] == "sheet"]) == 5 and not any(r["kind"].startswith("prev") for r in refs)
 
 
 @pytest.mark.parametrize("prompt,expected", [
@@ -114,8 +115,8 @@ def test_template_order_and_numbering():
     assert "<image2> is Omar (the child's father)," in lines[1]  # no empty "keep" for no key features
     assert "<image3> is the child's dog (keep red collar, floppy ears exactly as in the reference)" in lines[1]
     assert "<image4> shows only the child's Bunbun" in lines[1]
-    assert "<image5> is the previous shot of this scene" in lines[1]
-    assert numbering(text) == list(range(1, len(refs) + 1)) == [1, 2, 3, 4, 5]
+    assert "previous shot" not in lines[1]
+    assert numbering(text) == list(range(1, len(refs) + 1)) == [1, 2, 3, 4]
     assert lines[2] == sp.COMFY_COPY and lines[3] == sp.COMFY_ONCE
     assert lines[4].startswith("SCENE: a medium shot, with the characters large in the frame. Lina hugs Bunbun")
     assert "Setting: a small garden behind the house." in lines[4]
