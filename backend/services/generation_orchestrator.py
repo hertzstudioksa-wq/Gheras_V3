@@ -1011,6 +1011,16 @@ async def _music_stage(order: dict, plan: dict, run_id: str) -> None:
     track row records why, and the video is assembled without music."""
     if get_order_output_type(order) not in ("video", "both"):
         return
+    # A resumed or retried run keeps the track it already paid for (each new
+    # run made another one: ~$0.36 per restart, found in the full rehearsal).
+    # The narration it was sized to is reused too, so it still fits.
+    kept = await db.music_tracks.find_one(
+        {"order_id": order["id"], "production_plan_id": plan["id"], "real_call": True,
+         "skipped": {"$ne": True}, "audio_url": {"$ne": None}},
+        {"_id": 0, "id": 1}, sort=[("created_at", -1)])
+    if kept:
+        logger.info(f"[music_generation] order={order['id']} reusing track {kept['id'][:8]}")
+        return
     try:
         music_result = await _run_music_generation_stage(order, plan, run_id)
         logger.info(f"[music_generation] order={order['id']} result={music_result}")

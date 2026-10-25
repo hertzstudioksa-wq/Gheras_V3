@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { UserPlus, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { usePageTitle } from "../lib/usePageTitle";
+import { errorMessage } from "../lib/api";
 
 const LOGO_URL = "/gheras-logo.png";
 
@@ -32,7 +33,7 @@ export default function Signup() {
       toast.success("تم إنشاء حسابك بنجاح 🌱");
       navigate("/dashboard", { replace: true });
     } catch (e) {
-      setErr(e?.response?.data?.detail || "حدث خطأ");
+      setErr(errorMessage(e, "تعذّر إنشاء الحساب، حاول مرة أخرى"));
     } finally {
       setLoading(false);
     }

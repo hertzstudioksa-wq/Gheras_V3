@@ -21,6 +21,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// FastAPI's validation errors (422) send `detail` as a list of objects; pages
+// that show `detail` as text crashed on it (React #31 on signup with an email
+// the server refused). Every error leaves here with a string detail; the list
+// stays in `detail_list`.
+const FIELD_AR = { email: "البريد الإلكتروني", password: "كلمة المرور", full_name: "الاسم" };
+
+function normalizeDetail(error) {
+  const data = error?.response?.data;
+  if (!data || typeof data !== "object" || typeof data.detail === "string" || data.detail == null) return;
+  const list = Array.isArray(data.detail) ? data.detail : [data.detail];
+  data.detail_list = list;
+  const field = list.map((d) => (Array.isArray(d?.loc) ? d.loc[d.loc.length - 1] : null)).find((f) => FIELD_AR[f]);
+  data.detail = field ? `${FIELD_AR[field]} غير صالح، راجعه وحاول مرة أخرى` : "تحقّق من البيانات المدخلة وحاول مرة أخرى";
+}
+
 // The connection banner (App) listens to this: does the server answer at all?
 // A 503 from the engine-balance guard is an answer, so only an unreachable
 // server, a gateway error or the API's own "database down" reply count.
@@ -43,6 +58,7 @@ api.interceptors.response.use(
     return r;
   },
   (error) => {
+    normalizeDetail(error);
     const status = error?.response?.status;
     const url = error?.config?.url || "";
     const noResponse = !error?.response;
@@ -153,6 +169,7 @@ export async function uploadImage(file, scope = "child") {
 /** The Arabic message to show for a failed request: the API's own detail when
  * it sent one, otherwise a plain reason. */
 export function errorMessage(error, fallback = "تعذّر تحميل البيانات، حاول مرة أخرى") {
+  normalizeDetail(error);
   const detail = error?.response?.data?.detail;
   if (typeof detail === "string" && detail) return detail;
   if (!error?.response) return "تعذّر الاتصال بالخادم — تأكد من الإنترنت وحاول مرة أخرى";
