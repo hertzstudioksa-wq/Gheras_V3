@@ -6,6 +6,7 @@ import { api, setMediaToken } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
+import { usePageTitle } from "../lib/usePageTitle";
 
 // My account (M7): change password and delete the account with all its data
 // (privacy policy, audit CS-7).
@@ -13,6 +14,7 @@ import Footer from "../components/gheras/Footer";
 const input = "w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2.5 font-body focus:outline-none focus:ring-2 focus:ring-[#87A96B]";
 
 export default function Account() {
+  usePageTitle("حسابي");
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
@@ -23,7 +25,7 @@ export default function Account() {
   const changePassword = async (e) => {
     e.preventDefault();
     if (pw.next.length < 8) return toast.error("كلمة المرور الجديدة 8 أحرف على الأقل");
-    if (pw.next !== pw.confirm) return toast.error("تأكيد كلمة المرور مش مطابق");
+    if (pw.next !== pw.confirm) return toast.error("تأكيد كلمة المرور غير مطابق");
     setSaving(true);
     try {
       const { data } = await api.post("/auth/change-password", { current_password: pw.current, new_password: pw.next });

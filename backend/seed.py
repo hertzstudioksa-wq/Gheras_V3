@@ -62,12 +62,12 @@ STORY_OPTIONS = [
     ("setting", "تلقائي", "auto", 5),
 
     ("language", "عربية فصحى مبسّطة", "arabic-simple", 1),
-    ("language", "لهجة خليجية", "gulf", 2),
+    ("language", "لهجة سعودية / خليجية", "gulf", 2),
     ("language", "لهجة مصرية", "egyptian", 3),
 
-    ("voice", "صوت ولد", "boy", 1),
-    ("voice", "صوت بنت", "girl", 2),
-    ("voice", "تلقائي", "auto", 3),
+    ("voice", "راوٍ (صوت رجل)", "boy", 1),
+    ("voice", "راوية (صوت امرأة)", "girl", 2),
+    ("voice", "تلقائي (حسب الطفل)", "auto", 3),
 ]
 
 CONTENT_BLOCKS = [
@@ -77,15 +77,15 @@ CONTENT_BLOCKS = [
     {"section": "hero", "key": "hero.cta_primary", "value": "ابدأ أول قصة لطفلك"},
     {"section": "hero", "key": "hero.cta_secondary", "value": "كيف تعمل غِراس؟"},
     {"section": "how", "key": "how.title", "value": "كيف تعمل غِراس؟"},
-    {"section": "how", "key": "how.subtitle", "value": "ست خطوات بسيطة تفصلك عن قصة لن ينساها طفلك"},
-    {"section": "how", "key": "how.step1.title", "value": "اختر الهدف"},
-    {"section": "how", "key": "how.step1.desc", "value": "حدّد القيمة أو السلوك واذكر موقفاً حقيقياً"},
-    {"section": "how", "key": "how.step2.title", "value": "أخبرنا عن طفلك"},
-    {"section": "how", "key": "how.step2.desc", "value": "الاسم والعمر وصورة ليصبح بطلاً حقيقياً"},
-    {"section": "how", "key": "how.step3.title", "value": "أضف الشخصيات"},
-    {"section": "how", "key": "how.step3.desc", "value": "أم، أب، صديق... لتكتمل عائلة القصة"},
-    {"section": "how", "key": "how.step4.title", "value": "خصّصها"},
-    {"section": "how", "key": "how.step4.desc", "value": "أضف مفضّلات طفلك ليشعر أنها قصته"},
+    {"section": "how", "key": "how.subtitle", "value": "أربع خطوات بسيطة تفصلك عن قصة لن ينساها طفلك"},
+    {"section": "how", "key": "how.step1.title", "value": "اختر القيمة والموقف"},
+    {"section": "how", "key": "how.step1.desc", "value": "القيمة التي تريد غرسها، وموقف حقيقي مرّ به طفلك إن أحببت."},
+    {"section": "how", "key": "how.step2.title", "value": "احكِ لنا عن طفلك"},
+    {"section": "how", "key": "how.step2.desc", "value": "الاسم والعمر وصورة واضحة، ومن يرافقه في القصة من العائلة."},
+    {"section": "how", "key": "how.step3.title", "value": "اختر الحكاية"},
+    {"section": "how", "key": "how.step3.desc", "value": "نكتب لك ثلاث حكايات مختلفة تختار منها، وتراجع مشاهدها قبل أن نبدأ الرسم."},
+    {"section": "how", "key": "how.step4.title", "value": "استلم قصته"},
+    {"section": "how", "key": "how.step4.desc", "value": "فيلم كرتون قصير بصوت راوٍ وموسيقى، وكتاب مصوّر جاهز للطباعة والمشاركة."},
     {"section": "values", "key": "values.title", "value": "لماذا غِراس؟"},
     {"section": "values", "key": "values.items", "value": [
         {"icon": "heart", "title": "مصممة بحب", "desc": "كل تفصيلة تراعي قلب طفلك وبراءته"},
@@ -97,6 +97,15 @@ CONTENT_BLOCKS = [
     {"section": "footer", "key": "footer.copyright", "value": "© غِراس ٢٠٢٦ — جميع الحقوق محفوظة"},
     # Shown on the privacy page and in the footer when filled in (admin → نصوص الموقع).
     {"section": "footer", "key": "footer.contact_email", "value": ""},
+    {"section": "footer", "key": "footer.instagram", "value": ""},
+    {"section": "footer", "key": "footer.x", "value": ""},
+    # Business identity: required on a Saudi store's legal pages (e-commerce
+    # law). Shown on the terms/privacy pages and the footer once filled in.
+    {"section": "business", "key": "business.legal_name", "value": ""},
+    {"section": "business", "key": "business.cr_number", "value": ""},
+    {"section": "business", "key": "business.vat_number", "value": ""},
+    {"section": "business", "key": "business.address", "value": ""},
+    {"section": "business", "key": "business.phone", "value": ""},
 ]
 
 SETTINGS = [

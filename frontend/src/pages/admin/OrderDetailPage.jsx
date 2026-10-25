@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Beaker, Clock, Save } from "lucide-react";
+import { Beaker, Clock, Flag, Save, Star } from "lucide-react";
 import { api, fileSrc } from "../../lib/api";
 import OrderStatusBadge from "../../components/gheras/OrderStatusBadge";
 import { AdminPage, ConfirmAction, PageState } from "../../components/admin/AdminKit";
@@ -106,6 +106,7 @@ export default function OrderDetailPage() {
       </>}
       testId="order-page"
     >
+      {order.feedback && <FeedbackBanner orderId={order.id} feedback={order.feedback} onDone={load} />}
       <div className="flex gap-1 mb-5 border-b border-[#E2D8C9] overflow-x-auto" role="tablist">
         {TABS.map((t) => (
           <button key={t.k} role="tab" aria-selected={tab === t.k} onClick={() => setTab(t.k)}
@@ -287,6 +288,47 @@ function History({ order }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// The parent's rating / problem report from the delivered page.
+function FeedbackBanner({ orderId, feedback, onDone }) {
+  const open = feedback.problem && feedback.problem_status !== "resolved";
+  const resolve = async () => {
+    try {
+      await api.post(`/admin/orders/${orderId}/feedback/resolve`);
+      toast.success("اتعلّم إن البلاغ اتحل");
+      onDone();
+    } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
+  };
+  return (
+    <div className={`rounded-3xl border p-4 mb-5 font-body ${open ? "bg-[#FFF4EE] border-[#E07A5F]/50" : "bg-white border-[#E2D8C9]"}`}
+      data-testid="order-feedback">
+      <div className="flex items-center gap-3 flex-wrap">
+        {feedback.rating && (
+          <span className="inline-flex items-center gap-0.5" title={`${feedback.rating} من 5`}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Star key={n} className={`w-4 h-4 ${n <= feedback.rating ? "fill-[#E9B949] text-[#E9B949]" : "text-[#D9CFC0]"}`} />
+            ))}
+          </span>
+        )}
+        {feedback.problem && (
+          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+            open ? "bg-[#E07A5F] text-white" : "bg-[#E8F0E1] text-[#4F6B3B]"}`}>
+            <Flag className="w-3 h-3" /> {open ? "بلاغ مشكلة مفتوح" : "بلاغ اتحل"}
+          </span>
+        )}
+        <span className="text-xs text-[#8A9AB0]">{formatDate(feedback.at)}</span>
+        {open && (
+          <ConfirmAction title="البلاغ اتحل؟" description="بعد ما أعدت اللقطة أو رجّعت المبلغ." confirmLabel="اتحل"
+            onConfirm={resolve} className="mr-auto rounded-full bg-[#87A96B] text-white px-4 py-1.5 text-xs font-bold">
+            علّمه اتحل
+          </ConfirmAction>
+        )}
+      </div>
+      {feedback.problem_note && <p className="mt-2 text-sm text-[#B8612F] font-bold whitespace-pre-wrap">{feedback.problem_note}</p>}
+      {feedback.comment && <p className="mt-2 text-sm text-[#2D3748] whitespace-pre-wrap">«{feedback.comment}»</p>}
     </div>
   );
 }

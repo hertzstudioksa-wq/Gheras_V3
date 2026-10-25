@@ -115,7 +115,7 @@ export function PreviewStrip({ previews }) {
                className="w-20 h-28 object-contain rounded-xl bg-white border border-[#E2D8C9] animate-grow" />
           <div className="font-body">
             <div className="font-heading font-bold text-[#2D3748]">{character.label_ar} جاهزة 🎨</div>
-            <div className="text-xs text-[#5A677D] mt-1">ده شكله في القصة — وبنرسم المشاهد دلوقتي.</div>
+            <div className="text-xs text-[#5A677D] mt-1">هكذا سيظهر في القصة — ونرسم المشاهد الآن.</div>
           </div>
         </div>
       )}

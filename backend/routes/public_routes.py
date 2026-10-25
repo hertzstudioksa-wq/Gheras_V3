@@ -96,4 +96,7 @@ async def story_price(seconds: int = 60, output_type: str = "both"):
     from services.story_pricing import current_tier_quotes
 
     seconds = duration_meta(seconds)["seconds"]  # snap to an allowed length
-    return {"seconds": seconds, "output_type": output_type, "tiers": await current_tier_quotes(seconds, output_type)}
+    # Our cost per tier stays internal (it showed every visitor the margin).
+    tiers = [{k: v for k, v in t.items() if k not in ("cost_usd", "overridden")}
+             for t in await current_tier_quotes(seconds, output_type)]
+    return {"seconds": seconds, "output_type": output_type, "tiers": tiers}

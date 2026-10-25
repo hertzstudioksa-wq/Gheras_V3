@@ -3,6 +3,7 @@ import uuid
 from services.story_pricing import current_quote as story_quote
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from pydantic import BaseModel, Field
 
 from db import db
 from auth import get_current_user
@@ -249,6 +250,9 @@ _INTERNAL_ORDER_KEYS = {
     "selected_scenario_batch_id",
 }
 
+_SAFE_PAYMENT_FIELDS = {"status", "method", "amount_sar", "vat_rate", "vat_sar", "total_sar", "currency",
+                        "paid_at", "refunded_at", "required"}
+
 # Fields inside a scenario snapshot that are safe to surface to the user.
 _SAFE_SCENARIO_FIELDS = {
     "id", "scenario_index", "title", "short_summary",
@@ -266,6 +270,9 @@ def _sanitize_scenario_snapshot(snap: dict | None) -> dict | None:
 def _sanitize_user_order(o: dict) -> dict:
     clean = {k: v for k, v in o.items() if k not in _INTERNAL_ORDER_KEYS}
     clean["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
+    if isinstance(clean.get("payment"), dict):
+        # The admin's refund/waive reasons and who did it stay internal.
+        clean["payment"] = {k: v for k, v in clean["payment"].items() if k in _SAFE_PAYMENT_FIELDS}
     if clean.get("selected_scenario_snapshot"):
         clean["selected_scenario_snapshot"] = _sanitize_scenario_snapshot(
             clean["selected_scenario_snapshot"]
@@ -287,7 +294,21 @@ _PUBLIC_SCENARIO_KEYS = _SAFE_SCENARIO_FIELDS | {"is_selected"}
 @router.get("")
 async def my_orders(current=Depends(get_current_user)):
     items = await db.orders.find({"user_id": current["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
-    return [_summary(o) for o in items]
+    plan_ids = [o["production_plan_id"] for o in items if o.get("production_plan_id")]
+    titles = {p["id"]: p.get("title") async for p in db.production_plans.find(
+        {"id": {"$in": plan_ids}}, {"_id": 0, "id": 1, "title": 1})}
+    covers = {c["production_plan_id"]: c.get("image_url") async for c in db.scene_images.find(
+        {"production_plan_id": {"$in": plan_ids}, "kind": "cover"}, {"_id": 0, "production_plan_id": 1, "image_url": 1})}
+    out = []
+    for o in items:
+        row = _summary(o)
+        pid = o.get("production_plan_id")
+        # The story's own title once it has one (the plan's, else the chosen idea's).
+        row["title"] = titles.get(pid) or (o.get("selected_scenario_snapshot") or {}).get("title")
+        row["cover_url"] = covers.get(pid)
+        row["engine_paused"] = bool(o.get("engine_paused"))
+        out.append(row)
+    return out
 
 
 @router.get("/{order_id}")
@@ -473,3 +494,51 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     from services.payment_service import gate_production
     gate = await gate_production(order_id, background)
     return {"ok": True, "promoted_batch": promote_batch, **gate}
+
+
+class FeedbackIn(BaseModel):
+    rating: int | None = Field(None, ge=1, le=5)
+    comment: str | None = Field(None, max_length=1000)
+    problem: bool = False
+    problem_note: str | None = Field(None, max_length=1000)
+
+
+@router.post("/{order_id}/feedback")
+async def submit_feedback(order_id: str, payload: FeedbackIn, current=Depends(get_current_user)):
+    order = await db.orders.find_one({"id": order_id, "user_id": current["id"]},
+                                     {"_id": 0, "id": 1, "status": 1, "data.child.name": 1})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if order.get("status") not in ("delivered", "completed"):
+        raise HTTPException(status_code=400, detail="التقييم متاح بعد تسليم القصة")
+    if payload.rating is None and not payload.problem and not (payload.comment or "").strip():
+        raise HTTPException(status_code=400, detail="اختر تقييماً أو اكتب ملاحظتك")
+    feedback = {
+        "rating": payload.rating,
+        "comment": (payload.comment or "").strip() or None,
+        "problem": payload.problem,
+        "problem_note": (payload.problem_note or "").strip() or None,
+        "problem_status": "open" if payload.problem else None,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.orders.update_one({"id": order_id}, {"$set": {"feedback": feedback}})
+    from services.audit_service import record_audit
+    await record_audit(entity_type="order", entity_id=order_id, action="order.feedback",
+                       actor_id=current["id"], actor_email=current.get("email"),
+                       summary=("بلاغ مشكلة: " + (feedback["problem_note"] or "") if payload.problem
+                                else f"تقييم {payload.rating or '—'}/5"),
+                       metadata={"rating": payload.rating, "problem": payload.problem})
+    if payload.problem:
+        try:
+            from services.notify_service import _setting, send_email, smtp_config
+            ops = await _setting("notify.ops_email")
+            if ops and await smtp_config():
+                child = ((order.get("data") or {}).get("child") or {}).get("name") or ""
+                await send_email(ops, f"بلاغ مشكلة في قصة {child}".strip(), [
+                    f"ولي الأمر ({current.get('email')}) أبلغ عن مشكلة في القصة.",
+                    feedback["problem_note"] or "(من غير تفاصيل)",
+                    "افتح الطلب من لوحة الإدارة وأعد اللقطة من تبويب «اللقطات».",
+                ])
+        except Exception:  # noqa: BLE001
+            pass  # the report is saved either way; the admin sees it on the order
+    return {"ok": True, "feedback": feedback}

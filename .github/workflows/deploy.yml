@@ -39,6 +39,9 @@ jobs:
         env:
           # Empty = same-origin /api (nginx proxies it to the backend).
           REACT_APP_BACKEND_URL: ''
+          # The public origin, for link previews (WhatsApp needs absolute image
+          # URLs). Repo variable GHERAS_SITE_URL, e.g. https://gheras.app
+          REACT_APP_SITE_URL: ${{ vars.GHERAS_SITE_URL }}
           CI: false
         run: |
           npm ci

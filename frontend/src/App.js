@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
+import ConnectionBanner from "./components/gheras/ConnectionBanner";
 
 import Landing from "./pages/Landing";
 import HowItWorks from "./pages/HowItWorks";
@@ -38,6 +39,7 @@ import AdminAssetLibrary from "./pages/admin/AdminAssetLibrary";
 import AdminRetention from "./pages/admin/AdminRetention";
 import MyBundles from "./pages/MyBundles";
 import LegalPage from "./pages/LegalPage";
+import NotFound from "./pages/NotFound";
 import Account from "./pages/Account";
 import AdminSettings from "./pages/admin/AdminSettings";
 
@@ -57,6 +59,7 @@ function App() {
               },
             }}
           />
+          <ConnectionBanner />
           <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Landing />} />
@@ -151,9 +154,10 @@ function App() {
               <Route path="presets" element={<Navigate to="/admin/engine?tab=stages" replace />} />
               <Route path="stage-control" element={<Navigate to="/admin/engine?tab=stages" replace />} />
               <Route path="settings" element={<AdminSettings />} />
+              <Route path="*" element={<NotFound admin />} />
             </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
           </ErrorBoundary>
         </BrowserRouter>

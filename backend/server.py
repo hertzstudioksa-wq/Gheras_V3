@@ -10,6 +10,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 from fastapi import FastAPI, APIRouter  # noqa: E402
+from pymongo.errors import ConnectionFailure as PyMongoConnectionFailure  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 
 from db import client, ensure_indexes  # noqa: E402
@@ -51,6 +52,62 @@ api_router = APIRouter(prefix="/api")
 @api_router.get("/")
 async def health():
     return {"ok": True, "service": "gheras", "version": "2", "status": "healthy"}
+
+
+@api_router.get("/health")
+async def deep_health():
+    """For uptime monitoring: the API and the database answer."""
+    from fastapi.responses import JSONResponse
+    from db import client as mongo_client
+
+    try:
+        await mongo_client.admin.command("ping")
+        return {"ok": True, "database": "up"}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=503, content={"ok": False, "database": "down", "error": type(e).__name__})
+
+
+# (key, old seed text, new text) for the how_copy_v2 migration.
+HOW_COPY_V2 = [
+    ("how.subtitle", "ست خطوات بسيطة تفصلك عن قصة لن ينساها طفلك",
+     "أربع خطوات بسيطة تفصلك عن قصة لن ينساها طفلك"),
+    ("how.step1.title", "اختر الهدف",
+     "اختر القيمة والموقف"),
+    ("how.step1.desc", "حدّد القيمة أو السلوك واذكر موقفاً حقيقياً",
+     "القيمة التي تريد غرسها، وموقف حقيقي مرّ به طفلك إن أحببت."),
+    ("how.step2.title", "أخبرنا عن طفلك",
+     "احكِ لنا عن طفلك"),
+    ("how.step2.desc", "الاسم والعمر وصورة ليصبح بطلاً حقيقياً",
+     "الاسم والعمر وصورة واضحة، ومن يرافقه في القصة من العائلة."),
+    ("how.step3.title", "أضف الشخصيات",
+     "اختر الحكاية"),
+    ("how.step3.desc", "أم، أب، صديق... لتكتمل عائلة القصة",
+     "نكتب لك ثلاث حكايات مختلفة تختار منها، وتراجع مشاهدها قبل أن نبدأ الرسم."),
+    ("how.step4.title", "خصّصها",
+     "استلم قصته"),
+    ("how.step4.desc", "أضف مفضّلات طفلك ليشعر أنها قصته",
+     "فيلم كرتون قصير بصوت راوٍ وموسيقى، وكتاب مصوّر جاهز للطباعة والمشاركة."),
+]
+
+# (kind, old seed label, new label) for the story_option_labels_v2 migration.
+OPTION_LABELS_V2 = [
+    ("language", "لهجة خليجية", "لهجة سعودية / خليجية"),
+    ("voice", "صوت ولد", "راوٍ (صوت رجل)"),
+    ("voice", "صوت بنت", "راوية (صوت امرأة)"),
+    ("voice", "تلقائي", "تلقائي (حسب الطفل)"),
+]
+
+DB_DOWN_AR = "الخدمة غير متاحة مؤقتاً بسبب عطل عندنا — حاول مرة أخرى بعد دقائق."
+
+
+@app.exception_handler(PyMongoConnectionFailure)
+async def database_down(request, exc):
+    """The database is unreachable: answer at once with a clear 503 instead of a
+    raw 500 (the pages show the message and offer to retry)."""
+    from fastapi.responses import JSONResponse
+
+    logger.error(f"[db] {request.method} {request.url.path}: {type(exc).__name__}")
+    return JSONResponse(status_code=503, content={"detail": DB_DOWN_AR, "code": "db_unavailable"})
 
 
 api_router.include_router(auth_router)
@@ -587,6 +644,30 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"perseverance topic migration skipped: {e}")
+    # The how-it-works copy promised six steps (the page shows four) and the
+    # steps described the form, not the journey: old seed text gets the new copy.
+    try:
+        if await _already_applied("how_copy_v2"):
+            raise _SkipMigration
+        for key, old, new in HOW_COPY_V2:
+            await db.content.update_one({"key": key, "value": old}, {"$set": {"value": new}})
+        await _mark_applied("how_copy_v2")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"how-it-works copy migration skipped: {e}")
+    # The narrator options said "a boy's / a girl's voice" but the voices are an
+    # adult storyteller (Gemini Algieba / Sulafat); the gulf option writes Saudi.
+    try:
+        if await _already_applied("story_option_labels_v2"):
+            raise _SkipMigration
+        for kind, old, new in OPTION_LABELS_V2:
+            await db.story_options.update_many({"kind": kind, "name_ar": old}, {"$set": {"name_ar": new}})
+        await _mark_applied("story_option_labels_v2")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"story option labels migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

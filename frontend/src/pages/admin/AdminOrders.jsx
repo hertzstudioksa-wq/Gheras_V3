@@ -70,7 +70,7 @@ export default function AdminOrders() {
           <table className="w-full text-right">
             <thead className="bg-[#F8F1E7] text-[#5A677D] text-xs font-body">
               <tr>
-                <th className="px-5 py-3 font-bold">الطفل</th>
+                <th className="px-5 py-3 font-bold">القصة</th>
                 <th className="px-5 py-3 font-bold">العميل</th>
                 <th className="px-5 py-3 font-bold">المدة</th>
                 <th className="px-5 py-3 font-bold">السعر</th>
@@ -82,7 +82,10 @@ export default function AdminOrders() {
               {items.map((o) => (
                 <tr key={o.id} onClick={() => navigate(`/admin/orders/${o.id}`)}
                   className="border-t border-[#E2D8C9] hover:bg-[#FDFBF7] cursor-pointer" data-testid={`order-row-${o.id}`}>
-                  <td className="px-5 py-3 font-body font-bold">{o.child_name || "—"}</td>
+                  <td className="px-5 py-3 font-body">
+                    <div className="font-bold">{o.title || `قصة ${o.child_name || "—"}`}</div>
+                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap"><OrderFlags o={o} /></div>
+                  </td>
                   <td className="px-5 py-3 font-body text-sm">{o.user_name || o.user_email || "—"}
                     {o.user_name && <div className="text-xs text-[#8A9AB0]">{o.user_email}</div>}</td>
                   <td className="px-5 py-3 font-body text-sm">{o.duration?.seconds ? `${o.duration.seconds} ث` : "—"}</td>
@@ -99,9 +102,10 @@ export default function AdminOrders() {
             <button key={o.id} onClick={() => navigate(`/admin/orders/${o.id}`)}
               className="w-full text-right bg-white rounded-2xl border border-[#E2D8C9] p-4">
               <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="font-body font-bold text-[#2D3748]">{o.child_name || "—"}</span>
+                <span className="font-body font-bold text-[#2D3748]">{o.title || `قصة ${o.child_name || "—"}`}</span>
                 <OrderStatusBadge status={o.status} />
               </div>
+              <div className="flex items-center gap-1.5 mb-1 flex-wrap"><OrderFlags o={o} /></div>
               <div className="font-body text-xs text-[#8A9AB0]">
                 {o.user_email} • {formatDate(o.created_at, false)}{o.duration?.seconds ? ` • ${o.duration.seconds} ث` : ""}
               </div>
@@ -111,5 +115,23 @@ export default function AdminOrders() {
         <Pager page={data?.page || 1} limit={LIMIT} total={data?.total || 0} onPage={(p) => setParam({ page: p })} />
       </PageState>
     </AdminPage>
+  );
+}
+
+// Small chips under the story name: what was bought and what needs attention.
+function OrderFlags({ o }) {
+  const chip = "rounded-full px-2 py-0.5 text-[11px] font-bold font-body";
+  return (
+    <>
+      {o.child_name && o.title && <span className="text-xs text-[#8A9AB0] font-body">{o.child_name}</span>}
+      <span className={`${chip} ${o.output_type === "pdf" ? "bg-[#F8F1E7] text-[#8B5A2B]" : "bg-[#E8F0E1] text-[#4F6B3B]"}`}>
+        {o.output_type === "pdf" ? "كتاب فقط" : o.video_tier === "premium" ? "فيديو فاخر" : "فيديو متوازن"}
+      </span>
+      {o.engine_paused && <span className={`${chip} bg-[#FBEFD5] text-[#8B5A2B]`}>موقوف — رصيد المحرك</span>}
+      {o.feedback?.problem && o.feedback?.problem_status !== "resolved" && (
+        <span className={`${chip} bg-[#E07A5F] text-white`}>بلاغ مشكلة</span>
+      )}
+      {o.feedback?.rating && <span className={`${chip} bg-[#FFF6DD] text-[#8B6A00]`}>★ {o.feedback.rating}</span>}
+    </>
   );
 }

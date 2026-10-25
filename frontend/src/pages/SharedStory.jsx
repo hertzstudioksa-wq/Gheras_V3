@@ -2,10 +2,12 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Loader2, Sprout } from "lucide-react";
 import { API, api } from "../lib/api";
+import { usePageTitle } from "../lib/usePageTitle";
 
 // What the family sees from a parent's private watch link: the story's video,
 // cover and title — nothing else (no names of the parents, no photos).
 export default function SharedStory() {
+  usePageTitle("قصة من العائلة");
   const { token } = useParams();
   const [story, setStory] = useState(null);
   const [gone, setGone] = useState(false);

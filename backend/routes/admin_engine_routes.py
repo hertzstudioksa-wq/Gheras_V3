@@ -1005,7 +1005,16 @@ async def operations_overview():
             "stages_off_catalog": [s["name_ar"] for s in stages if not s["in_catalog"]],
             "missing_keys": missing_keys,
             "disabled_optional": [s["name_ar"] for s in stages if s["toggleable"] and not s["enabled"]],
+            "balance": await _engine_balance(),
         },
         "recent_orders": recent,
         "thresholds": {"stuck_hours": STUCK_HOURS, "waiting_customer_hours": WAITING_CUSTOMER_HOURS},
     }
+
+
+async def _engine_balance() -> dict:
+    """The fal balance as last seen by a real call (locked = top-up needed)."""
+    from services import engine_health
+
+    st = await engine_health.status()
+    return {"locked": st["locked"], "locked_at": st.get("locked_at"), "paused_orders": st.get("paused_orders", 0)}

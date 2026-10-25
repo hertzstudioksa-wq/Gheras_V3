@@ -3,8 +3,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api, API } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/gheras/Navbar";
-import Footer from "../components/gheras/Footer";
 import ImageUploader from "../components/gheras/ImageUploader";
+import { ageLabel, scenesLabel } from "../lib/arabic";
 import {
   ChevronRight, ChevronLeft, Check, Sprout, User, Users, Sparkles, BookOpen,
   PenTool, Heart, Sun, Award, Moon, Rocket, CheckCircle2, Plus, Trash2, X,
@@ -12,6 +12,7 @@ import {
   Music, VolumeX,
 } from "lucide-react";
 import { toast } from "sonner";
+import { usePageTitle } from "../lib/usePageTitle";
 
 const ICON_MAP = {
   sun: Sun, heart: Heart, award: Award, sparkles: Sparkles, moon: Moon,
@@ -83,6 +84,7 @@ const blankData = () => ({
 const LS_KEY = "gheras_story_draft_v2";
 
 export default function StoryBuilder() {
+  usePageTitle("قصة جديدة");
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -425,9 +427,18 @@ export default function StoryBuilder() {
                     size="lg"
                     testId="child-image"
                   />
-                  <p className="mt-3 font-body text-xs leading-relaxed text-[#5A677D] bg-[#E8F0E1]/60 rounded-2xl p-3" data-testid="photo-privacy-note">
-                    🔒 الصورة بتُستخدم بس لرسم شخصية طفلك في قصته، ومش بتتشارك مع حد.
-                    بنمسحها بعد تسليم القصة بـ 30 يوم، وتقدر تمسحها بنفسك قبلها.{" "}
+                  <div className="mt-3 font-body text-xs leading-relaxed text-[#2D3748] bg-white border border-[#E2D8C9] rounded-2xl p-3" data-testid="photo-tips">
+                    <div className="font-bold text-[#4F6B3B] mb-1">صورة تعطي أفضل شبه:</div>
+                    <ul className="space-y-0.5">
+                      <li>✓ الوجه واضح وبإضاءة جيدة</li>
+                      <li>✓ صورة حديثة بلبسه المعتاد</li>
+                      <li>✗ بلا نظارة شمسية أو فلاتر</li>
+                      <li>✗ بلا أشخاص آخرين في الصورة</li>
+                    </ul>
+                  </div>
+                  <p className="mt-2 font-body text-xs leading-relaxed text-[#5A677D] bg-[#E8F0E1]/60 rounded-2xl p-3" data-testid="photo-privacy-note">
+                    🔒 نستخدم الصورة لرسم شخصية طفلك في قصته فقط، ولا تُستخدم في أي إعلان.
+                    تُحذف تلقائياً بعد 30 يوماً من تسليم القصة، ويمكنك حذفها بنفسك قبل ذلك.{" "}
                     <Link to="/privacy" target="_blank" className="underline font-bold">سياسة الخصوصية</Link>
                   </p>
                 </div>
@@ -750,8 +761,8 @@ export default function StoryBuilder() {
                 <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
                   className="mt-1 w-5 h-5 accent-[#87A96B] shrink-0" data-testid="consent-checkbox" />
                 <span>
-                  أنا ولي أمر الطفل (أو عندي إذن من ولي أمره)، وموافق إن غِراس تستخدم الصور والمعلومات دي
-                  عشان ترسم وتكتب قصته بمساعدة الذكاء الاصطناعي، حسب{" "}
+                  أنا وليّ أمر الطفل (أو مأذون من وليّ أمره)، وأوافق على أن تستخدم غِراس هذه الصور والمعلومات
+                  لرسم قصته وكتابتها بمساعدة الذكاء الاصطناعي، وفق{" "}
                   <Link to="/privacy" target="_blank" className="underline font-bold text-[#4F6B3B]">سياسة الخصوصية</Link> و
                   <Link to="/terms" target="_blank" className="underline font-bold text-[#4F6B3B]">الشروط</Link>.
                 </span>
@@ -803,7 +814,6 @@ export default function StoryBuilder() {
         )}
       </div>
 
-      <Footer />
     </div>
   );
 }
@@ -1042,7 +1052,7 @@ function ArtStylePicker({ styles, value, onChange }) {
         شكل الرسم
       </label>
       <p className="text-xs text-[#8A9AB0] font-body mb-3">
-        {styles.length > 1 ? "اختار الستايل اللي هتترسم بيه شخصية طفلك وكل مشاهد القصة." : "كل شخصيات ومشاهد القصة هتترسم بالستايل ده."}
+        {styles.length > 1 ? "اختر أسلوب الرسم الذي ستُرسم به شخصية طفلك وكل مشاهد القصة." : "ستُرسم كل الشخصيات والمشاهد بهذا الأسلوب."}
       </p>
       <div className={`grid gap-3 ${styles.length > 1 ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 md:grid-cols-2"}`}>
         {styles.map((s) => {
@@ -1115,7 +1125,8 @@ function OptionGroup({ label, icon: Icon, items, value, onChange, testId, requir
 function Review({ data, categories, options, artStyles }) {
   const cat = categories.find((c) => c.id === data.goal.category_id);
   const sub = cat?.subcategories?.find((s) => s.id === data.goal.subcategory_id);
-  const findOpt = (kind, id) => (options[kind] || []).find((o) => o.id === id)?.name_ar || "—";
+  // Unset style choices are left to the story writer.
+  const findOpt = (kind, id) => (options[kind] || []).find((o) => o.id === id)?.name_ar || "تلقائي";
   const durSec = data.duration?.seconds || 90;
   const durMeta = DURATION_META[durSec] || DURATION_META[60];
   const audioBgMode = data.audio_background?.mode || "music";
@@ -1137,7 +1148,7 @@ function Review({ data, categories, options, artStyles }) {
       <div className="grid md:grid-cols-2 gap-3 mb-4">
         <Field label="التصنيف" value={cat?.name_ar || "—"} />
         <Field label="الموضوع" value={sub?.name_ar || data.goal.custom_subcategory || "—"} />
-        <Field label="الطفل" value={`${data.child.name} • ${data.child.age} سنة • ${data.child.gender === "male" ? "ولد" : "بنت"}${data.child.hijab ? " (حجاب)" : ""}`} />
+        <Field label="الطفل" value={`${data.child.name} • ${ageLabel(data.child.age)} • ${data.child.gender === "male" ? "ولد" : "بنت"}${data.child.hijab ? " (حجاب)" : ""}`} />
         <Field label="عدد الشخصيات" value={data.characters.length} />
         <Field label="نوع القصة" value={findOpt("type", data.style.type_id)} />
         <Field label="النبرة" value={findOpt("tone", data.style.tone_id)} />
@@ -1149,7 +1160,7 @@ function Review({ data, categories, options, artStyles }) {
             value={(artStyles.find((s) => s.key === data.style.art_style) || artStyles.find((s) => s.is_default) || artStyles[0]).name_ar}
           />
         )}
-        <Field label="مدة الفيديو" value={`${durMeta.label} • ~${durMeta.scene_target} مشاهد`} />
+        <Field label="مدة الفيديو" value={`${durMeta.label} • حوالي ${scenesLabel(durMeta.scene_target)}`} />
         <Field label="الخلفية الصوتية" value={audioBgLabel} />
         <Field label="نوع التسليم" value={outputTypeLabel} />
         {outputType !== "pdf" && <Field label="جودة الفيديو" value={VIDEO_TIER_COPY[videoTier].title} />}

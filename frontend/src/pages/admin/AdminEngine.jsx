@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   Palette, Languages, Gauge, ScrollText, Plus, Save, Star, Power, Upload, RotateCcw, History, Info, Cpu, Library, FileText,
 } from "lucide-react";
-import { api, uploadImage } from "../../lib/api";
+import { api, uploadImage, errorMessage } from "../../lib/api";
 import { AuthImage, Badge, Drawer, Field, Panel, Text, diff, errText, inputCls } from "./engineUi";
 import { CatalogTab, StagesTab } from "./AdminEngineModels";
 import { TemplatesTab } from "./AdminEngineTemplates";
@@ -474,7 +474,8 @@ function PacingTab() {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const reload = () => api.get("/admin/engine/pacing").then((r) => { setState(r.data); setDraft(r.data.values); });
+  const reload = () => api.get("/admin/engine/pacing").then((r) => { setState(r.data); setDraft(r.data.values); })
+    .catch((e) => toast.error(errorMessage(e)));
   useEffect(() => { reload(); }, []);
   if (!state || !draft) return <p className="font-body text-[#8A9AB0]">جاري التحميل…</p>;
 
@@ -557,7 +558,7 @@ function PacingTab() {
 // ============================================================================ system prompts
 function SystemPromptsTab() {
   const [stages, setStages] = useState(null);
-  const reload = () => api.get("/admin/engine/system-prompts").then((r) => setStages(r.data));
+  const reload = () => api.get("/admin/engine/system-prompts").then((r) => setStages(r.data)).catch((e) => toast.error(errorMessage(e)));
   useEffect(() => { reload(); }, []);
   if (!stages) return <p className="font-body text-[#8A9AB0]">جاري التحميل…</p>;
   return (

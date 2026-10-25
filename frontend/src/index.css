@@ -221,3 +221,7 @@ html[dir="rtl"] body {
         @apply bg-background text-foreground;
     }
 }
+
+/* Horizontal chip rows that scroll on phones without a visible bar. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

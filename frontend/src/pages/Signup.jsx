@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Sprout, UserPlus, AlertCircle } from "lucide-react";
+import { UserPlus, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { usePageTitle } from "../lib/usePageTitle";
 
 const LOGO_URL = "/gheras-logo.png";
 
 export default function Signup() {
+  usePageTitle("إنشاء حساب");
   const { register } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ full_name: "", email: "", password: "" });
@@ -106,8 +108,9 @@ export default function Signup() {
               {loading ? "جاري الإنشاء..." : "إنشاء الحساب"}
             </button>
             <p className="text-center text-xs text-[#8A9AB0] font-body">
-              بإنشاء الحساب إنت موافق على{" "}
-              <Link to="/terms" className="underline">الشروط</Link> و<Link to="/privacy" className="underline">سياسة الخصوصية</Link>.
+              بإنشاء الحساب فأنت توافق على{" "}
+              <Link to="/terms" className="underline">الشروط والأحكام</Link> و<Link to="/privacy" className="underline">سياسة الخصوصية</Link>،
+              وتؤكد أن عمرك 18 سنة فأكثر.
             </p>
           </form>
 
@@ -119,10 +122,6 @@ export default function Signup() {
           </p>
         </div>
 
-        <p className="text-center text-xs text-[#8A9AB0] mt-6 font-body flex items-center justify-center gap-1">
-          <Sprout className="w-3 h-3" />
-          بإنشائك الحساب توافق على شروط الخدمة
-        </p>
       </div>
     </div>
   );

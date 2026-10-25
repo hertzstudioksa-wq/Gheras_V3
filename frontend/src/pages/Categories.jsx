@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
+import LoadError from "../components/gheras/LoadError";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import {
   Sun, Heart, Award, Sparkles, Moon, Rocket, PenTool, BookOpen, Sprout,
 } from "lucide-react";
+import { usePageTitle } from "../lib/usePageTitle";
 
 const ICON_MAP = {
   sun: Sun, heart: Heart, award: Award, sparkles: Sparkles,
@@ -14,14 +16,21 @@ const ICON_MAP = {
 };
 
 export default function Categories() {
+  usePageTitle("تصنيفات القصص");
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    api.get("/public/categories").then((r) => {
-      setCategories(r.data);
-    }).finally(() => setLoading(false));
-  }, []);
+  const load = () => {
+    setLoading(true);
+    setError("");
+    api.get("/public/categories")
+      .then((r) => setCategories(r.data))
+      .catch((e) => setError(errorMessage(e)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]" data-testid="categories-page">
@@ -38,6 +47,8 @@ export default function Categories() {
 
         {loading ? (
           <div className="text-center text-[#8A9AB0]">جاري التحميل...</div>
+        ) : error ? (
+          <LoadError message={error} onRetry={load} />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="categories-grid">
             {categories.map((c, i) => {

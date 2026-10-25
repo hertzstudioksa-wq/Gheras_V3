@@ -1,6 +1,7 @@
 """Image uploads (child, character, toy) stored via storage.py."""
 import io
 import os
+from collections import OrderedDict
 import uuid
 from datetime import datetime, timezone
 import re
@@ -104,6 +105,7 @@ async def download_file(
     file_id: str,
     authorization: str = Header(None),
     mt: str | None = Query(None),
+    w: int | None = Query(None, ge=64, le=1280),
     range_header: str | None = Header(None, alias="Range"),
 ):
     """A stored file for its owner or an admin. <img>/<video> tags can't send
@@ -136,7 +138,36 @@ async def download_file(
     if rec.get("user_id") != uid and role != "admin":
         raise HTTPException(status_code=403, detail="ممنوع الوصول")
 
+    if w and str(rec.get("content_type") or "").startswith("image/"):
+        return _resized(rec, w)
     return await file_response(rec, range_header)
+
+
+_resized_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
+
+
+def _resized(rec: dict, width: int) -> Response:
+    """The image scaled down to `width` px as WebP (kept in a small memory cache)."""
+    key = (rec["id"], width)
+    data = _resized_cache.get(key)
+    if data is None:
+        try:
+            raw, _ = get_object(rec["storage_path"])
+            img = Image.open(io.BytesIO(raw))
+            img = ImageOps.exif_transpose(img).convert("RGB")
+            if img.width > width:
+                img = img.resize((width, round(img.height * width / img.width)), Image.LANCZOS)
+            out = io.BytesIO()
+            img.save(out, "WEBP", quality=80)
+            data = out.getvalue()
+        except Exception:
+            raise HTTPException(status_code=502, detail="تعذّر تحميل الملف")
+        _resized_cache[key] = data
+        while len(_resized_cache) > 300:
+            _resized_cache.popitem(last=False)
+    else:
+        _resized_cache.move_to_end(key)
+    return Response(content=data, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
 
 
 async def file_response(rec: dict, range_header: str | None, cache: str = "private, max-age=3600") -> Response:

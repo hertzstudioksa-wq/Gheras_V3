@@ -3,10 +3,12 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Sprout, LogIn, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { usePageTitle } from "../lib/usePageTitle";
 
 const LOGO_URL = "/gheras-logo.png";
 
 export default function Login() {
+  usePageTitle("تسجيل الدخول");
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();

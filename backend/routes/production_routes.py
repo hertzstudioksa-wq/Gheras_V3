@@ -189,11 +189,16 @@ async def get_production_summary(order_id: str, current=Depends(get_current_user
     if status == OrderStatus.PRODUCTION_READY.value and not plan_is_live:
         # Plan not yet visible — show planning UI until next poll.
         effective_status = OrderStatus.PRODUCTION_PLANNING.value
+    summary = _user_summary(plan, order) if plan_is_live else None
+    if summary:
+        summary["scenes"] = await db.scene_plans.find(
+            {"production_plan_id": plan["id"]}, {"_id": 0, "scene_index": 1, "title": 1, "narration_text": 1}
+        ).sort("scene_index", 1).to_list(50)
     return {
         "status": effective_status,
         "raw_status": status,
         "status_ar": ORDER_STATUS_AR.get(effective_status, effective_status),
-        "summary": _user_summary(plan, order) if plan_is_live else None,
+        "summary": summary,
         "production_approved": bool(order.get("production_approved", False)),
         "production_approved_at": order.get("production_approved_at"),
         "production_regeneration_count": used,

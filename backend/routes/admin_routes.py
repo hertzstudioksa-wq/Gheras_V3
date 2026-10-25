@@ -171,7 +171,9 @@ ORDER_PHASES = {
     "failed": ["media_failed", "failed"],
 }
 ORDER_LIST_FIELDS = {"_id": 0, "id": 1, "user_id": 1, "status": 1, "created_at": 1, "updated_at": 1,
-                     "data.child.name": 1, "duration.seconds": 1, "price_quote": 1}
+                     "data.child.name": 1, "data.delivery": 1, "duration.seconds": 1, "price_quote": 1,
+                     "production_plan_id": 1, "engine_paused": 1, "feedback.rating": 1, "feedback.problem": 1,
+                     "feedback.problem_status": 1, "payment.status": 1}
 
 
 def _rx(text: str) -> dict:
@@ -197,10 +199,18 @@ async def list_orders(q: str = "", phase: str = "all", page: int = 1, limit: int
         .skip((page - 1) * limit).limit(limit).to_list(limit)
     users = {u["id"]: u async for u in db.users.find({"id": {"$in": list({o.get("user_id") for o in items})}},
                                                      {"_id": 0, "id": 1, "email": 1, "full_name": 1})}
+    titles = {p["id"]: p.get("title") async for p in db.production_plans.find(
+        {"id": {"$in": [o["production_plan_id"] for o in items if o.get("production_plan_id")]}},
+        {"_id": 0, "id": 1, "title": 1})}
     for o in items:
         u = users.get(o.get("user_id")) or {}
         o["user_email"], o["user_name"] = u.get("email"), u.get("full_name")
-        o["child_name"] = ((o.pop("data", {}) or {}).get("child") or {}).get("name")
+        data = o.pop("data", {}) or {}
+        o["child_name"] = (data.get("child") or {}).get("name")
+        delivery = data.get("delivery") or {}
+        o["output_type"] = delivery.get("output_type") or "both"
+        o["video_tier"] = None if o["output_type"] == "pdf" else (delivery.get("video_tier") or "balanced")
+        o["title"] = titles.get(o.get("production_plan_id"))
         o["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
     # Phase counts for the filter chips (within the current search).
     counts = {k: 0 for k in ORDER_PHASES}
@@ -222,6 +232,18 @@ async def admin_order_detail(order_id: str):
     o["user_name"] = user.get("full_name") if user else None
     o["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
     return o
+
+
+@router.post("/orders/{order_id}/feedback/resolve")
+async def resolve_feedback_problem(order_id: str, admin=Depends(require_admin)):
+    """The parent's problem report was handled (scene redone or refunded)."""
+    res = await db.orders.update_one({"id": order_id, "feedback.problem": True},
+                                     {"$set": {"feedback.problem_status": "resolved",
+                                               "feedback.resolved_at": datetime.now(timezone.utc).isoformat(),
+                                               "feedback.resolved_by": admin.get("email")}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="مفيش بلاغ مفتوح على الطلب ده")
+    return {"ok": True}
 
 
 @router.patch("/orders/{order_id}/status")

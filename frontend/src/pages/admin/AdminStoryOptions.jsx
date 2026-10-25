@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
 import { toast } from "sonner";
 import { Plus, Edit2, Trash2, Eye, EyeOff, Save, X } from "lucide-react";
 
@@ -16,7 +16,7 @@ export default function AdminStoryOptions() {
   const [editing, setEditing] = useState(null);
   const [activeKind, setActiveKind] = useState("type");
 
-  const reload = () => api.get("/admin/story-options").then((r) => setItems(r.data));
+  const reload = () => api.get("/admin/story-options").then((r) => setItems(r.data)).catch((e) => toast.error(errorMessage(e)));
   useEffect(() => { reload(); }, []);
 
   const empty = { kind: activeKind, name_ar: "", value: "", description: "", sort_order: 0, is_active: true, is_hidden: false };

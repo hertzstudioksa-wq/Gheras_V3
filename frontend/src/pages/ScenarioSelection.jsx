@@ -5,20 +5,22 @@ import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import {
   Sprout, Heart, BookOpen, Rocket, CheckCircle2, RefreshCcw,
-  Sparkles, Loader2, AlertTriangle, ArrowRight, Award,
+  Loader2, AlertTriangle, ArrowRight, Award,
   Lightbulb, ShieldAlert, Clock, History, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { TimeChips, useTicker } from "../components/gheras/LiveProgress";
+import { usePageTitle } from "../lib/usePageTitle";
+import JourneySteps from "../components/gheras/JourneySteps";
 
 // The ideas take ~50 s: a bar that fills with time, a counter and changing
 // lines, instead of a spinner that looks stuck.
 const IDEA_SECONDS = 50;
 const IDEA_MESSAGES = [
-  "الكاتب بيقرا الموقف اللي حكيته ✍️",
-  "بيفكّر في 3 زوايا مختلفة للقصة 💡",
-  "بيختار المكان والأبطال 🌳",
-  "بيراجع إن كل فكرة مناسبة لسن طفلك 💚",
+  "نقرأ الموقف الذي حكيته ✍️",
+  "نفكّر في 3 زوايا مختلفة للقصة 💡",
+  "نختار المكان والأبطال 🌳",
+  "نتأكد أن كل فكرة تناسب عمر طفلك 💚",
 ];
 
 const ANGLE_META = {
@@ -28,6 +30,7 @@ const ANGLE_META = {
 };
 
 export default function ScenarioSelection() {
+  usePageTitle("اختر الحكاية");
   const { id } = useParams();
   const navigate = useNavigate();
   const [state, setState] = useState({
@@ -161,9 +164,7 @@ export default function ScenarioSelection() {
           <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#87A96B]/10 blob-shape" />
           <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-[#D4A373]/15 blob-shape" />
           <div className="relative">
-            <div className="inline-flex items-center gap-2 bg-white rounded-full px-3 py-1 text-xs font-bold text-[#729352] mb-3">
-              <Sparkles className="w-3 h-3" /> الخطوة 7 من 8
-            </div>
+            <JourneySteps status="scenarios_ready" className="mb-4" />
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
               {isLoading ? "جاري تجهيز أفكار القصة لطفلك..." : isFailed ? "حدث تعطّل بسيط" : "اختر السيناريو الذي يناسبك"}
             </h1>

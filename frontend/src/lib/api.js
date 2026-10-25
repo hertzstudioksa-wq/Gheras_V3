@@ -21,22 +21,43 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// The connection banner (App) listens to this: does the server answer at all?
+// A 503 from the engine-balance guard is an answer, so only an unreachable
+// server, a gateway error or the API's own "database down" reply count.
+export const CONNECTION_EVENT = "gheras:connection";
+let connectionOk = true;
+
+function signalConnection(ok, message) {
+  if (ok === connectionOk || typeof window === "undefined") return;
+  connectionOk = ok;
+  window.dispatchEvent(new CustomEvent(CONNECTION_EVENT, { detail: { ok, message } }));
+}
+
 // Global 401 handler: token invalid/expired anywhere in the app → clean logout.
 // We DO NOT redirect for /auth/me probes (AuthContext handles those), nor for
 // /auth/login (Login page handles those), nor for the file-download endpoint
 // (that just fails the <img> tag silently; session stays intact).
 api.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    signalConnection(true);
+    return r;
+  },
   (error) => {
     const status = error?.response?.status;
     const url = error?.config?.url || "";
     const noResponse = !error?.response;
     // Distinguish transient network/5xx from real auth failures.
     if (noResponse) {
+      signalConnection(false);
       // eslint-disable-next-line no-console
       console.debug("[auth] interceptor:network-error url=", url, "code=", error?.code);
       return Promise.reject(error);
     }
+    if (status === 502 || status === 504 || error?.response?.data?.code === "db_unavailable") {
+      signalConnection(false, error?.response?.data?.detail);
+      return Promise.reject(error);
+    }
+    signalConnection(true);
     if (status === 401) {
       const isAuthProbe =
         url.includes("/auth/me") ||
@@ -127,4 +148,13 @@ export async function uploadImage(file, scope = "child") {
     throw new Error(detail || "الصورة غير صالحة");
   }
   throw new Error(detail || "تعذّر رفع الصورة، حاول مرة أخرى");
+}
+
+/** The Arabic message to show for a failed request: the API's own detail when
+ * it sent one, otherwise a plain reason. */
+export function errorMessage(error, fallback = "تعذّر تحميل البيانات، حاول مرة أخرى") {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (!error?.response) return "تعذّر الاتصال بالخادم — تأكد من الإنترنت وحاول مرة أخرى";
+  return fallback;
 }

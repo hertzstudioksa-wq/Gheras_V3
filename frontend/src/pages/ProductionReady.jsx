@@ -15,6 +15,9 @@ import {
   NotifyWhenReady, PreviewStrip, StepList, TimeChips, notifyReady, useLiveNumbers,
 } from "../components/gheras/LiveProgress";
 import { toast } from "sonner";
+import JourneySteps from "../components/gheras/JourneySteps";
+import StoryFeedbackCard from "../components/gheras/StoryFeedbackCard";
+import { scenesLabel, imagesLabel, pagesLabel } from "../lib/arabic";
 
 const audioBgLabel = (mode) => ({
   music: "موسيقى هادئة",
@@ -49,19 +52,19 @@ function PhotoPrivacyCard({ orderId, deletedAt, onDeleted }) {
     <div className="bg-white rounded-3xl p-5 border border-[#E2D8C9] font-body text-sm text-[#5A677D] flex items-center gap-3 flex-wrap justify-between" data-testid="photo-privacy-card">
       <span>
         {deletedAt
-          ? "🔒 الصور الأصلية اللي رفعتها اتمسحت. القصة والرسومات محفوظة في حسابك."
-          : "🔒 الصور الأصلية اللي رفعتها بتتمسح تلقائياً بعد 30 يوم من التسليم."}
+          ? "🔒 حُذفت الصور الأصلية التي رفعتها. القصة والرسومات محفوظة في حسابك."
+          : "🔒 تُحذف الصور الأصلية التي رفعتها تلقائياً بعد 30 يوماً من التسليم."}
       </span>
       {!deletedAt && (confirm ? (
         <span className="flex gap-2">
           <button onClick={remove} disabled={busy} className="rounded-full bg-[#B8612F] text-white px-4 py-1.5 font-bold disabled:opacity-50">
-            {busy ? "جاري المسح..." : "أكّد المسح"}
+            {busy ? "جارٍ الحذف..." : "تأكيد الحذف"}
           </button>
           <button onClick={() => setConfirm(false)} className="rounded-full bg-[#F8F1E7] text-[#8B5A2B] px-4 py-1.5 font-bold">إلغاء</button>
         </span>
       ) : (
         <button onClick={() => setConfirm(true)} className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-1.5 font-bold" data-testid="delete-photos-btn">
-          امسحها دلوقتي
+          احذفها الآن
         </button>
       ))}
     </div>
@@ -256,7 +259,7 @@ export default function ProductionReady() {
   useEffect(() => {
     const base = "غِراس";
     const working = ["production_planning", "assets_generating", "assets_ready", "assembling"].includes(status);
-    document.title = working ? `${progressPercent}% · ${base}` : isDelivered ? `🎉 جاهزة · ${base}` : base;
+    document.title = working ? `${progressPercent}% · ${base}` : isDelivered ? `🎉 جاهزة · ${base}` : `قصة طفلك | ${base}`;
     return () => { document.title = base; };
   }, [status, progressPercent, isDelivered]);
   const [delivery, setDelivery] = useState(null);
@@ -320,9 +323,7 @@ export default function ProductionReady() {
         <Navbar />
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
           <div className="bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[2rem] p-6 md:p-10 border border-[#E2D8C9] mb-6">
-            <div className="inline-flex items-center gap-2 bg-white rounded-full px-3 py-1 text-xs font-bold text-[#729352] mb-3">
-              <Sparkles className="w-3 h-3" /> الخطوة 8 من 8
-            </div>
+            <JourneySteps status="production_planning" className="mb-4" />
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
               نُعِدّ خطة القصة لطفلك...
             </h1>
@@ -380,16 +381,14 @@ export default function ProductionReady() {
           <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#87A96B]/10 blob-shape" />
           <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-[#D4A373]/15 blob-shape" />
           <div className="relative">
-            <div className="inline-flex items-center gap-2 bg-white rounded-full px-3 py-1 text-xs font-bold text-[#729352] mb-3">
-              <Sparkles className="w-3 h-3" /> الخطوة 8 من 8
-            </div>
+            <JourneySteps status={status} approved={approved} className="mb-4" />
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
               {isPaused
                 ? "تأخير بسيط في تجهيز قصتك ⏳"
                 : isAwaitingPayment
-                ? "اخترت القصة 🌱 فاضل خطوة الدفع"
+                ? "اخترت الحكاية 🌱 بقيت خطوة الدفع"
                 : isDelivered
-                ? "🎉 قصتك أصبحت جاهزة!"
+                ? (delivery?.plan?.title ? `«${delivery.plan.title}» 🎉` : "🎉 قصتك أصبحت جاهزة!")
                 : isAssembling
                 ? "جاري تجميع قصة طفلك..."
                 : isMediaReady
@@ -412,9 +411,9 @@ export default function ProductionReady() {
               {isPaused
                 ? progressMessage
                 : isAwaitingPayment
-                ? "ادفع السعر اللي شفته وإنت بتجهّز القصة، وبعدها نبدأ على طول."
+                ? "ادفع السعر الذي ظهر لك أثناء تجهيز القصة، وسنبدأ فوراً."
                 : isDelivered
-                ? "يمكنك الآن مشاهدة الفيديو وتحميل القصة المصوّرة."
+                ? `قصة ${summary?.child_name || "طفلك"} جاهزة — شاهدها معه الآن، وحمّل الكتاب المصوّر لتقرآه معاً.`
                 : isAssembling
                 ? "نجمع الصور والسرد في فيديو وكتاب نهائيين."
                 : isMediaReady
@@ -435,7 +434,7 @@ export default function ProductionReady() {
             </p>
 
             {/* Unified pipeline progress bar — always visible from planning to delivery */}
-            {progress && !isDelivered && !isFailed && !isMediaFailed && !isAwaitingPayment && (
+            {progress && !isDelivered && !isFailed && !isMediaFailed && !isAwaitingPayment && !(planReady && !approved) && (
               <div className="mt-5 bg-white/70 backdrop-blur rounded-2xl p-4 border border-[#E2D8C9]" data-testid="hero-progress">
                 <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
                   <span className="inline-flex items-center gap-2">
@@ -533,7 +532,7 @@ export default function ProductionReady() {
                   <div>
                     <h2 className="font-heading text-xl font-bold text-[#2D3748]">القصة المصوّرة (PDF)</h2>
                     <p className="font-body text-xs text-[#5A677D]">
-                      {delivery.pdf.page_count} صفحات • ملائم للقراءة مع طفلك
+                      {pagesLabel(delivery.pdf.page_count)} • جاهز للطباعة والقراءة مع طفلك
                     </p>
                   </div>
                 </div>
@@ -551,6 +550,8 @@ export default function ProductionReady() {
             {/* Family watch link + WhatsApp */}
             <FamilyShareCard orderId={id} childName={summary?.child_name} />
 
+            <StoryFeedbackCard orderId={id} />
+
             {/* Completion card */}
             <div
               className="bg-gradient-to-br from-[#E8F0E1] via-[#F8F1E7] to-[#FDFBF7] rounded-[2rem] p-6 border border-[#87A96B]/40 text-center relative overflow-hidden"
@@ -564,11 +565,19 @@ export default function ProductionReady() {
                   <PartyPopper className="w-8 h-8 text-[#4F6B3B]" />
                 </div>
                 <h3 className="font-heading text-2xl font-bold text-[#2D3748] mb-1">
-                  {delivery.plan?.title || "قصة طفلك"}
-                </h3>
-                <p className="font-body text-sm text-[#5A677D]">
                   نتمنى أن تترك القصة أثراً جميلاً في قلب طفلك 🌱
+                </h3>
+                <p className="font-body text-sm text-[#5A677D] mb-4">
+                  قيمة جديدة تريد غرسها؟ ابدأ قصته التالية.
                 </p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <Link to="/story/new" className="btn-primary inline-flex items-center gap-2" data-testid="new-story-btn">
+                    <Sprout className="w-4 h-4" /> قصة جديدة
+                  </Link>
+                  <Link to="/dashboard" className="inline-flex items-center gap-2 rounded-full border-2 border-[#87A96B] text-[#729352] px-5 py-2.5 font-bold hover:bg-[#E8F0E1]">
+                    قصصي
+                  </Link>
+                </div>
               </div>
             </div>
             <PhotoPrivacyCard orderId={id} deletedAt={state?.photos_deleted_at} onDeleted={() => fetchData({ silent: true })} />
@@ -617,7 +626,7 @@ export default function ProductionReady() {
             {(isGeneratingMedia || isAssembling) && <NotifyWhenReady />}
             {isMediaFailed && isPaused && (
               <p className="font-body text-sm text-[#5A677D] mt-2" data-testid="paused-hint">
-                فريقنا هيكمّل القصة من نفس المكان اللي وقفت عنده، والصفحة دي هتتحدّث لوحدها.
+                سيكمل فريقنا القصة من حيث توقفت، وستتحدّث هذه الصفحة تلقائياً.
               </p>
             )}
             {isMediaFailed && !isPaused && (
@@ -707,13 +716,13 @@ export default function ProductionReady() {
                 <Detail
                   icon={Sparkles}
                   label="عدد المشاهد"
-                  value={`${summary.target_scene_count} مشاهد`}
+                  value={scenesLabel(summary.target_scene_count)}
                   testId="detail-scenes"
                 />
                 <Detail
                   icon={Heart}
                   label="عناصر بصرية"
-                  value={`${summary.estimated_image_count} صورة`}
+                  value={imagesLabel(summary.estimated_image_count)}
                   testId="detail-images"
                 />
                 <Detail
@@ -725,10 +734,29 @@ export default function ProductionReady() {
               </div>
               <div className="mt-4 text-xs font-body text-[#8A9AB0] inline-flex items-center gap-2 bg-[#FDFBF7] rounded-full px-3 py-1.5 border border-[#E2D8C9]">
                 <Award className="w-3 h-3 text-[#729352]" />
-                {summary.safety_check === "ok" ? "اتفحصت الخطة بقواعد أمان الأطفال"
-                  : needsReview ? "فريقنا بيراجع الخطة قبل الرسم" : "اتراجعت الخطة من فريقنا"}
+                {summary.safety_check === "ok" ? "فُحصت الخطة بقواعد أمان الأطفال"
+                  : needsReview ? "يراجع فريقنا الخطة قبل الرسم" : "راجع فريقنا الخطة"}
               </div>
             </div>
+
+            {summary.scenes?.length > 0 && (
+              <div className="bg-white rounded-[2rem] p-6 md:p-8 border border-[#E2D8C9] mb-5" data-testid="plan-script">
+                <div className="flex items-center gap-2 mb-1 text-[#729352] font-body text-sm font-bold">
+                  <BookOpen className="w-4 h-4" /> نص الحكاية كما سيرويه الراوي
+                </div>
+                <p className="font-body text-xs text-[#8A9AB0] mb-4">اقرأه قبل الاعتماد — إذا لم يناسبك يمكنك إعادة إعداد الخطة.</p>
+                <ol className="space-y-3">
+                  {summary.scenes.map((s) => (
+                    <li key={s.scene_index} className="bg-[#FDFBF7] rounded-2xl p-4 border border-[#E2D8C9]">
+                      <div className="font-heading font-bold text-[#2D3748] text-sm mb-1">
+                        المشهد {s.scene_index}{s.title ? ` — ${s.title}` : ""}
+                      </div>
+                      <p className="font-body text-[#2D3748] leading-loose">{s.narration_text}</p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
 
             {/* Regen warning banner */}
             {remaining === 1 && (
@@ -752,7 +780,7 @@ export default function ProductionReady() {
               <div className="mb-4 rounded-2xl bg-[#FBEFD5] border border-[#D4A373]/40 p-4 flex items-start gap-3" data-testid="safety-review-wait">
                 <ShieldAlert className="w-5 h-5 text-[#8B5A2B] shrink-0 mt-0.5" />
                 <p className="font-body text-sm text-[#8B5A2B]">
-                  القصة فيها موضوع حسّاس، فريقنا بيراجعها قبل ما نرسم. هتقدر تعتمدها من هنا بعد المراجعة.
+                  في القصة موضوع حسّاس، لذلك يراجعها فريقنا قبل الرسم. ستتمكن من اعتمادها من هنا بعد المراجعة.
                 </p>
               </div>
             )}
@@ -807,22 +835,6 @@ export default function ProductionReady() {
             (isPlanning && !summary) ||
             (approved && !isMediaFailed && !isAssembling && !isMediaReady && !isGeneratingMedia && !isDelivered) ||
             isFailed;
-          // eslint-disable-next-line no-console
-          console.debug(
-            "[prod-ready] render_branch=",
-            isAwaitingPayment ? "awaiting_payment" :
-            isDelivered ? "delivered" :
-            isMediaFailed ? "media_failed" :
-            isAssembling ? "assembling" :
-            isMediaReady ? "assets_ready" :
-            isGeneratingMedia ? "assets_generating" :
-            planReady ? "plan_ready" :
-            (isPlanning && !summary) ? "loading_skeleton" :
-            approved ? "approved_thanks" :
-            isFailed ? "failed" :
-            loadError ? "load_error" :
-            "FALLBACK_UNKNOWN"
-          );
           // Failed status — explicit retry card instead of a blank page.
           if (isFailed && isPaused) {
             return (

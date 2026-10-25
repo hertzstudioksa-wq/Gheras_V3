@@ -59,8 +59,8 @@ export default function OrderPayment({ orderId, onPaid }) {
   const enough = balance >= info.total_sar;
   return (
     <div className="bg-white rounded-3xl p-6 md:p-8 border border-[#E2D8C9]" data-testid="order-payment">
-      <h2 className="font-heading text-2xl font-bold text-[#2D3748] mb-1">ادفع عشان نبدأ قصة طفلك</h2>
-      <p className="font-body text-[#5A677D] mb-5">أول ما الدفع يتم، بنجهّز الخطة والرسومات والفيديو على طول.</p>
+      <h2 className="font-heading text-2xl font-bold text-[#2D3748] mb-1">ادفع لنبدأ قصة طفلك</h2>
+      <p className="font-body text-[#5A677D] mb-5">فور إتمام الدفع نبدأ تجهيز الخطة والرسومات والفيديو.</p>
 
       <div className="bg-[#FDFBF7] rounded-2xl border border-[#E2D8C9] p-4 mb-5 font-body">
         <div className="flex justify-between py-1"><span className="text-[#5A677D]">سعر القصة</span><span className="font-bold">{sar(info.amount_sar)}</span></div>
@@ -79,7 +79,7 @@ export default function OrderPayment({ orderId, onPaid }) {
           <span className="flex-1">
             <span className="block font-heading font-bold text-[#2D3748]">ادفع من رصيدك</span>
             <span className="block font-body text-sm text-[#5A677D]">
-              رصيدك {sar(balance)}{!enough && " — مش كفاية"}
+              رصيدك {sar(balance)}{!enough && " — غير كافٍ"}
             </span>
           </span>
         </button>
@@ -93,14 +93,14 @@ export default function OrderPayment({ orderId, onPaid }) {
           <span className="flex-1">
             <span className="block font-heading font-bold">ادفع بالبطاقة</span>
             <span className="block font-body text-sm text-white/75">
-              {info.card_available ? "مدى، فيزا، ماستركارد، Apple Pay" : "الدفع بالبطاقة مش متاح لسه"}
+              {info.card_available ? "مدى، فيزا، ماستركارد، Apple Pay" : "الدفع بالبطاقة غير متاح حالياً"}
             </span>
           </span>
         </button>
       </div>
 
       <p className="mt-4 font-body text-xs text-[#8A9AB0] flex items-center gap-1 justify-center">
-        <ShieldCheck className="w-4 h-4" /> الدفع بيتم على صفحة ميسر الآمنة — إحنا مش بنشوف بيانات البطاقة.
+        <ShieldCheck className="w-4 h-4" /> يتم الدفع في صفحة ميسر الآمنة — لا نطّلع على بيانات بطاقتك.
       </p>
     </div>
   );

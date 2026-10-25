@@ -8,8 +8,11 @@ import { AdminPage, PageState } from "../../components/admin/AdminKit";
 // raw keys, and a real editor for card lists (the old JSON box dropped every
 // keystroke that made the JSON invalid).
 
-const SECTIONS = { hero: "الواجهة الرئيسية", how: "كيف تعمل غِراس", values: "لماذا غِراس", footer: "التذييل" };
-const ORDER = ["hero", "how", "values", "footer"];
+const SECTIONS = {
+  hero: "الواجهة الرئيسية", how: "كيف تعمل غِراس", values: "لماذا غِراس", footer: "التذييل",
+  business: "بيانات المنشأة (تظهر في الشروط والخصوصية والتذييل)",
+};
+const ORDER = ["business", "hero", "how", "values", "footer"];
 const ICONS = ["heart", "sparkles", "award", "sun", "moon", "rocket", "sprout", "pen-tool"];
 
 function fieldLabel(key) {
@@ -19,6 +22,9 @@ function fieldLabel(key) {
   return {
     title: "العنوان", subtitle: "الوصف تحت العنوان", cta_primary: "الزر الأساسي", cta_secondary: "الزر التاني",
     copyright: "حقوق النشر", tagline: "الشعار", items: "البطاقات",
+    contact_email: "إيميل التواصل", instagram: "رابط إنستغرام", x: "رابط X (تويتر)",
+    legal_name: "الاسم التجاري المسجّل", cr_number: "رقم السجل التجاري", vat_number: "الرقم الضريبي",
+    address: "العنوان الوطني", phone: "رقم التواصل / واتساب",
   }[tail] || tail;
 }
 

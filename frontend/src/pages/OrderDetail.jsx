@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, fileSrc } from "../lib/api";
+import { api, fileSrc, errorMessage } from "../lib/api";
+import LoadError from "../components/gheras/LoadError";
 import { orderPath } from "../lib/orderPath";
+import { ageLabel } from "../lib/arabic";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import OrderStatusBadge from "../components/gheras/OrderStatusBadge";
 import { ArrowRight, Sprout, Calendar, FileText, Image as ImageIcon, Award, ArrowLeft, Heart, BookOpen, Rocket, CheckCircle2 } from "lucide-react";
+import { usePageTitle } from "../lib/usePageTitle";
 
 const ANGLE_META = {
   emotional:   { label: "عاطفي", icon: Heart, fg: "text-[#B8612F]", bg: "bg-[#FCE6D4]" },
@@ -14,15 +17,30 @@ const ANGLE_META = {
 };
 
 export default function OrderDetail() {
+  usePageTitle("تفاصيل القصة");
   const { id } = useParams();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    api.get(`/orders/${id}`).then((r) => setOrder(r.data)).finally(() => setLoading(false));
-  }, [id]);
+  const load = () => {
+    setLoading(true);
+    setError(null);
+    api.get(`/orders/${id}`)
+      .then((r) => setOrder(r.data))
+      .catch((e) => setError(e))
+      .finally(() => setLoading(false));
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [id]);
 
   if (loading) return <div className="min-h-screen bg-[#FDFBF7]"><Navbar /><div className="text-center py-40 text-[#8A9AB0]">جاري التحميل...</div></div>;
+  if (error && error.response?.status !== 404) return (
+    <div className="min-h-screen bg-[#FDFBF7]"><Navbar />
+      <div className="py-24 px-4"><LoadError message={errorMessage(error)} onRetry={load} /></div>
+    </div>
+  );
   if (!order) return (
     <div className="min-h-screen bg-[#FDFBF7]"><Navbar />
       <div className="text-center py-40">
@@ -60,18 +78,18 @@ export default function OrderDetail() {
                 </div>
               </div>
             </div>
-            <OrderStatusBadge status={order.status} />
+            <OrderStatusBadge status={order.status} audience="parent" paused={!!order.engine_paused} />
           </div>
 
           <div className="grid md:grid-cols-2 gap-3 mb-5">
             <Info label="التصنيف" value={e.category_name || "—"} />
             <Info label="الموضوع" value={e.subcategory_name || goal.custom_subcategory || "—"} />
-            <Info label="العمر" value={`${child.age} سنة`} />
+            <Info label="العمر" value={ageLabel(child.age)} />
             <Info label="الجنس" value={child.gender === "male" ? "ولد" : "بنت" + (child.hijab ? " (حجاب)" : "")} />
-            <Info label="نوع القصة" value={e.type_name || "—"} />
-            <Info label="النبرة" value={e.tone_name || "—"} />
-            <Info label="البيئة" value={e.setting_name || "—"} />
-            <Info label="اللغة" value={e.language_name || "—"} />
+            <Info label="نوع القصة" value={e.type_name || "تلقائي"} />
+            <Info label="النبرة" value={e.tone_name || "تلقائي"} />
+            <Info label="البيئة" value={e.setting_name || "تلقائي"} />
+            <Info label="اللغة" value={e.language_name || "تلقائي"} />
           </div>
 
           {goal.context && (
@@ -124,7 +142,7 @@ export default function OrderDetail() {
           </h3>
           <p className="font-body text-[#5A677D] max-w-lg mx-auto mb-4">
             {order.status === "delivered" ? "تقدر تشوف الفيديو وتحمّله، وتحمّل القصة المصوّرة"
-            : order.status === "failed" ? "افتح صفحة القصة وجرّب تاني من نفس المكان اللي وقفت عنده"
+            : order.status === "failed" ? "افتح صفحة القصة وأعد المحاولة من حيث توقفت"
             : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اضغط لاختيار السيناريو الذي يناسب طفلك"
             : "بنجهّز قصة طفلك. هتلاقيها هنا وفي «قصصي» أول ما تخلص."}
           </p>

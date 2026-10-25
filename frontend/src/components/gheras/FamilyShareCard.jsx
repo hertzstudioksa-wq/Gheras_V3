@@ -24,7 +24,7 @@ export default function FamilyShareCard({ orderId, childName }) {
       setShare(absolute(data));
       toast.success("الرابط جاهز 💚");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "تعذّر عمل الرابط");
+      toast.error(e?.response?.data?.detail || "تعذّر إنشاء الرابط");
     } finally {
       setBusy(false);
     }
@@ -35,9 +35,9 @@ export default function FamilyShareCard({ orderId, childName }) {
     try {
       const { data } = await api.delete(`/orders/${orderId}/share`);
       setShare(data);
-      toast.success("الرابط اتقفل — محدش هيقدر يفتحه تاني");
+      toast.success("أُلغي الرابط — لن يتمكن أحد من فتحه بعد الآن");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "تعذّر قفل الرابط");
+      toast.error(e?.response?.data?.detail || "تعذّر إلغاء الرابط");
     } finally {
       setBusy(false);
     }
@@ -46,17 +46,17 @@ export default function FamilyShareCard({ orderId, childName }) {
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(share.url);
-      toast.success("اتنسخ");
+      toast.success("نُسخ الرابط");
     } catch {
-      toast.error("انسخه يدوي من الخانة");
+      toast.error("انسخه يدوياً من الخانة");
     }
   };
 
   const whatsapp = () => {
     const name = childName || "طفلي";
     const message = share?.active
-      ? `شوفوا قصة ${name} ✨\n${name} بقى بطل حكاية خاصة بيه 😍\n${share.url}`
-      : `شوفوا القصة الجميلة دي ✨\nطفلي بقى بطل حكاية خاصة بيه 😍\nجربوا تعملوا قصة لأطفالكم من هنا:\n${window.location.origin}/`;
+      ? `شاهدوا قصة ${name} ✨\nحكاية خاصة بطلها ${name} 😍\n${share.url}`
+      : `صنعت لطفلي قصة كرتون يكون هو بطلها ✨😍\nجرّبوا تصنعون قصة لأطفالكم من هنا:\n${window.location.origin}/`;
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   };
 
@@ -67,9 +67,9 @@ export default function FamilyShareCard({ orderId, childName }) {
           <Share2 className="w-6 h-6 text-[#25D366]" />
         </div>
         <div>
-          <h2 className="font-heading text-xl font-bold text-[#2D3748]">شارك القصة مع العيلة</h2>
+          <h2 className="font-heading text-xl font-bold text-[#2D3748]">شارك القصة مع العائلة</h2>
           <p className="font-body text-xs text-[#5A677D]">
-            رابط خاص يشوفوا منه الفيديو بس — شغّال 30 يوم، وتقدر تقفله في أي وقت.
+            رابط خاص لمشاهدة الفيديو فقط — صالح 30 يوماً، ويمكنك إلغاؤه في أي وقت.
           </p>
         </div>
       </div>
@@ -83,7 +83,7 @@ export default function FamilyShareCard({ orderId, childName }) {
             <button type="button" onClick={copy} className="text-[#4F6B3B] p-1" aria-label="نسخ"><Copy className="w-4 h-4" /></button>
           </div>
           <p className="text-[11px] text-[#8A9AB0] font-body">
-            شغّال لحد {new Date(share.expires_at).toLocaleDateString("ar-EG")} · اتفتح {share.views || 0} مرة
+            صالح حتى {new Date(share.expires_at).toLocaleDateString("ar-SA-u-ca-gregory")} · فُتح {share.views || 0} مرة
           </p>
         </div>
       ) : null}
@@ -92,17 +92,17 @@ export default function FamilyShareCard({ orderId, childName }) {
         {!share?.active && (
           <button type="button" onClick={make} disabled={busy || !share} data-testid="share-create-btn"
                   className="inline-flex items-center gap-2 rounded-full bg-[#87A96B] text-white px-5 py-2.5 text-sm font-bold disabled:opacity-50">
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} اعمل رابط للعيلة
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} أنشئ رابطاً للعائلة
           </button>
         )}
         <button type="button" onClick={whatsapp} data-testid="whatsapp-share-btn"
                 className="inline-flex items-center gap-2 rounded-full bg-[#25D366] hover:bg-[#1EBE57] text-white px-5 py-2.5 text-sm font-bold">
-          <Share2 className="w-4 h-4" /> {share?.active ? "ابعته على واتساب" : "ادعُ أصحابك على واتساب"}
+          <Share2 className="w-4 h-4" /> {share?.active ? "أرسله على واتساب" : "ادعُ أصدقاءك على واتساب"}
         </button>
         {share?.active && (
           <button type="button" onClick={revoke} disabled={busy} data-testid="share-revoke-btn"
                   className="inline-flex items-center gap-2 rounded-full bg-white border border-[#E2D8C9] text-[#B8612F] px-4 py-2.5 text-sm font-bold disabled:opacity-50">
-            <XCircle className="w-4 h-4" /> اقفل الرابط
+            <XCircle className="w-4 h-4" /> ألغِ الرابط
           </button>
         )}
       </div>

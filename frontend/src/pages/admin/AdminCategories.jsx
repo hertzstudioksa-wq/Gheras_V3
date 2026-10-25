@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
 import { toast } from "sonner";
 import { Plus, Edit2, Trash2, X, Save, Sprout } from "lucide-react";
 import { ConfirmAction } from "../../components/admin/AdminKit";
@@ -12,7 +12,7 @@ export default function AdminCategories() {
   const [editing, setEditing] = useState(null);
   const [subcatEditingCat, setSubcatEditingCat] = useState(null);
 
-  const reload = () => api.get("/admin/categories").then((r) => setCats(r.data));
+  const reload = () => api.get("/admin/categories").then((r) => setCats(r.data)).catch((e) => toast.error(errorMessage(e)));
   useEffect(() => { reload(); }, []);
 
   const emptyCat = { name_ar: "", slug: "", description: "", icon: "sprout", color: "#87A96B", sort_order: cats.length, is_active: true };

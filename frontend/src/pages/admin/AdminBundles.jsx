@@ -191,6 +191,7 @@ function WalletAdmin() {
   const [wallet, setWallet] = useState(null);
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
+  const [publicNote, setPublicNote] = useState("");
   const users = useUserSearch(q);
 
   useEffect(() => {
@@ -200,10 +201,12 @@ function WalletAdmin() {
 
   const adjust = async () => {
     try {
-      const r = await api.post(`/admin/wallets/${selected}/adjust`, { amount_sar: Number(amount), reason });
+      const r = await api.post(`/admin/wallets/${selected}/adjust`,
+        { amount_sar: Number(amount), reason, public_note: publicNote.trim() || null });
       setWallet(r.data);
       setAmount("");
       setReason("");
+      setPublicNote("");
       toast.success("اتعدّل الرصيد");
     } catch (e) { toast.error(e?.response?.data?.detail || "فشل"); }
   };
@@ -224,7 +227,11 @@ function WalletAdmin() {
           <div className="font-heading text-3xl font-bold text-[#2D3748] mb-4" data-testid="admin-wallet-balance">{sar(wallet.balance_halalas / 100)}</div>
           <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr_auto] gap-2 mb-5 items-start">
             <input type="number" className={input} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="+50 أو −20" dir="ltr" />
-            <input className={input} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="السبب (بيظهر للعميل في حركاته)" />
+            <div className="space-y-2">
+              <input className={input} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="السبب (داخلي — للسجل بس)" />
+              <input className={input} value={publicNote} onChange={(e) => setPublicNote(e.target.value)}
+                placeholder="رسالة للعميل في حركاته (اختياري — وإلا: «تعديل رصيد من فريق غِراس»)" />
+            </div>
             <ConfirmAction title={`${Number(amount) >= 0 ? "تضيف" : "تخصم"} ${sar(Math.abs(Number(amount) || 0))}؟`}
               description={reason ? `السبب: ${reason}` : "اكتب السبب الأول"} tone="cost" confirmLabel="تأكيد"
               disabled={!Number(amount) || reason.trim().length < 3} onConfirm={adjust}
@@ -238,6 +245,7 @@ function WalletAdmin() {
               <div key={h.id} className="py-2 flex justify-between gap-3">
                 <div className="min-w-0">
                   <b className="text-[#2D3748]">{h.kind_ar}</b> <span className="text-[#5A677D]">{h.note}</span>
+                  {h.public_note && <span className="text-[#4F6B3B]"> · للعميل: {h.public_note}</span>}
                   <div className="text-xs text-[#8A9AB0]">{formatDate(h.created_at)}{h.actor_email ? ` — ${h.actor_email}` : ""}</div>
                 </div>
                 <b className={h.amount_halalas > 0 ? "text-[#4F6B3B]" : "text-[#B8612F]"} dir="ltr">{h.amount_halalas > 0 ? "+" : "−"}{Math.abs(h.amount_halalas) / 100}</b>

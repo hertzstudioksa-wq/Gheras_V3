@@ -105,7 +105,8 @@ class ReasonIn(BaseModel):
 
 class AdjustIn(BaseModel):
     amount_sar: float = Field(ge=-100000, le=100000)
-    reason: str = Field(min_length=3, max_length=300)
+    reason: str = Field(min_length=3, max_length=300)  # internal: audit trail only
+    public_note: str | None = Field(None, max_length=200)  # what the customer sees, if anything
 
 
 admin_orders_router = APIRouter(prefix="/admin", tags=["admin-payment"], dependencies=[Depends(require_admin)])
@@ -148,9 +149,11 @@ async def admin_wallet_adjust(user_id: str, payload: AdjustIn, admin=Depends(req
         raise HTTPException(404, "المستخدم غير موجود")
     amount = wallet_service.to_halalas(payload.amount_sar)
     if amount > 0:
-        await wallet_service.credit(user_id, amount, "adjust", note=payload.reason, actor=admin)
+        await wallet_service.credit(user_id, amount, "adjust", note=payload.reason, actor=admin,
+                                    public_note=payload.public_note)
     elif amount < 0:
-        res = await wallet_service.debit(user_id, -amount, "adjust", note=payload.reason, actor=admin)
+        res = await wallet_service.debit(user_id, -amount, "adjust", note=payload.reason, actor=admin,
+                                         public_note=payload.public_note)
         if not res["ok"]:
             raise HTTPException(400, f"الرصيد {res['balance_halalas'] / 100:.2f} ر.س — أقل من المبلغ")
     else:
@@ -233,7 +236,7 @@ async def my_wallet(current=Depends(get_current_user)):
         .sort("price", 1).to_list(20)
     return {
         "balance_halalas": await wallet_service.balance(current["id"]),
-        "history": await wallet_service.history(current["id"], 30),
+        "history": await wallet_service.history(current["id"], 30, for_customer=True),
         "topups": topups,
         "card_available": bool(await moyasar.secret_key()),
     }

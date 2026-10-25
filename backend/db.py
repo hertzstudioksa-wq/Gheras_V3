@@ -5,7 +5,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 _mongo_url = os.environ["MONGO_URL"]
 _db_name = os.environ["DB_NAME"]
 
-client = AsyncIOMotorClient(_mongo_url)
+# Fail in seconds, not thirty: when the database is down (a full disk stopped it
+# once) every page waited out the default server-selection timeout and the
+# browser gave up at 20 s with a bare "timeout" error.
+client = AsyncIOMotorClient(_mongo_url, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
 db = client[_db_name]
 
 

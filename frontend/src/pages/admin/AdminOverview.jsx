@@ -27,7 +27,8 @@ export default function AdminOverview() {
 
   if (!data) return <PageState loading={!error} error={error} onRetry={load} />;
   const { kpis, attention, engine } = data;
-  const engineOk = !engine.missing_keys.length && !engine.stages_off_catalog.length;
+  const balanceLocked = !!engine.balance?.locked;
+  const engineOk = !engine.missing_keys.length && !engine.stages_off_catalog.length && !balanceLocked;
 
   return (
     <AdminPage title="الرئيسية" description="اللي محتاج تدخّل دلوقتي، وأرقام آخر 30 يوم، وحالة المحرك." testId="admin-overview">
@@ -76,6 +77,12 @@ export default function AdminOverview() {
         <div className={`min-w-0 rounded-3xl border p-5 ${engineOk ? "bg-[#E8F0E1] border-[#87A96B]/30" : "bg-[#FCE6D4] border-[#E07A5F]/40"}`} data-testid="overview-engine">
           <h2 className="font-heading text-lg font-bold text-[#2D3748] mb-3">حالة المحرك</h2>
           <ul className="font-body text-sm space-y-2 text-[#2D3748]">
+            <li className="flex items-center gap-2">
+              {balanceLocked ? <AlertTriangle className="w-4 h-4 text-[#B8612F]" /> : <CheckCircle2 className="w-4 h-4 text-[#4F6B3B]" />}
+              {balanceLocked
+                ? `رصيد fal خلص — التوليد واقف${engine.balance.paused_orders ? ` و${engine.balance.paused_orders} طلب موقوف` : ""}`
+                : "رصيد fal شغّال (حسب آخر طلب)"}
+            </li>
             <li className="flex items-center gap-2">
               {engine.missing_keys.length ? <KeyRound className="w-4 h-4 text-[#B8612F]" /> : <CheckCircle2 className="w-4 h-4 text-[#4F6B3B]" />}
               {engine.missing_keys.length ? `مفاتيح ناقصة: ${engine.missing_keys.join("، ")}` : `مفاتيح كل المراحل (${engine.stages_total}) موجودة`}

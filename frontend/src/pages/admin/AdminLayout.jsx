@@ -9,6 +9,7 @@ import {
   LayoutDashboard, Users, BookOpen, Sprout, FileText, CreditCard, Settings, LogOut, Palette,
   Coins, Beaker, Lock, Package, ScrollText, Library, Hourglass, SlidersHorizontal, Menu,
 } from "lucide-react";
+import { usePageTitle } from "../../lib/usePageTitle";
 
 const LOGO_URL = "/gheras-logo.png";
 
@@ -91,6 +92,7 @@ function Brand() {
 }
 
 export default function AdminLayout() {
+  usePageTitle("لوحة الإدارة");
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();

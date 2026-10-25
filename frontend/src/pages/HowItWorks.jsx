@@ -4,8 +4,10 @@ import { api } from "../lib/api";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import { Sprout, ArrowLeft, BookOpen, CheckCircle2 } from "lucide-react";
+import { usePageTitle } from "../lib/usePageTitle";
 
 export default function HowItWorks() {
+  usePageTitle("كيف تعمل غِراس");
   const [content, setContent] = useState({});
 
   useEffect(() => {
@@ -20,12 +22,12 @@ export default function HowItWorks() {
   ];
 
   const features = [
-    "قصة مخصصة باسم وشخصية طفلك",
+    "طفلك بطل القصة باسمه وملامحه",
+    "فيلم كرتون قصير بصوت راوٍ وموسيقى",
+    "كتاب مصوّر جاهز للطباعة",
     "هدف تربوي واضح في كل قصة",
-    "أسلوب سردي يختاره الأهل",
-    "مراجعة بشرية قبل التسليم",
-    "محتوى آمن وملائم للأعمار",
-    "إمكانية الطباعة ومشاركة العائلة",
+    "فحص جودة لكل مشهد قبل التسليم",
+    "رابط خاص لمشاركة القصة مع العائلة",
   ];
 
   return (

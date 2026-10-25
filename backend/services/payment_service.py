@@ -305,7 +305,7 @@ async def _settle(payment: dict, invoice: dict, background) -> None:
                                      background=background, actor=user):
             # The order was paid another way first: keep the money as wallet credit.
             await wallet_service.credit(payment["user_id"], payment["amount_halalas"], "refund",
-                                        note="دفعة مكررة بالبطاقة اتحولت لرصيدك", order_id=payment["order_id"],
+                                        note="دفعة مكررة بالبطاقة أُضيفت إلى رصيدك", order_id=payment["order_id"],
                                         payment_id=payment["id"], idem_key=f"dup:{payment['id']}")
     elif payment["purpose"] == "topup":
         bundle = payment.get("bundle_snapshot") or {}

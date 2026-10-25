@@ -1,16 +1,19 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
-import { api } from "../../lib/api";
-import { Sprout, Instagram, Twitter } from "lucide-react";
+import { Instagram, Twitter, Mail } from "lucide-react";
+import { useSiteContent, businessDetails } from "../../lib/siteContent";
 
 const LOGO_URL = "/gheras-logo.png";
 
 export default function Footer() {
-  const [content, setContent] = useState({});
-
-  useEffect(() => {
-    api.get("/public/content").then((r) => setContent(r.data)).catch(() => {});
-  }, []);
+  const content = useSiteContent();
+  // Social links appear once an admin fills them in (no dead "#" links).
+  const social = [
+    ["Instagram", content["footer.instagram"], Instagram],
+    ["X", content["footer.x"], Twitter],
+    ["البريد", content["footer.contact_email"] && `mailto:${content["footer.contact_email"]}`, Mail],
+  ].filter(([, href]) => href);
+  const business = businessDetails(content).filter(([label]) => label !== "البريد الإلكتروني");
 
   return (
     <footer className="bg-[#F8F1E7] border-t border-[#E2D8C9] mt-24" data-testid="site-footer">
@@ -35,27 +38,31 @@ export default function Footer() {
               <li><Link to="/categories" className="hover:text-[#87A96B]">التصنيفات</Link></li>
               <li><Link to="/story/new" className="hover:text-[#87A96B]">ابدأ قصة</Link></li>
               <li><Link to="/privacy" className="hover:text-[#87A96B]">سياسة الخصوصية</Link></li>
-              <li><Link to="/terms" className="hover:text-[#87A96B]">الشروط والأحكام</Link></li>
+              <li><Link to="/terms" className="hover:text-[#87A96B]">الشروط والاسترجاع</Link></li>
             </ul>
           </div>
 
-          <div>
-            <h4 className="font-heading font-bold text-[#2D3748] text-lg mb-4">تابعنا</h4>
-            <div className="flex items-center gap-3">
-              <a href="#" aria-label="Instagram" className="w-10 h-10 rounded-full bg-white border border-[#E2D8C9] grid place-content-center text-[#8B5A2B] hover:bg-[#87A96B] hover:text-white transition">
-                <Instagram className="w-4 h-4" />
-              </a>
-              <a href="#" aria-label="Twitter" className="w-10 h-10 rounded-full bg-white border border-[#E2D8C9] grid place-content-center text-[#8B5A2B] hover:bg-[#87A96B] hover:text-white transition">
-                <Twitter className="w-4 h-4" />
-              </a>
-              <a href="#" aria-label="Sprout" className="w-10 h-10 rounded-full bg-white border border-[#E2D8C9] grid place-content-center text-[#8B5A2B] hover:bg-[#87A96B] hover:text-white transition">
-                <Sprout className="w-4 h-4" />
-              </a>
+          {social.length > 0 && (
+            <div>
+              <h4 className="font-heading font-bold text-[#2D3748] text-lg mb-4">تواصل معنا</h4>
+              <div className="flex items-center gap-3">
+                {social.map(([label, href, Icon]) => (
+                  <a key={label} href={href} aria-label={label} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer"
+                    className="w-10 h-10 rounded-full bg-white border border-[#E2D8C9] grid place-content-center text-[#8B5A2B] hover:bg-[#87A96B] hover:text-white transition">
+                    <Icon className="w-4 h-4" />
+                  </a>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
-        <div className="border-t border-[#E2D8C9] pt-6 text-center text-sm text-[#8A9AB0] font-body">
-          {content["footer.copyright"] || "© غِراس ٢٠٢٦ — جميع الحقوق محفوظة"}
+        <div className="border-t border-[#E2D8C9] pt-6 text-center text-sm text-[#8A9AB0] font-body space-y-1">
+          <div>{content["footer.copyright"] || "© غِراس ٢٠٢٦ — جميع الحقوق محفوظة"}</div>
+          {business.length > 0 && (
+            <div className="text-xs" data-testid="footer-business">
+              {business.map(([label, value]) => `${label}: ${value}`).join(" · ")}
+            </div>
+          )}
         </div>
       </div>
     </footer>

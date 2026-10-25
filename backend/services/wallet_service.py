@@ -23,6 +23,10 @@ KIND_LABELS = {
     "refund": "استرداد",
     "adjust": "تعديل من الإدارة",
 }
+# What the customer reads for a row the admin wrote: the admin's reason is for
+# the audit trail (it once showed the parent things like "تجربة" or internal
+# notes), so the parent sees the admin's optional public note or this.
+CUSTOMER_NOTE = {"refund": "استرداد قيمة قصة", "adjust": "تعديل رصيد من فريق غِراس"}
 AUDIT_ACTION = {"topup": "wallet.topup", "bonus": "wallet.topup", "refund": "wallet.refund", "adjust": "wallet.adjust"}
 
 
@@ -41,10 +45,10 @@ async def balance(user_id: str) -> int:
 
 async def _ledger(user_id: str, amount: int, kind: str, *, note: str, idem_key: str | None,
                   order_id: str | None, payment_id: str | None, actor: dict | None,
-                  balance_after: int | None = None) -> dict:
+                  balance_after: int | None = None, public_note: str | None = None) -> dict:
     row = {
         "id": str(uuid.uuid4()), "user_id": user_id, "amount_halalas": int(amount), "kind": kind,
-        "note": note, "order_id": order_id, "payment_id": payment_id, "balance_after": balance_after,
+        "note": note, "public_note": public_note or None, "order_id": order_id, "payment_id": payment_id, "balance_after": balance_after,
         "actor_email": (actor or {}).get("email"), "created_at": _now(),
     }
     if idem_key:
@@ -55,13 +59,14 @@ async def _ledger(user_id: str, amount: int, kind: str, *, note: str, idem_key: 
 
 
 async def credit(user_id: str, amount: int, kind: str, *, note: str = "", idem_key: str | None = None,
-                 order_id: str | None = None, payment_id: str | None = None, actor: dict | None = None) -> dict:
+                 order_id: str | None = None, payment_id: str | None = None, actor: dict | None = None,
+                 public_note: str | None = None) -> dict:
     """Add credit. Returns {"ok": True, "applied": False} if `idem_key` was used before."""
     if amount <= 0:
         raise ValueError("المبلغ لازم يكون أكبر من صفر")
     try:
         row = await _ledger(user_id, amount, kind, note=note, idem_key=idem_key,
-                            order_id=order_id, payment_id=payment_id, actor=actor)
+                            order_id=order_id, payment_id=payment_id, actor=actor, public_note=public_note)
     except DuplicateKeyError:
         return {"ok": True, "applied": False}
     await db.wallets.update_one({"user_id": user_id},
@@ -77,7 +82,7 @@ async def credit(user_id: str, amount: int, kind: str, *, note: str = "", idem_k
 
 
 async def debit(user_id: str, amount: int, kind: str, *, note: str = "", order_id: str | None = None,
-                actor: dict | None = None) -> dict:
+                actor: dict | None = None, public_note: str | None = None) -> dict:
     """Spend credit if the balance covers it. Returns {"ok": False} otherwise."""
     if amount <= 0:
         raise ValueError("المبلغ لازم يكون أكبر من صفر")
@@ -89,7 +94,7 @@ async def debit(user_id: str, amount: int, kind: str, *, note: str = "", order_i
         return {"ok": False, "reason": "insufficient", "balance_halalas": await balance(user_id)}
     bal = await balance(user_id)
     await _ledger(user_id, -amount, kind, note=note, idem_key=None, order_id=order_id, payment_id=None,
-                  actor=actor, balance_after=bal)
+                  actor=actor, balance_after=bal, public_note=public_note)
     await record_audit(entity_type="wallet", entity_id=user_id, action="wallet.charge",
                        actor_id=(actor or {}).get("id"), actor_email=(actor or {}).get("email"),
                        summary=f"{KIND_LABELS.get(kind, kind)} −{amount / 100:.2f} ر.س — {note}".strip(" —"),
@@ -97,9 +102,16 @@ async def debit(user_id: str, amount: int, kind: str, *, note: str = "", order_i
     return {"ok": True, "balance_halalas": bal}
 
 
-async def history(user_id: str, limit: int = 50) -> list[dict]:
+async def history(user_id: str, limit: int = 50, for_customer: bool = False) -> list[dict]:
     rows = await db.wallet_ledger.find({"user_id": user_id}, {"_id": 0, "idem_key": 0}) \
         .sort("created_at", -1).to_list(max(1, min(limit, 200)))
     for r in rows:
         r["kind_ar"] = KIND_LABELS.get(r["kind"], r["kind"])
+        if for_customer:
+            # Rows the admin wrote carry the admin's email and internal reason.
+            by_admin = r["kind"] == "adjust" or (r["kind"] == "refund" and r.get("actor_email"))
+            if by_admin:
+                r["note"] = r.get("public_note") or CUSTOMER_NOTE.get(r["kind"], "")
+            r.pop("actor_email", None)
+            r.pop("public_note", None)
     return rows

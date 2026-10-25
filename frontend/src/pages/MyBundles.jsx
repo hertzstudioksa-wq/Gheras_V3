@@ -5,6 +5,7 @@ import { ArrowRight, Gift, Loader2, Package, Sparkles, Wallet } from "lucide-rea
 import { api } from "../lib/api";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
+import { usePageTitle } from "../lib/usePageTitle";
 
 // My balance (M6): SAR wallet credit bought in top-ups (with a bonus) and spent
 // on stories. Older per-story bundle credits still show while they last.
@@ -12,6 +13,7 @@ import Footer from "../components/gheras/Footer";
 const sar = (v) => `${Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} ر.س`;
 
 export default function MyBundles() {
+  usePageTitle("رصيدي");
   const [wallet, setWallet] = useState(null);
   const [purchases, setPurchases] = useState([]);
   const [busy, setBusy] = useState(null);
