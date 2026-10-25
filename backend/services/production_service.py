@@ -55,7 +55,7 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
       "name_en": "Transliterated name",
       "visual_description": "English detailed appearance (face, hair, body type, eyes, skin tone)",
       "clothing_style": "English clothing",
-      "key_features": "English 2-3 key memorable features",
+      "key_features": "English 2-3 permanent look features (hair, glasses, freckles, an accessory) — never an expression or a mood",
       "reference_image_url": null
     }
   ],
@@ -96,8 +96,8 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
           "narration_line": "جملة سرد واحدة قصيرة (باللهجة المطلوبة) تُقال أثناء هذه اللقطة بالضبط",
           "shot_type": "wide | medium | close-up | insert | over-the-shoulder | back view",
           "characters": ["child", "mother"],
-          "keyframe_prompt": "English: the FIRST frame of this shot — who is where, pose, facial expression, composition, background, lighting. Name characters (e.g. Sara, her mother) and keep their outfits from characters[]. No art-style words.",
-          "motion_prompt": "English: what visibly MOVES during the shot — ONE main character action (verb) and its expression change, gentle environment motion (light, curtains, leaves), plus one calm camera move (static, slow push-in or slight pan)."
+          "keyframe_prompt": "English: the FIRST frame of this shot, at the very moment of narration_line — who is where, pose, the feeling on each face (tears, surprise, joy...), composition, background, lighting. Name characters (e.g. Sara, her mother) and keep their outfits from characters[]. No art-style words.",
+          "motion_prompt": "English: ONE small continuous movement of a named character that starts from the first frame (a face changing, a head turning, hands rising to the mouth, a hug, a hand slowly placing something down). Nothing else: no camera move, no environment motion, no object moving by itself."
         }
       ]
     }
@@ -121,13 +121,16 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - motion_prompt: حركة حقيقية واضحة للشخصيات (تمشي، تحضن، تلتفت، تبتسم، تمد يدها...) — ليس مجرد زووم على صورة ثابتة. لكن اللقطة ~5 ثوانٍ فقط، وموديل الفيديو يخطئ عندما تزدحم: يكرر شخصية أو يجعل جسماً يخترق شيئاً. لذلك:
   - فعل رئيسي واحد لكل لقطة (أو فعلان بسيطان جداً لنفس الشخصية). ممنوع سلسلة أحداث مثل "يأخذ نفساً ثم يمسك يده ثم يعبر ثم يقفز والأم تصفق".
   - كل من سيظهر في اللقطة موجود في أول إطار. لا أحد يدخل الكادر، والكاميرا لا "تكشف" أشخاصاً أو مكاناً جديداً.
-  - الكاميرا ثابتة، أو push-in بطيء، أو pan خفيف فقط. ممنوع arc / orbit / follow / reveal / الدوران حول الشخصيات.
+  - الكاميرا ثابتة دائماً: لا push-in ولا pan ولا zoom (حركة الكاميرا بتمطّ الأشياء الثابتة وبتكبّرها). ممنوع arc / orbit / follow / reveal.
+  - اللقطة تتحرك من صورة واحدة ثابتة، وموديل الفيديو لا يستطيع إظهار الأحداث الفيزيائية: الأشياء التي تقع أو تنهار أو تنكسر أو تنسكب أو تُرمى أو تصطدم بتذوب أو تتمدد. لذلك أي حدث فيزيائي في السطر (وقوع، انهيار، كسر، انسكاب، رمي، اصطدام، قفز، طيران شيء): keyframe_prompt يصوّر اللحظة بعده مباشرة — النتيجة موجودة بالفعل في أول إطار (الأشياء على الأرض، البقعة موجودة) والشخصيات تتفاعل معها — وmotion_prompt حركة رد الفعل (وش بيتغيّر، إيدين على البق). السرد هو اللي يحكي السبب. لا تطلب أبداً في motion_prompt أن يقع أو ينكسر أو يتحرك شيء.
+  - لا حركة للبيئة في motion_prompt (رياح، ستائر، غبار، أوراق، ضوء يتراقص، شعر يتطاير)، ولا شيء يكبر أو يصغر أو يغيّر شكله.
   - تجنّب الحركات الصعبة فيزيائياً: القفز، التسلق، المشي على جسر حبال أو حافة ضيقة، المرور خلال شيء، تسليم شيء من يد ليد، الركض ممسكين بالأيدي. لو القصة فيها جسر أو مرتفع: الشخصيات واقفة عليه وتنظر للمنظر، أو لقطة قريبة على الوجه والمشاعر.
   - في over-the-shoulder و back view: الكاميرا ثابتة تماماً، والشخصية التي في المقدمة لا تتحرك من مكانها.
   - اللقطات المتوسطة والقريبة: شخصية أو اثنتان فقط. ثلاث شخصيات أو أكثر في لقطة واسعة فقط، وأربع شخصيات بحد أقصى في أي لقطة (الطفل وأهله أولاً).
-  - motion_prompt يُظهر بالضبط ما يقوله narration_line لنفس اللقطة.
+  - motion_prompt يُظهر ما يقوله narration_line لنفس اللقطة — والحدث الفيزيائي يُظهر رد الفعل عليه (القاعدة السابقة).
 - لا تطلب أي كلام مكتوب في keyframe_prompt أو motion_prompt (أسماء أماكن، كلمات على خريطة، لافتات، عناوين، أرقام): الموديلات بتكتبها غلط. الخريطة أو اللافتة تبان برسومات بس (جزيرة، بركان، شجر، علامة X).
-- keyframe_prompt: يصف أول إطار فقط. كل شخصية تظهر فيه يجب أن تكون في characters للقطة. لا تصف ملابس الشخصيات التي clothing_style لها "same as in the photo" (ملابسها تأتي من صورتها المرجعية).
+- keyframe_prompt: يصف أول إطار فقط، في لحظة narration_line نفسها، والمشاعر ظاهرة على الوجوه (دموع، دهشة، فرح): أول إطار هو اللي بيحدد شكل الشخصية طول اللقطة. كل شخصية تظهر فيه يجب أن تكون في characters للقطة. لا تصف ملابس الشخصيات التي clothing_style لها "same as in the photo" (ملابسها تأتي من صورتها المرجعية).
+- key_features لكل شخصية: صفات شكل دائمة فقط (الشعر، نظارة، نمش، إكسسوار) — ممنوع تعبيرات أو مشاعر (ابتسامة، تكشيرة، ضحكة): الصورة بتنسخها في كل لقطة حتى لو الشخصية بتعيّط.
 - اللقطات داخل المشهد الواحد في نفس المكان والإضاءة والملابس (استمرارية).
 - آخر لقطتين في القصة تختمان القصة بوضوح ودفء (لحظة الفرح/الطمأنينة بعد الحل).
 

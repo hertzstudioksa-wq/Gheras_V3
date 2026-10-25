@@ -467,7 +467,9 @@ async def prompt_preview(order_id: str):
                         "keyframe_references": shot_pipeline.describe_refs(comfy_refs, sheets) if on_comfy else
                         [f"<image{i + 1}> {n}" for i, n in enumerate(notes)],
                         "keyframe_prompt_used": row.get("keyframe_prompt_used"),
-                        "motion_prompt": shot_pipeline.motion_prompt(
+                        "motion_prompt": shot_pipeline.wan_motion_prompt(
+                            sh.get("motion_prompt"), len(set(sh.get("characters") or [])))
+                        if provider == "comfy_video" else shot_pipeline.motion_prompt(
                             sh.get("motion_prompt"), mapping, style,
                             shot_pipeline.cast_labels(sh.get("characters") or [], sheets)),
                         "motion_prompt_used": row.get("clip_prompt_used"),

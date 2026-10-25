@@ -225,7 +225,8 @@ OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, bad
                     "exactly as in the first frame until the last frame.")
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
 # How bad a flagged frame is, to keep the least broken of several takes.
-FLAW_WEIGHT = {"deformed": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2, "vanishing": 2}
+FLAW_WEIGHT = {"deformed": 3, "melting": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2, "vanishing": 2,
+               "action_missing": 2, "mood_mismatch": 2}
 
 
 def flaw(review: dict) -> int:
@@ -265,10 +266,13 @@ def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_n
 # every face toward a stock cartoon face.
 COMFY_INTRO = ("Create a brand-new 16:9 children's storybook illustration using the people and objects from the "
                "reference images (a new scene, not an edit of <image1>).")
-COMFY_COPY = ("Copy each character from their reference exactly; copy each person's face exactly: the same face "
-              "shape, eyes, eyebrows, nose, mouth and smile, cheeks, skin tone and age; the same hairstyle with the "
-              "same hair volume, curls and hairline; the same beard shape and fullness; plus the same clothes, shoes "
-              "and colors. Do not redesign, beautify or simplify the faces.")
+# The face is copied, the expression is not: "copy the mouth and smile" kept a
+# crying child smiling like his sheet in the first real story.
+COMFY_COPY = ("Copy each character's identity from their reference exactly: the same face shape, eyes, eyebrows, "
+              "nose, skin tone and age; the same hairstyle with the same hair volume, curls and hairline; the same "
+              "beard shape and fullness; plus the same clothes, shoes and colors. Do not redesign, beautify or "
+              "simplify the faces. Facial expressions, gaze and poses follow the SCENE below, not the reference "
+              "sheets.")
 COMFY_ONCE = "Each character appears exactly once and nobody else is in the picture."
 COMFY_NOBODY = "There are no people in this picture."
 COMFY_STYLE = ("STYLE: exactly the same 2D cartoon storybook art style, line quality and shading as the reference "
@@ -340,10 +344,16 @@ def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, prev
     return refs
 
 
+# Feelings belong to the scene, not to a character's permanent look.
+_EXPRESSION = re.compile(r"\b(smil\w*|grin\w*|laugh\w*|frown\w*|cry\w*|tear\w*|happy|sad|angry|cheerful|joyful|"
+                         r"expression\w*|pout\w*|mood)\b", re.I)
+
+
 def _features(profile: dict) -> str:
     raw = profile.get("key_features") or ""
     text = ", ".join(map(str, raw)) if isinstance(raw, list) else str(raw)
-    return re.sub(r"\s+", " ", text).strip(" .,;")[:200]
+    parts = [p.strip() for p in re.split(r"[,;]", re.sub(r"\s+", " ", text)) if p.strip()]
+    return ", ".join(p for p in parts if not _EXPRESSION.search(p)).strip(" .,;")[:200]
 
 
 def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
@@ -451,6 +461,27 @@ def cast_lock(labels: list[str]) -> str:
 
 def clip_negative(style: dict) -> str:
     return f"{style['negative_text']}, {CLIP_NEGATIVE_GUARD}"
+
+
+# Wan at CFG 1 follows a short prompt with the action first; what must NOT move goes
+# in words (a negative prompt does nothing there). The long Kling guards buried the
+# action, ambient motion made hair fly indoors, camera moves stretched objects.
+WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and objects stay exactly where they are "
+             "and keep their shape and size. No wind: hair and clothes hang still.")
+
+
+def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfit: bool = False) -> str:
+    who = "Nobody is in the frame." if not people else (
+        f"Exactly {people} {'person' if people == 1 else 'people'}, all already in the frame; nobody appears, leaves "
+        "or is duplicated, and bodies stay solid.")
+    return " ".join(p for p in [
+        motion or "A small natural movement of the main character.",
+        CALM_NOTE if calm else "",
+        OUTFIT_REDO_NOTE if outfit else "",
+        WAN_STILL,
+        who,
+        "2D storybook cartoon, no written words.",
+    ] if p)
 
 
 def motion_prompt(motion: str | None, mapping: list[str], style: dict, cast: list[str] | None = None) -> str:
@@ -892,11 +923,7 @@ async def _comfy_clip_fills(row: dict, model: str, sheets: dict, tail: float, st
             raise ValueError(f"keyframe for shot {row['scene_index']}.{row['shot_index']} is missing")
         uploads[row["keyframe_url"]] = await comfy.upload(
             img[0], f"shot{row['scene_index']}-{row['shot_index']}.png", stage="video_generation")
-    prompt = motion_prompt(row.get("motion_prompt"), [], style, cast_labels(row.get("characters") or [], sheets))
-    if calm:
-        prompt = f"{CALM_NOTE} {prompt}"
-    if outfit:
-        prompt = f"{OUTFIT_REDO_NOTE} {prompt}"
+    prompt = wan_motion_prompt(row.get("motion_prompt"), len(set(row.get("characters") or [])), calm, outfit)
     return {
         "start_image": uploads[row["keyframe_url"]],
         "motion_prompt": prompt[:2400],

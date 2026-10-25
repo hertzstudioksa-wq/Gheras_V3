@@ -191,3 +191,25 @@ def test_comfy_fits_only_its_stages():
 def test_scene_line_article(shot_type, phrase):
     text, _ = build(["child"], shot_type=shot_type)
     assert phrase in text
+
+
+def test_identity_copies_the_face_not_the_expression():
+    assert "smile" not in sp.COMFY_COPY.lower()
+    assert "expressions" in sp.COMFY_COPY.lower() and "follow the scene" in sp.COMFY_COPY.lower()
+
+
+@pytest.mark.parametrize("raw,kept", [
+    ("Tightly curled dark brown hair, broad closed-mouth smile, round cheeks", "Tightly curled dark brown hair, round cheeks"),
+    (["red collar", "happy wagging tail", "floppy ears"], "red collar, floppy ears"),
+    ("Big laughing eyes; freckles", "freckles"),
+    ("", ""),
+])
+def test_permanent_features_drop_feelings(raw, kept):
+    assert sp._features({"key_features": raw}) == kept
+
+
+def test_plan_rules_film_around_physics_and_keep_the_camera_still():
+    from services.production_service import SYSTEM_MSG
+
+    assert "الكاميرا ثابتة دائماً" in SYSTEM_MSG and "اللحظة بعده مباشرة" in SYSTEM_MSG
+    assert "ممنوع تعبيرات أو مشاعر" in SYSTEM_MSG

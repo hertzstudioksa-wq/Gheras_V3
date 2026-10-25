@@ -142,7 +142,7 @@ def test_wan_clips_lengths_takes_and_failures():
         res = await sp.run_shot_clips(order, plan, "run-c")
         r11, r12, r21 = await _row("c", 1, 1), await _row("c", 1, 2), await _row("c", 2, 1)
         assert r11["clip_engine"] == "comfy_video" and r11["clip_seconds"] == 3 and r11["clip_gpu_seconds"] == 80
-        assert "@Element" not in r11["clip_prompt_used"] and sp.PHYSICS in r11["clip_prompt_used"]
+        assert "@Element" not in r11["clip_prompt_used"] and sp.WAN_STILL in r11["clip_prompt_used"]
         # flagged three times: calm redo, a new seed, then the best take — still Wan
         assert r12["clip_engine"] == "comfy_video" and r12["clip_review"].get("best_of_takes")
         assert r12["comfy_clip_seconds"] == 3 * r12["clip_seconds"] == 18

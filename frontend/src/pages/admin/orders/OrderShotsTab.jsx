@@ -12,6 +12,7 @@ const PROBLEM_AR = {
   duplicate: "شخصية متكررة", extra_person: "شخص زيادة", clipping: "جسم بيخترق حاجة",
   vanishing: "شخصية بتختفي", text: "كتابة", deformed: "تشوّه",
   wrong_look: "شكل مش مطابق للشخصية", outfit_change: "اللبس أو الإكسسوار اتغيّر",
+  melting: "حاجة بتسيح أو بتتمدد", action_missing: "الحدث المطلوب ما حصلش", mood_mismatch: "التعبير عكس السطر",
 };
 
 function ReviewBadge({ label, review, redoneKey }) {

@@ -27,12 +27,16 @@ logger = logging.getLogger("clip_review")
 
 REVIEW_MODEL = "anthropic/claude-haiku-5.5"
 CLIP_FRAMES = 4
-PROBLEMS = ("duplicate", "extra_person", "clipping", "vanishing", "text", "deformed", "wrong_look", "outfit_change")
+PROBLEMS = ("duplicate", "extra_person", "clipping", "vanishing", "text", "deformed", "wrong_look", "outfit_change",
+            "melting", "action_missing", "mood_mismatch")
 # Other words models use for the same problems.
 SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": "outfit_change",
             "accessor": "outfit_change", "hat": "outfit_change", "cap": "outfit_change",
             "identity": "wrong_look", "lookalike": "wrong_look", "look_alike": "wrong_look", "mismatch": "wrong_look",
-            "clone": "duplicate", "twin": "duplicate"}
+            "clone": "duplicate", "twin": "duplicate",
+            "melt": "melting", "stretch": "melting", "morph": "melting", "ooz": "melting", "warp": "melting",
+            "not_happen": "action_missing", "no_action": "action_missing", "missing_action": "action_missing",
+            "expression": "mood_mismatch", "emotion": "mood_mismatch", "mood": "mood_mismatch"}
 REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and colors
 
 SYSTEM = (
@@ -49,6 +53,12 @@ SYSTEM = (
     "characters look like the same person (the same face and clothes twice)\n"
     "- outfit_change: someone's clothes or accessories (hat, cap, glasses, bag, cape) differ from the shot's first "
     "frame or disappear during the clip\n"
+    "- melting: an object or body melts, oozes, stretches, grows, shrinks or changes shape between frames (a tower "
+    "getting taller, blocks flowing like dough)\n"
+    "- action_missing: the main action described in `action` clearly does not happen (in a single picture: the "
+    "picture doesn't show that moment)\n"
+    "- mood_mismatch: a face clearly shows the opposite feeling of `action` (smiling while the action says crying, "
+    "sad while it says laughing)\n"
     "The images come in this order: one reference sheet per name in reference_sheets (when given), then the "
     "shot's first frame (when given), then the frames to check. Costumes and accessories are allowed to differ "
     "from a sheet; faces, hair and skin are not.\n"
@@ -56,7 +66,8 @@ SYSTEM = (
     "expected people is not a problem by itself: someone can be hidden in a hug, behind another person or at the "
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
-    '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed], '
+    '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed, wrong_look, '
+    'outfit_change, melting, action_missing, mood_mismatch], '
     '"note": "<one short English sentence>"}'
 )
 
