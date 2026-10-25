@@ -352,3 +352,14 @@ def test_gate_limits_jobs_in_flight(monkeypatch, offline, limit):
 ])
 def test_lock_rules(message, provider, status, locks):
     assert engine_health.is_lock_error(message, provider, status) is locks
+
+
+def test_a_failed_job_carries_its_gpu_time(monkeypatch):
+    failed = {"id": "p", "status": "failed", "execution_start_time": 1_000_000_000_000,
+              "execution_end_time": 1_000_000_030_000, "execution_error": {
+                  "exception_type": "OOMError", "exception_message": "boom", "node_type": "KSampler", "node_id": "3",
+                  "traceback": [], "current_inputs": {}, "current_outputs": {}}}
+    mock(monkeypatch, lambda r: httpx.Response(200, json=failed))
+    with pytest.raises(AIError) as e:
+        run(comfy.wait(stage="t", prompt_id="p", poll_interval=0))
+    assert e.value.gpu_seconds == 30 and e.value.prompt_id == "p"  # still billed: callers count it

@@ -87,14 +87,15 @@ export default function AdminSettings() {
           {(data?.items || []).map((it) => {
             const value = edits[it.key] ?? it.value;
             const dirty = edits[it.key] !== undefined && String(edits[it.key]) !== String(it.value);
+            const numeric = it.type === "int" || it.type === "float";
             return (
               <div key={it.key} className="p-5 flex flex-col md:flex-row md:items-center gap-4" data-testid={`setting-${it.key}`}>
                 <div className="flex-1">
                   <div className="font-body font-bold text-[#2D3748]">{it.label_ar}</div>
                   <div className="font-body text-sm text-[#5A677D]">{it.description_ar}</div>
                   <div className="font-body text-xs text-[#8A9AB0] mt-1">
-                    {it.type === "int" ? `من ${it.min} لـ ${it.max} • الافتراضي ${it.default}` : ""}
-                    {it.updated_at ? `${it.type === "int" ? " • " : ""}آخر تعديل ${formatDate(it.updated_at)}` : ""}
+                    {numeric ? `من ${it.min} لـ ${it.max} • الافتراضي ${it.default}` : ""}
+                    {it.updated_at ? `${numeric ? " • " : ""}آخر تعديل ${formatDate(it.updated_at)}` : ""}
                   </div>
                 </div>
                 {it.type === "bool" ? (
@@ -108,9 +109,10 @@ export default function AdminSettings() {
                     onChange={(e) => setEdits({ ...edits, [it.key]: e.target.value })}
                     className="md:w-64 bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body" />
                 ) : (
-                  <input type="number" min={it.min} max={it.max} value={value}
+                  <input type="number" min={it.min} max={it.max} step={it.type === "float" ? it.step || "any" : 1}
+                    value={value} dir="ltr"
                     onChange={(e) => setEdits({ ...edits, [it.key]: e.target.value })}
-                    className="w-28 bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body text-center" />
+                    className={`${it.type === "float" ? "w-32" : "w-28"} bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body text-center`} />
                 )}
                 <button onClick={() => save(it)} disabled={!dirty}
                   className="rounded-full bg-[#87A96B] text-white px-5 py-2 text-sm font-bold font-body inline-flex items-center gap-2 disabled:opacity-40">

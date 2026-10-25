@@ -42,6 +42,10 @@ DEFAULT_PREFIX = "gheras/app"
 MAX_REFS = 10
 MAX_POLL_ERRORS = 5
 SETTING_MAX_CONCURRENT = "comfy.max_concurrent"
+SETTING_USD_PER_GPU_SECOND = "comfy.usd_per_gpu_second"
+# Plan credits: 0.39 credits per GPU-second at ~211 credits per USD (an API
+# deployment bills about half: $3.49/h ≈ $0.00097/s).
+DEFAULT_USD_PER_GPU_SECOND = 0.0019
 LIMIT_CACHE_SECONDS = 15
 LOCK_EXCEPTIONS = ("InsufficientFundsError", "InactiveSubscriptionError")
 PERMANENT_EXCEPTIONS = ("ValidationError",)
@@ -168,6 +172,18 @@ async def _max_concurrent() -> int:
         return 1
 
 
+async def usd_per_gpu_second() -> float:
+    """What a GPU-second costs us (setting comfy.usd_per_gpu_second)."""
+    from db import db
+
+    try:
+        doc = await db.settings.find_one({"key": SETTING_USD_PER_GPU_SECOND}, {"_id": 0, "value": 1})
+        value = float((doc or {}).get("value") or DEFAULT_USD_PER_GPU_SECOND)
+        return value if value > 0 else DEFAULT_USD_PER_GPU_SECOND
+    except Exception:  # noqa: BLE001
+        return DEFAULT_USD_PER_GPU_SECOND
+
+
 class _Gate:
     """Jobs in flight across the whole process (the Standard plan runs one at a
     time). The limit is re-read every few seconds, so a change needs no restart."""
@@ -268,11 +284,12 @@ async def _job_error(stage: str, prompt_id: str, job: dict) -> AIError:
     raw = json.dumps({k: err.get(k) for k in ("exception_type", "exception_message", "node_type", "node_id")},
                      ensure_ascii=False)
     await engine_health.note_error(stage, f"{kind}: {detail}", provider="comfy", raw=raw)
-    if kind in LOCK_EXCEPTIONS:
-        return AIConfigError(text)
-    if kind in PERMANENT_EXCEPTIONS:
-        return AIPermanentError(text)
-    return AIError(text)  # out of memory, a worker crash, a cancelled job: worth one retry
+    error = (AIConfigError if kind in LOCK_EXCEPTIONS else AIPermanentError if kind in PERMANENT_EXCEPTIONS
+             else AIError)(text)  # AIError: out of memory, a worker crash, a cancelled job — worth one retry
+    # A failed job still ran on the GPU: callers count it as paid.
+    error.gpu_seconds = gpu_seconds(job)
+    error.prompt_id = prompt_id
+    return error
 
 
 def _mime(data: bytes) -> str:

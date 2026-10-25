@@ -583,10 +583,18 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                     await _set_shot(order, plan, scene, sh["shot_index"],
                                     {"keyframe_prompt_id": prompt_id, "keyframe_prompt_attempt": attempt})
 
-                img, mime, meta = await comfy_image(
-                    stage="scene_image_generation", model=comfy_model, prompt=text,
-                    references=[r["image_bytes"] for r in refs], upload_cache=uploads,
-                    prompt_id=resume_id, on_submitted=submitted)
+                try:
+                    img, mime, meta = await comfy_image(
+                        stage="scene_image_generation", model=comfy_model, prompt=text,
+                        references=[r["image_bytes"] for r in refs], upload_cache=uploads,
+                        prompt_id=resume_id, on_submitted=submitted)
+                except Exception as e:
+                    if getattr(e, "gpu_seconds", None):  # a failed job's GPU time is billed too
+                        await db.shot_assets.update_one(
+                            {"order_id": order["id"], "production_plan_id": plan["id"],
+                             "scene_index": scene["scene_index"], "shot_index": sh["shot_index"]},
+                            {"$inc": {"comfy_gpu_seconds": e.gpu_seconds, "keyframe_gpu_seconds": e.gpu_seconds}})
+                    raise
                 resume_id = None
             else:
                 img, mime, meta = await generate_image(
@@ -598,7 +606,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             # animated as is: redraw it once (an image is cheaper than a clip).
             paid = {"paid_keyframes": 1}
             if meta.get("gpu_seconds"):
-                paid["comfy_gpu_seconds"] = meta["gpu_seconds"]
+                paid.update(comfy_gpu_seconds=meta["gpu_seconds"], keyframe_gpu_seconds=meta["gpu_seconds"])
             await db.shot_assets.update_one(
                 {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
                  "shot_index": sh["shot_index"]},
@@ -943,6 +951,11 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
     uploads: dict[str, str] = {}  # keyframe url → its name on Comfy
     rescued: list[str] = []
 
+    async def failed_gpu(row: dict, e: Exception) -> None:
+        """A Comfy job that failed still ran on the GPU: it's paid."""
+        if getattr(e, "gpu_seconds", None):
+            await _paid(row, {"comfy_gpu_seconds": e.gpu_seconds, "clip_gpu_seconds": e.gpu_seconds})
+
     async def attempt(row: dict, engine: str, engine_model: str) -> str:
         """One shot on one engine: "done", "failed", or "rescue" (a Wan clip
         flagged twice or failing, when Kling may take over)."""
@@ -977,7 +990,7 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                         on_submitted=submitted, prompt_id=prompt_id, timeout=1200.0, poll_interval=5.0)
                     gpu = comfy.gpu_seconds(job)
                     if gpu:
-                        await _paid(row, {"comfy_gpu_seconds": gpu})
+                        await _paid(row, {"comfy_gpu_seconds": gpu, "clip_gpu_seconds": gpu})
                 else:
                     if not request_id:
                         args = await _clip_arguments(row, engine_model, sheets, sheet_urls, tail, style, pacing,
@@ -1030,12 +1043,15 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
             except AIConfigError as e:
                 # No key or no credit: the order pauses for the top-up (engine_health);
                 # Kling doesn't quietly take over a whole story.
+                await failed_gpu(row, e)
                 await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300], "clip_run_id": run_id})
                 return "failed"
             except AIPermanentError as e:
+                await failed_gpu(row, e)
                 await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300], "clip_run_id": run_id})
                 return give_up
             except Exception as e:  # noqa: BLE001 — one fresh retry per shot
+                await failed_gpu(row, e)
                 logger.warning(f"[shots] clip {shot_key} on {engine} attempt {tries}: {e}")
                 await _save(row, {"clip_state": "retrying" if tries == 1 else "failed",
                                   "clip_error": f"{type(e).__name__}: {e}"[:300], "clip_run_id": run_id})
