@@ -32,7 +32,7 @@ logger = logging.getLogger("clip_review")
 REVIEW_MODEL = "anthropic/claude-haiku-5.5"
 CLIP_FRAMES = 4
 PROBLEMS = ("duplicate", "extra_person", "clipping", "vanishing", "text", "deformed", "wrong_look", "outfit_change",
-            "melting", "action_missing", "mood_mismatch", "noise")
+            "melting", "action_missing", "mood_mismatch", "noise", "object_alive")
 # Other words models use for the same problems.
 SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": "outfit_change",
             "accessor": "outfit_change", "hat": "outfit_change", "cap": "outfit_change",
@@ -40,7 +40,8 @@ SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": 
             "clone": "duplicate", "twin": "duplicate",
             "melt": "melting", "stretch": "melting", "morph": "melting", "ooz": "melting", "warp": "melting",
             "not_happen": "action_missing", "no_action": "action_missing", "missing_action": "action_missing",
-            "expression": "mood_mismatch", "emotion": "mood_mismatch", "mood": "mood_mismatch"}
+            "expression": "mood_mismatch", "emotion": "mood_mismatch", "mood": "mood_mismatch",
+            "alive": "object_alive", "animated_toy": "object_alive", "toy_mov": "object_alive"}
 REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and colors
 # Qwen sometimes returns coloured static instead of a picture (2 frames of the
 # first 18: a figure on white broken into confetti). Inside small blocks its
@@ -77,6 +78,9 @@ SYSTEM = (
     "picture doesn't show that moment)\n"
     "- mood_mismatch: a face clearly shows the opposite feeling of `action` (smiling while the action says crying, "
     "sad while it says laughing)\n"
+    "- object_alive: one of `story_objects` moves, waves, blinks or talks by itself like a living character\n"
+    "`story_objects` are things in the shot (toys, props), even when one looks like a cartoon character: they are "
+    "never people, so they never count as an extra person or a duplicate.\n"
     "The images come in this order: one reference sheet per name in reference_sheets (when given), then the "
     "shot's first frame (when given), then the frames to check. Costumes and accessories are allowed to differ "
     "from a sheet; faces, hair and skin are not.\n"
@@ -85,7 +89,7 @@ SYSTEM = (
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
     '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed, wrong_look, '
-    'outfit_change, melting, action_missing, mood_mismatch], '
+    'outfit_change, melting, action_missing, mood_mismatch, object_alive], '
     '"note": "<one short English sentence>"}'
 )
 
@@ -166,10 +170,12 @@ def _verdict(answer: str) -> dict:
 
 
 async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expected: list[str], action: str,
-               sheets: list[tuple[str, bytes, str]] | None = None, first: tuple[bytes, str] | None = None) -> dict:
+               sheets: list[tuple[str, bytes, str]] | None = None, first: tuple[bytes, str] | None = None,
+               objects: list[str] | None = None) -> dict:
     """{ok, problems, people_seen, note} — or ok with `skipped` when the check can't run.
     `sheets` (label, bytes, mime) let it tell who is who; `first` is the shot's
-    start frame, for clothes that change during a clip."""
+    start frame, for clothes that change during a clip; `objects` = the shot's
+    story objects (a character plush was counted as a fifth person)."""
     if not await enabled():
         return {"ok": True, "skipped": "off"}
     from services.ai import fal
@@ -184,7 +190,8 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
                 for i, (data, mime) in enumerate([*refs, *images])]
         user = json.dumps({"shot": shot_key, "frames_to_check": len(images), "expected_people": expected or ["nobody"],
                            "expected_count": len(expected), "reference_sheets": [label for label, _, _ in sheets or []],
-                           "first_frame_given": bool(first), "action": (action or "")[:400]}, ensure_ascii=False)
+                           "first_frame_given": bool(first), "action": (action or "")[:400],
+                           "story_objects": objects or []}, ensure_ascii=False)
         answer = await generate_vision(stage=stage, model=REVIEW_MODEL, system=SYSTEM, user=user, image_urls=urls,
                                        max_tokens=300)
         verdict = _verdict(answer)
@@ -199,11 +206,12 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
 
 
 async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list[str], action: str,
-                          sheets: list[tuple[str, bytes, str]] | None = None) -> dict:
+                          sheets: list[tuple[str, bytes, str]] | None = None, objects: list[str] | None = None) -> dict:
     static = await asyncio.to_thread(static_verdict, [image])
     if static:
         return static
-    return await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets)
+    return await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets,
+                      objects=objects)
 
 
 def _clip_frames(data: bytes, count: int = CLIP_FRAMES) -> list[bytes]:
@@ -234,7 +242,8 @@ def _clip_frames(data: bytes, count: int = CLIP_FRAMES) -> list[bytes]:
 
 
 async def review_clip(shot_key: str, data: bytes, expected: list[str], action: str,
-                      sheets: list[tuple[str, bytes, str]] | None = None, first: tuple[bytes, str] | None = None) -> dict:
+                      sheets: list[tuple[str, bytes, str]] | None = None, first: tuple[bytes, str] | None = None,
+                      objects: list[str] | None = None) -> dict:
     try:
         frames = await asyncio.to_thread(_clip_frames, data)
     except Exception as e:  # noqa: BLE001
@@ -242,4 +251,5 @@ async def review_clip(shot_key: str, data: bytes, expected: list[str], action: s
     static = await asyncio.to_thread(static_verdict, frames)
     if static:
         return static
-    return await _ask("clip_review", shot_key, [(f, "image/jpeg") for f in frames], expected, action, sheets, first)
+    return await _ask("clip_review", shot_key, [(f, "image/jpeg") for f in frames], expected, action, sheets, first,
+                      objects)

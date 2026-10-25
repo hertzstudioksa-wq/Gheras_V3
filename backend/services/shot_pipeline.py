@@ -226,7 +226,7 @@ OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, bad
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
 # How bad a flagged frame is, to keep the least broken of several takes.
 FLAW_WEIGHT = {"noise": 10, "deformed": 3, "melting": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2,
-               "vanishing": 2, "action_missing": 2, "mood_mismatch": 2}
+               "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2}
 
 
 def flaw(review: dict) -> int:
@@ -840,7 +840,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             review = await clip_review.review_keyframe(
                 shot_key, img, mime, cast, sh.get("keyframe_prompt") or "",
                 [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
-                 [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes])
+                 [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes], [o["name"] for o in in_shot])
             review["redrawn"] = attempt >= 2
             if passes(review):
                 break
@@ -1247,7 +1247,7 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 made = True
                 refs, first = await review_refs(row)
                 review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
-                                                       row.get("motion_prompt") or "", refs, first)
+                                                       row.get("motion_prompt") or "", refs, first, row.get("objects"))
                 if not passes(review) and wan and not passes(row.get("keyframe_review")):
                     # The start frame itself was still flagged after its redraw: another
                     # Wan take animates the same picture, so none is paid for. The admin

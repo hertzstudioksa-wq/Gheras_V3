@@ -144,3 +144,31 @@ def test_tashkeel_never_stops_the_book(monkeypatch):
     for failing in (locked, broken):
         monkeypatch.setattr(tashkeel_service, "diacritize", failing)
         assert asyncio.run(tashkeel_service.vowelled_pages(pages)) == {}
+
+
+def test_the_review_is_told_the_story_objects(monkeypatch):
+    # a character plush was counted as a fifth person
+    import json
+
+    from services.ai import fal, text_client
+
+    seen = {}
+
+    async def on():
+        return True
+
+    async def upload(**k):
+        return "https://x/u.png"
+
+    async def vision(**k):
+        seen.update(k)
+        return '{"ok": true, "problems": []}'
+
+    monkeypatch.setattr(clip_review, "enabled", on)
+    monkeypatch.setattr(fal, "upload", upload)
+    monkeypatch.setattr(text_client, "generate_vision", vision)
+    verdict = asyncio.run(clip_review.review_keyframe("1_1", cartoon_picture(), "image/png", ["Lina"], "Lina waves.",
+                                                      None, ["the red kite"]))
+    assert verdict["ok"] and json.loads(seen["user"])["story_objects"] == ["the red kite"]
+    assert "never people" in seen["system"] and "object_alive" in seen["system"]
+    assert clip_review._problem("toy moving by itself (alive)") == "object_alive"
