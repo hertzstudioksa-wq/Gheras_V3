@@ -194,3 +194,98 @@ def test_a_flagged_comfy_keyframe_gets_three_takes_and_the_least_broken_is_kept(
         assert r["paid_keyframes"] == 3 and r["keyframe_gpu_seconds"] == 60
         assert r["keyframe_review"]["problems"] == ["text"] and r["keyframe_review"]["redrawn"]
     run(go())
+
+
+def _static_first(monkeypatch, times: int):
+    """The first `times` keyframe takes come out as coloured static."""
+    from services import clip_review
+
+    left = {"n": times}
+
+    def verdict(images):
+        if left["n"]:
+            left["n"] -= 1
+            return {"ok": False, "problems": ["noise"], "note": "static"}
+        return None
+
+    monkeypatch.setattr(clip_review, "static_verdict", verdict)
+
+
+def test_a_static_keyframe_is_drawn_again(monkeypatch):
+    async def go():
+        _static_first(monkeypatch, 1)
+        await _story("n")
+        r = await _row("n", 1, 1)
+        assert r["paid_keyframes"] == 2 and r["keyframe_gpu_seconds"] == 40
+        assert r["keyframe_review"]["ok"] and r["keyframe_review"]["redrawn"]
+    run(go())
+
+
+def test_static_on_every_take_fails_the_shot_instead_of_shipping_it(monkeypatch):
+    async def go():
+        order, plan = await _story("n3")
+        await db.shot_assets.update_one({"order_id": "n3", "scene_index": 2, "shot_index": 1},
+                                        {"$set": {"keyframe_url": None}})
+        _static_first(monkeypatch, 3)
+        with pytest.raises(sp.AIError):
+            await sp.execute_scene_keyframes({"id": "n3-j3", "target_id": "n3-s2"}, order, plan)
+        r = await _row("n3", 2, 1)
+        # the frame isn't stored, and a retry draws fresh instead of waiting on the static job
+        assert not r["keyframe_url"] and r["keyframe_prompt_id"] is None and r["paid_keyframes"] == 4
+    run(go())
+
+
+def _locked_once(monkeypatch, name: str):
+    """The review hits an exhausted balance once, then works (after the top-up)."""
+    from services import clip_review
+    from services.ai import AIConfigError
+
+    calls = {"n": 0}
+    real = getattr(clip_review, name)
+
+    async def review(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise AIConfigError("fal call failed (upload): HTTP 403: User is locked. Reason: Exhausted balance")
+        return await real(*a, **k)
+
+    monkeypatch.setattr(clip_review, name, review)
+
+
+def test_a_keyframe_review_on_an_empty_balance_pauses_and_resumes_without_paying_twice(monkeypatch):
+    async def go():
+        from services.ai import AIConfigError
+
+        order, plan = await _story("p")
+        await db.shot_assets.update_one({"order_id": "p", "scene_index": 2, "shot_index": 1},
+                                        {"$set": {"keyframe_url": None, "paid_keyframes": 0, "keyframe_gpu_seconds": 0,
+                                                  "comfy_gpu_seconds": 0}})
+        _locked_once(monkeypatch, "review_keyframe")
+        with pytest.raises(AIConfigError):
+            await sp.execute_scene_keyframes({"id": "p-j3", "target_id": "p-s2"}, order, plan)
+        r = await _row("p", 2, 1)
+        assert not r["keyframe_url"] and r["keyframe_prompt_id"] and r["paid_keyframes"] == 1
+        jobs = await db.fake_requests.count_documents({"kind": "comfy"})
+        await sp.execute_scene_keyframes({"id": "p-j4", "target_id": "p-s2"}, order, plan)  # after the top-up
+        r = await _row("p", 2, 1)
+        assert r["keyframe_url"] and await db.fake_requests.count_documents({"kind": "comfy"}) == jobs
+        assert r["paid_keyframes"] == 1 and r["keyframe_gpu_seconds"] == 20
+    run(go())
+
+
+def test_a_clip_review_on_an_empty_balance_pauses_and_resumes_without_paying_twice(monkeypatch):
+    async def go():
+        order, plan = await _story("q")
+        await fake_providers.simulate(flag_times={}, flag_counts={}, comfy_fail_clips=[])
+        _locked_once(monkeypatch, "review_clip")
+        await sp.run_shot_clips(order, plan, "run-q1")
+        paused = [r for r in [await _row("q", 1, 1), await _row("q", 1, 2), await _row("q", 2, 1)]
+                  if not r.get("clip_url")]
+        assert len(paused) == 1 and paused[0]["clip_state"] == "submitted" and paused[0]["clip_prompt_id"]
+        s, i, gpu = paused[0]["scene_index"], paused[0]["shot_index"], paused[0]["clip_gpu_seconds"]
+        jobs = await db.fake_requests.count_documents({"kind": "comfy"})
+        await sp.run_shot_clips(order, plan, "run-q2")  # after the top-up
+        r = await _row("q", s, i)
+        assert r["clip_url"] and r["clip_state"] == "completed"
+        assert await db.fake_requests.count_documents({"kind": "comfy"}) == jobs and r["clip_gpu_seconds"] == gpu
+    run(go())

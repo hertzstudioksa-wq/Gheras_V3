@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from db import db
 from models import OrderStatus, ORDER_STATUS_AR, get_order_output_type
 from storage import put_object, APP_NAME
-from services.ai import AIPermanentError
+from services.ai import AIError, AIPermanentError
 from services.image_generation_service import generate_image
 from services.audio_generation_service import generate_audio, estimate_duration_seconds
 from services.tts_service import narration_voice_for_order
@@ -554,10 +554,20 @@ async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str,
         # The whole cast with their sheets (a cover drawn from the child's sheet
         # alone invented the other characters' faces).
         prompt, references, _cast = await shot_pipeline.cover_request(order, plan)
-        image_bytes, mime, meta = await generate_image(
-            scene_prompt=prompt, references=references or None, size=WIDE, quality="high", raw_prompt=True,
-            session_hint=f"cover-{order['id'][:6]}")
-        return await _store_cover(job, order, plan, image_bytes, mime, meta)
+        from services.clip_review import static_verdict
+
+        # Comfy sometimes returns coloured static instead of a picture: draw again.
+        gpu = 0.0
+        for _take in range(3):
+            image_bytes, mime, meta = await generate_image(
+                scene_prompt=prompt, references=references or None, size=WIDE, quality="high", raw_prompt=True,
+                session_hint=f"cover-{order['id'][:6]}")
+            gpu += meta.get("gpu_seconds") or 0
+            if not await asyncio.to_thread(static_verdict, [image_bytes]):
+                break
+        else:
+            raise AIError("the cover came out as coloured static three times")
+        return await _store_cover(job, order, plan, image_bytes, mime, {**meta, "gpu_seconds": gpu or None})
 
     prompt = plan.get("cover_prompt") or f"Book cover for children's story: {plan.get('title','')}"
     references = []

@@ -32,7 +32,7 @@ from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
 from services import clip_review, engine_config, house_style
-from services.ai import AIConfigError, AIPermanentError, comfy, fal
+from services.ai import AIConfigError, AIError, AIPermanentError, comfy, fal
 from services.ai.image_client import WIDE, comfy_image, comfy_workflow
 from services.child_character_service import _fetch_source_bytes
 from services.config_service import get_pipeline_config, resolve_model, video_tier_of
@@ -225,8 +225,8 @@ OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, bad
                     "exactly as in the first frame until the last frame.")
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
 # How bad a flagged frame is, to keep the least broken of several takes.
-FLAW_WEIGHT = {"deformed": 3, "melting": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2, "vanishing": 2,
-               "action_missing": 2, "mood_mismatch": 2}
+FLAW_WEIGHT = {"noise": 10, "deformed": 3, "melting": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2,
+               "vanishing": 2, "action_missing": 2, "mood_mismatch": 2}
 
 
 def flaw(review: dict) -> int:
@@ -581,7 +581,8 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         row = await db.shot_assets.find_one(
             {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
              "shot_index": sh["shot_index"]},
-            {"_id": 0, "keyframe_url": 1, "keyframe_prompt_id": 1, "keyframe_prompt_attempt": 1}) or {}
+            {"_id": 0, "keyframe_url": 1, "keyframe_prompt_id": 1, "keyframe_prompt_attempt": 1,
+             "keyframe_counted_id": 1}) or {}
         if row.get("keyframe_url"):
             prev = await _fetch_source_bytes(row["keyframe_url"])
             hero_url = hero_url or row["keyframe_url"]
@@ -622,6 +623,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         best = None
         for attempt in range(first, (3 if on_comfy else 2) + 1):
             text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
+            resumed = False
             if on_comfy:
                 async def submitted(prompt_id: str, attempt: int = attempt) -> None:
                     await _set_shot(order, plan, scene, sh["shot_index"],
@@ -639,7 +641,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                              "scene_index": scene["scene_index"], "shot_index": sh["shot_index"]},
                             {"$inc": {"comfy_gpu_seconds": e.gpu_seconds, "keyframe_gpu_seconds": e.gpu_seconds}})
                     raise
-                resume_id = None
+                resumed, resume_id = bool(resume_id), None
             else:
                 img, mime, meta = await generate_image(
                     scene_prompt=text, references=refs or None,
@@ -651,11 +653,14 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             paid = {"paid_keyframes": 1}
             if meta.get("gpu_seconds"):
                 paid.update(comfy_gpu_seconds=meta["gpu_seconds"], keyframe_gpu_seconds=meta["gpu_seconds"])
-            await db.shot_assets.update_one(
-                {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
-                 "shot_index": sh["shot_index"]},
-                {"$inc": paid, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now()}},
-                upsert=True)
+            # A job resumed after its review paused the order (empty balance) was counted then.
+            if not (resumed and row.get("keyframe_counted_id") == meta.get("prompt_id")):
+                await db.shot_assets.update_one(
+                    {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
+                     "shot_index": sh["shot_index"]},
+                    {"$inc": paid, "$set": {"keyframe_counted_id": meta.get("prompt_id")},
+                     "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now()}},
+                    upsert=True)
             review = await clip_review.review_keyframe(
                 shot_key, img, mime, cast, sh.get("keyframe_prompt") or "",
                 [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
@@ -668,6 +673,11 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         else:
             if best:
                 img, mime, meta, review = best
+        if "noise" in (review.get("problems") or []):
+            # Static on every take: a visible failure beats a broken frame in the story.
+            await _set_shot(order, plan, scene, sh["shot_index"], {"keyframe_prompt_id": None,
+                                                                    "keyframe_prompt_attempt": None})
+            raise AIError(f"shot {shot_key}: every keyframe take came out as coloured static")
         url = await _store(order, "keyframe", img, mime, "png")
         model = meta.get("model")
         await _set_shot(order, plan, scene, sh["shot_index"], {
@@ -989,9 +999,9 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
         await db.shot_assets.update_one({**key, "scene_index": row["scene_index"], "shot_index": row["shot_index"]},
                                         {"$set": {**patch, "updated_at": _now()}})
 
-    async def _paid(row: dict, inc: dict) -> None:
+    async def _paid(row: dict, inc: dict, counted: str | None = None) -> None:
         await db.shot_assets.update_one({**key, "scene_index": row["scene_index"], "shot_index": row["shot_index"]},
-                                        {"$inc": inc})
+                                        {"$inc": inc, **({"$set": {"clip_counted_id": counted}} if counted else {})})
 
     uploads: dict[str, str] = {}  # keyframe url → its name on Comfy
     rescued: list[str] = []
@@ -1015,6 +1025,7 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
         tries = 0
         while tries < 2:
             tries += 1
+            made = False  # the clip is downloaded (and paid)
             try:
                 tail = pacing["end_tail_sec"] if (row["scene_index"], row["shot_index"]) == last else 0.0
                 remote = None
@@ -1034,8 +1045,9 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                         stage="video_generation", workflow=comfy_workflow(engine_model), fills=fills,
                         on_submitted=submitted, prompt_id=prompt_id, timeout=1200.0, poll_interval=5.0)
                     gpu = comfy.gpu_seconds(job)
-                    if gpu:
-                        await _paid(row, {"comfy_gpu_seconds": gpu, "clip_gpu_seconds": gpu})
+                    # A job resumed after its review paused the order (empty balance) was counted then.
+                    if gpu and not (prompt_id and row.get("clip_counted_id") == job.get("prompt_id")):
+                        await _paid(row, {"comfy_gpu_seconds": gpu, "clip_gpu_seconds": gpu}, job.get("prompt_id"))
                 else:
                     if not request_id:
                         args = await _clip_arguments(row, engine_model, sheets, sheet_urls, tail, style, pacing,
@@ -1054,6 +1066,7 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                         raise RuntimeError("Kling returned no video url")
                     data = await fal.download(remote)
                 request_id = prompt_id = None  # used: a redo is a new request
+                made = True
                 refs, first = await review_refs(row)
                 review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
                                                        row.get("motion_prompt") or "", refs, first)
@@ -1094,6 +1107,10 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 # No key or no credit: the order pauses for the top-up (engine_health);
                 # Kling doesn't quietly take over a whole story.
                 await failed_gpu(row, e)
+                if made:
+                    # Only the review hit the empty balance: the clip's job stays saved
+                    # ("submitted"), so the resume downloads it again instead of paying.
+                    return "failed"
                 await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300], "clip_run_id": run_id})
                 return "failed"
             except AIPermanentError as e:

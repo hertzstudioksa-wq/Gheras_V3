@@ -13,6 +13,7 @@ const PROBLEM_AR = {
   vanishing: "شخصية بتختفي", text: "كتابة", deformed: "تشوّه",
   wrong_look: "شكل مش مطابق للشخصية", outfit_change: "اللبس أو الإكسسوار اتغيّر",
   melting: "حاجة بتسيح أو بتتمدد", action_missing: "الحدث المطلوب ما حصلش", mood_mismatch: "التعبير عكس السطر",
+  noise: "صورة مشوّشة (ألوان عشوائية)",
 };
 
 function ReviewBadge({ label, review, redoneKey }) {

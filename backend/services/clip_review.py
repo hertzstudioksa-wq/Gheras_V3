@@ -7,7 +7,10 @@ looks at the shot's start frame, and later at four frames of its clip, and
 says whether that happened. A flagged keyframe is redrawn once, a flagged clip
 is animated once more with calmer motion; the verdict stays on the shot so the
 admin sees it. It never blocks delivery: when the reviewer can't be reached,
-or the setting is off, the shot is used as is.
+or the setting is off, the shot is used as is — except when the reviewer's
+balance ran out: then the order pauses for the top-up like every other paid
+step (a whole story once went out unchecked, with a frame of pure static).
+Coloured static is caught without a model, so even then it never ships.
 """
 from __future__ import annotations
 
@@ -22,13 +25,14 @@ import subprocess
 import tempfile
 
 from db import db
+from services import engine_health
 
 logger = logging.getLogger("clip_review")
 
 REVIEW_MODEL = "anthropic/claude-haiku-5.5"
 CLIP_FRAMES = 4
 PROBLEMS = ("duplicate", "extra_person", "clipping", "vanishing", "text", "deformed", "wrong_look", "outfit_change",
-            "melting", "action_missing", "mood_mismatch")
+            "melting", "action_missing", "mood_mismatch", "noise")
 # Other words models use for the same problems.
 SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": "outfit_change",
             "accessor": "outfit_change", "hat": "outfit_change", "cap": "outfit_change",
@@ -38,6 +42,14 @@ SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": 
             "not_happen": "action_missing", "no_action": "action_missing", "missing_action": "action_missing",
             "expression": "mood_mismatch", "emotion": "mood_mismatch", "mood": "mood_mismatch"}
 REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and colors
+# Qwen sometimes returns coloured static instead of a picture (2 frames of the
+# first 18: a figure on white broken into confetti). Inside small blocks its
+# colours point every way, over a washed-out canvas. Measured on 96 real
+# frames: static has a hue spread of 0.14-0.24 with under half of the blocks
+# saturated; real pictures stay under 0.03 when that pale, and colourful ones
+# (a jungle at sunset reached 0.12) are 75%+ saturated.
+STATIC_SPREAD = 0.10
+STATIC_SATURATED = 0.70
 
 SYSTEM = (
     "You check frames of a 2D cartoon shot from a children's story before a family sees it. You get the people who "
@@ -94,6 +106,41 @@ def _shrink(data: bytes, side: int = REF_SIDE) -> tuple[bytes, str]:
     return out.getvalue(), "image/jpeg"
 
 
+def static_measure(data: bytes) -> tuple[float, float]:
+    """(hue spread inside the saturated 8px blocks, share of saturated blocks) of a 384px copy."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    img.thumbnail((384, 384))
+    hsv = np.asarray(img.convert("HSV"), dtype=np.float32)
+    hue, sat = hsv[..., 0] / 255 * 2 * np.pi, hsv[..., 1] / 255
+    h, w = hue.shape[0] // 8 * 8, hue.shape[1] // 8 * 8
+
+    def blocks(a):
+        return a[:h, :w].reshape(h // 8, 8, w // 8, 8).mean(axis=(1, 3))
+
+    mean_sat = blocks(sat)
+    # 1 - length of the mean colour vector: 0 = one hue per block, 1 = every hue
+    spread = 1 - np.hypot(blocks(sat * np.cos(hue)), blocks(sat * np.sin(hue))) / (mean_sat + 1e-6)
+    saturated = mean_sat > 0.2
+    return (float(spread[saturated].mean()) if saturated.any() else 0.0), float(saturated.mean())
+
+
+def static_verdict(images: list[bytes]) -> dict | None:
+    """A flagged verdict when any image is coloured static, else None."""
+    for data in images:
+        try:
+            spread, saturated = static_measure(data)
+        except Exception:  # noqa: BLE001 — an unreadable image is the model check's business
+            continue
+        if spread > STATIC_SPREAD and saturated < STATIC_SATURATED:
+            logger.warning(f"[review] coloured static: spread {spread:.3f}, saturated {saturated:.2f}")
+            return {"ok": False, "problems": ["noise"], "people_seen": None,
+                    "note": f"coloured static, not a picture (spread {spread:.2f})"}
+    return None
+
+
 def _verdict(answer: str) -> dict:
     m = re.search(r"\{.*\}", answer or "", re.S)
     data = json.loads(m.group(0)) if m else {}
@@ -125,7 +172,9 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
         answer = await generate_vision(stage=stage, model=REVIEW_MODEL, system=SYSTEM, user=user, image_urls=urls,
                                        max_tokens=300)
         verdict = _verdict(answer)
-    except Exception as e:  # noqa: BLE001 — a review that can't run never blocks the story
+    except Exception as e:  # noqa: BLE001 — a review that can't run never blocks the story...
+        if engine_health.is_balance_message(e):
+            raise  # ...unless its balance ran out: the order pauses for the top-up
         logger.warning(f"[review] {stage} {shot_key} skipped: {type(e).__name__}: {str(e)[:160]}")
         return {"ok": True, "skipped": "unavailable", "error": f"{type(e).__name__}: {str(e)[:160]}"}
     if not verdict["ok"]:
@@ -135,6 +184,9 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
 
 async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list[str], action: str,
                           sheets: list[tuple[str, bytes, str]] | None = None) -> dict:
+    static = await asyncio.to_thread(static_verdict, [image])
+    if static:
+        return static
     return await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets)
 
 
@@ -167,10 +219,11 @@ def _clip_frames(data: bytes, count: int = CLIP_FRAMES) -> list[bytes]:
 
 async def review_clip(shot_key: str, data: bytes, expected: list[str], action: str,
                       sheets: list[tuple[str, bytes, str]] | None = None, first: tuple[bytes, str] | None = None) -> dict:
-    if not await enabled():
-        return {"ok": True, "skipped": "off"}
     try:
         frames = await asyncio.to_thread(_clip_frames, data)
     except Exception as e:  # noqa: BLE001
         return {"ok": True, "skipped": "frames", "error": f"{type(e).__name__}: {str(e)[:160]}"}
+    static = await asyncio.to_thread(static_verdict, frames)
+    if static:
+        return static
     return await _ask("clip_review", shot_key, [(f, "image/jpeg") for f in frames], expected, action, sheets, first)

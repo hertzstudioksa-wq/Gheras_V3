@@ -65,7 +65,8 @@ async def diacritize(texts: list[str]) -> list[str | None]:
 
 
 async def vowelled_pages(book_assets: list[dict]) -> dict[str, str]:
-    """book_asset id → vowelled text, from cache or one model call. Never raises."""
+    """book_asset id → vowelled text, from cache or one model call. Raises only on
+    an exhausted balance (a book went out plain once when fal's credit ran out)."""
     from db import db
 
     result: dict[str, str] = {}
@@ -81,7 +82,11 @@ async def vowelled_pages(book_assets: list[dict]) -> dict[str, str]:
         return result
     try:
         vowelled = await diacritize([(ba.get("page_text") or "").strip() for ba in missing])
-    except Exception as e:  # noqa: BLE001 — the book is still fine without vowels
+    except Exception as e:  # noqa: BLE001 — the book is still fine without vowels...
+        from services.engine_health import is_balance_message
+
+        if is_balance_message(e):
+            raise  # ...but not because the balance ran out: the order pauses for the top-up
         logger.warning(f"[tashkeel] skipped: {type(e).__name__}: {e}")
         return result
     for ba, text in zip(missing, vowelled):
