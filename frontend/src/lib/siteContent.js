@@ -27,6 +27,15 @@ export function useSiteContent() {
   return content;
 }
 
+/** A wa.me link for the business phone (Saudi 05… numbers get +966), or "". */
+export function whatsappLink(phone, text = "مرحباً، لدي سؤال عن غِراس") {
+  let digits = String(phone || "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  else if (digits.startsWith("05")) digits = `966${digits.slice(1)}`;
+  if (digits.length < 9) return "";
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
 /** The registered business details an admin filled in (empty ones dropped). */
 export function businessDetails(content) {
   return [

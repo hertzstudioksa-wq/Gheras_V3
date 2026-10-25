@@ -4,7 +4,7 @@ import {
   ArrowDown, ArrowUp, Award, ExternalLink, Heart, Moon, PenTool, Plus, Rocket, Save, Shield, Sparkles, Sprout, Star, Sun,
   Trash2,
 } from "lucide-react";
-import { api } from "../../lib/api";
+import { api, fileSrc, uploadImage } from "../../lib/api";
 import { AdminPage, PageState } from "../../components/admin/AdminKit";
 
 // Site content (M5b, audit AF-14): Arabic section and field names instead of
@@ -14,8 +14,10 @@ import { AdminPage, PageState } from "../../components/admin/AdminKit";
 const SECTIONS = {
   hero: "الواجهة الرئيسية", how: "كيف تعمل غِراس", values: "لماذا غِراس", footer: "التذييل",
   business: "بيانات المنشأة (تظهر في الشروط والخصوصية والتذييل)",
+  showcase: "عينة الصفحة الرئيسية (فيديو وصور — القسم مخفي لحد ما ترفع حاجة)",
 };
-const ORDER = ["business", "hero", "how", "values", "footer"];
+const ORDER = ["business", "showcase", "hero", "how", "values", "footer"];
+const mediaKind = (key) => (/\.video_url$/.test(key) ? "video" : /\.(poster_url|step\d_image)$/.test(key) ? "image" : null);
 // Business details read in the order a registration certificate lists them.
 const BUSINESS_ORDER = ["business.legal_name", "business.cr_number", "business.vat_number", "business.address",
   "business.phone"];
@@ -36,6 +38,8 @@ function fieldLabel(key) {
     contact_email: "إيميل التواصل", instagram: "رابط إنستغرام", x: "رابط X (تويتر)",
     legal_name: "الاسم التجاري المسجّل", cr_number: "رقم السجل التجاري", vat_number: "الرقم الضريبي",
     address: "العنوان الوطني", phone: "رقم التواصل / واتساب",
+    caption: "سطر تحت الفيديو", video_url: "فيديو العينة (MP4، حد أقصى 40 ميجا)", poster_url: "صورة الغلاف قبل التشغيل",
+    step1_image: "الشريط — 1) صورة الطفل", step2_image: "الشريط — 2) شخصيته الكرتون", step3_image: "الشريط — 3) مشهد من القصة",
   }[tail] || tail;
 }
 
@@ -86,7 +90,8 @@ export default function AdminContent() {
                 return (
                   <div key={b.key} className="p-5" data-testid={`content-row-${b.key}`}>
                     <label className="block text-sm font-bold text-[#2D3748] mb-2 font-body">{fieldLabel(b.key)}</label>
-                    {Array.isArray(value) ? <CardsEditor items={value} onChange={set} />
+                    {mediaKind(b.key) ? <MediaField kind={mediaKind(b.key)} value={value || ""} onChange={set} />
+                      : Array.isArray(value) ? <CardsEditor items={value} onChange={set} />
                       : typeof value === "string" && value.length > 70
                         ? <textarea rows={3} value={value} onChange={(e) => set(e.target.value)}
                             className="w-full bg-[#FDFBF7] border border-[#E2D8C9] rounded-2xl px-4 py-2 font-body mb-3" />
@@ -104,6 +109,54 @@ export default function AdminContent() {
         ))}
       </PageState>
     </AdminPage>
+  );
+}
+
+// Upload + preview for homepage media (public "site" files). Save to publish.
+function MediaField({ kind, value, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const pick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      if (kind === "image") {
+        const r = await uploadImage(file, "site");
+        onChange(r.url);
+      } else {
+        const form = new FormData();
+        form.append("file", file);
+        const { data } = await api.post("/uploads/site-video", form, {
+          headers: { "Content-Type": "multipart/form-data" }, timeout: 300000,
+        });
+        onChange(data.url);
+      }
+      toast.success("اترفع — اضغط «حفظ» عشان يظهر في الموقع");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || err.message || "فشل الرفع");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const src = value ? fileSrc(value) : "";
+  return (
+    <div className="flex items-center gap-3 flex-wrap mb-3">
+      <div className="w-40 h-24 rounded-xl bg-[#FDFBF7] border border-[#E2D8C9] overflow-hidden grid place-content-center text-xs text-[#8A9AB0] font-body">
+        {!src ? "مفيش" : kind === "video"
+          ? <video src={src} muted className="w-40 h-24 object-cover" />
+          : <img src={src} alt="" className="w-40 h-24 object-cover" />}
+      </div>
+      <label className={`rounded-full bg-white border border-[#87A96B] text-[#4F6B3B] px-4 py-1.5 text-sm font-bold font-body cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}`}>
+        {busy ? "جاري الرفع…" : value ? "استبدال" : "رفع"}
+        <input type="file" hidden accept={kind === "video" ? "video/mp4,video/webm" : "image/png,image/jpeg,image/webp"} onChange={pick} />
+      </label>
+      {value && (
+        <button type="button" onClick={() => onChange("")} className="rounded-full bg-[#FCE6D4] text-[#B8612F] px-4 py-1.5 text-sm font-bold font-body">
+          إزالة
+        </button>
+      )}
+    </div>
   );
 }
 

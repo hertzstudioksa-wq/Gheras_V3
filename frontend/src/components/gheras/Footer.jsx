@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Instagram, Twitter, Mail } from "lucide-react";
-import { useSiteContent, businessDetails } from "../../lib/siteContent";
+import { Instagram, Twitter, Mail, MessageCircle } from "lucide-react";
+import { useSiteContent, businessDetails, whatsappLink } from "../../lib/siteContent";
 
 const LOGO_URL = "/gheras-logo.png";
 
@@ -12,6 +12,7 @@ export default function Footer() {
     ["Instagram", content["footer.instagram"], Instagram],
     ["X", content["footer.x"], Twitter],
     ["البريد", content["footer.contact_email"] && `mailto:${content["footer.contact_email"]}`, Mail],
+    ["واتساب", whatsappLink(content["business.phone"]), MessageCircle],
   ].filter(([, href]) => href);
   const business = businessDetails(content).filter(([label]) => label !== "البريد الإلكتروني");
 

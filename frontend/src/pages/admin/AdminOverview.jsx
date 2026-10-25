@@ -28,7 +28,8 @@ export default function AdminOverview() {
   if (!data) return <PageState loading={!error} error={error} onRetry={load} />;
   const { kpis, attention, engine } = data;
   const balanceLocked = !!engine.balance?.locked;
-  const engineOk = !engine.missing_keys.length && !engine.stages_off_catalog.length && !balanceLocked;
+  const diskFull = (engine.disk?.used_pct ?? 0) >= 85;
+  const engineOk = !engine.missing_keys.length && !engine.stages_off_catalog.length && !balanceLocked && !diskFull;
 
   return (
     <AdminPage title="الرئيسية" description="اللي محتاج تدخّل دلوقتي، وأرقام آخر 30 يوم، وحالة المحرك." testId="admin-overview">
@@ -83,6 +84,12 @@ export default function AdminOverview() {
                 ? `رصيد fal خلص — التوليد واقف${engine.balance.paused_orders ? ` و${engine.balance.paused_orders} طلب موقوف` : ""}`
                 : "رصيد fal شغّال (حسب آخر طلب)"}
             </li>
+            {engine.disk && (
+              <li className="flex items-center gap-2" data-testid="overview-disk">
+                {diskFull ? <AlertTriangle className="w-4 h-4 text-[#B8612F]" /> : <CheckCircle2 className="w-4 h-4 text-[#4F6B3B]" />}
+                مساحة القرص: {engine.disk.free_gb} جيجا فاضية ({engine.disk.used_pct}% مستخدم){diskFull ? " — فضّي مكان قبل ما الحفظ يقف" : ""}
+              </li>
+            )}
             <li className="flex items-center gap-2">
               {engine.missing_keys.length ? <KeyRound className="w-4 h-4 text-[#B8612F]" /> : <CheckCircle2 className="w-4 h-4 text-[#4F6B3B]" />}
               {engine.missing_keys.length ? `مفاتيح ناقصة: ${engine.missing_keys.join("، ")}` : `مفاتيح كل المراحل (${engine.stages_total}) موجودة`}

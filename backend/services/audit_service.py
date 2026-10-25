@@ -54,8 +54,8 @@ ACTIONS = (
     "privacy.photos_deleted", "privacy.account_deleted", "safety.review",
     # Readiness: resume after a top-up, redo one shot
     "engine.resume_paused", "shot.redo",
-    # The parent's rating / problem report on a delivered story
-    "order.feedback",
+    # The parent's rating / problem report on a delivered story, narration edits
+    "order.feedback", "order.narration_edit",
 )
 
 

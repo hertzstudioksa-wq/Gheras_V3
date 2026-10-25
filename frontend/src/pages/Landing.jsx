@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
-import { useSiteContent } from "../lib/siteContent";
+import { api, fileSrc } from "../lib/api";
+import { useSiteContent, whatsappLink } from "../lib/siteContent";
 import { usePageTitle } from "../lib/usePageTitle";
 import { topicsLabel } from "../lib/arabic";
 import Navbar from "../components/gheras/Navbar";
@@ -9,6 +9,7 @@ import Footer from "../components/gheras/Footer";
 import {
   Sprout, Heart, Shield, Sparkles, ArrowLeft, PlayCircle, BookOpen, Sun, Award, Moon, Rocket,
   PenTool, Star, Clapperboard, Mic, Music, Clock, ShieldCheck, Lock, Trash2, Users, Play, ChevronDown,
+  MessageCircle, CreditCard,
 } from "lucide-react";
 
 const ICON_MAP = {
@@ -43,7 +44,7 @@ const FAQ = [
   ["ما الصورة المناسبة؟",
     "صورة حديثة يظهر فيها الوجه بوضوح وبإضاءة جيدة، بلا نظارة شمسية ولا فلاتر، ويفضّل أن يظهر فيها لبسه المعتاد."],
   ["بأي لغة يكون السرد؟",
-    "بالعربية الفصحى المبسّطة أو باللهجة الخليجية أو المصرية، وتختار صوت الراوي."],
+    "بالعربية الفصحى المبسّطة أو باللهجة السعودية/الخليجية أو المصرية، وتختار صوت الراوي."],
   ["متى أدفع؟",
     "تبدأ مجاناً: تكتب لنا عن طفلك ونقترح عليك ثلاث حكايات. لا تدفع إلا بعد أن تختار الحكاية، ويظهر السعر كاملاً قبل الدفع."],
   ["ماذا لو وجدت خطأ في القصة؟",
@@ -78,9 +79,11 @@ export default function Landing() {
   const content = useSiteContent();
   const [categories, setCategories] = useState([]);
   const prices = useStartingPrices();
+  const [cardPayments, setCardPayments] = useState(false);
 
   useEffect(() => {
     api.get("/public/categories").then((r) => setCategories(r.data)).catch(() => {});
+    api.get("/public/payment-methods").then((r) => setCardPayments(!!r.data?.card)).catch(() => {});
   }, []);
 
   const values = content["values.items"] || [
@@ -90,6 +93,10 @@ export default function Landing() {
     { icon: "sparkles", title: "تجربة فريدة", desc: "طفلك بطل القصة" },
   ];
   const vatNote = prices?.short?.vat_rate > 0 && !prices.short.vat_included ? " شاملة ضريبة القيمة المضافة" : "";
+  // The admin's sample (نصوص الموقع ← عينة الصفحة الرئيسية); hidden while empty.
+  const sampleVideo = content["showcase.video_url"];
+  const sampleSteps = ["step1_image", "step2_image", "step3_image"].map((k) => content[`showcase.${k}`]).filter(Boolean);
+  const whatsapp = whatsappLink(content["business.phone"]);
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]" data-testid="landing-page">
@@ -158,6 +165,41 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      {/* SAMPLE — what the admin uploaded */}
+      {(sampleVideo || sampleSteps.length === 3) && (
+        <section className="py-14 md:py-20" data-testid="showcase-section">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#2D3748] mb-3">
+              {content["showcase.title"] || "شاهد قصة من غِراس"}
+            </h2>
+            {content["showcase.caption"] && (
+              <p className="font-body text-lg text-[#5A677D] mb-8 max-w-2xl mx-auto">{content["showcase.caption"]}</p>
+            )}
+            {sampleVideo && (
+              <div className="rounded-[2rem] overflow-hidden border-8 border-white shadow-2xl bg-black max-w-3xl mx-auto mb-10">
+                <video src={fileSrc(sampleVideo)} poster={content["showcase.poster_url"] ? fileSrc(content["showcase.poster_url"]) : undefined}
+                  className="w-full aspect-video" controls playsInline muted autoPlay loop preload="metadata" data-testid="showcase-video" />
+              </div>
+            )}
+            {sampleSteps.length === 3 && (
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-4" data-testid="showcase-steps">
+                {sampleSteps.map((src, i) => (
+                  <React.Fragment key={src}>
+                    <figure className="bg-white rounded-3xl p-3 border border-[#E2D8C9]">
+                      <img src={fileSrc(src)} alt="" loading="lazy" className="w-full aspect-square object-cover rounded-2xl" />
+                      <figcaption className="font-heading font-bold text-[#2D3748] mt-3">
+                        {["صورة الطفل", "شخصيته الكرتونية", "مشهد من قصته"][i]}
+                      </figcaption>
+                    </figure>
+                    {i < 2 && <ArrowLeft className="w-6 h-6 text-[#87A96B] mx-auto rotate-90 sm:rotate-0" />}
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* WHAT YOU GET */}
       <section id="what-you-get" className="py-16 md:py-24 bg-white scroll-mt-20" data-testid="deliverables-section">
@@ -245,6 +287,18 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      {cardPayments && (
+        <div className="bg-[#F8F1E7] pb-14 -mt-6 text-center" data-testid="payment-badges">
+          <div className="inline-flex flex-wrap items-center justify-center gap-2 font-body text-sm text-[#5A677D] px-4">
+            <CreditCard className="w-4 h-4 text-[#729352]" /> ادفع بأمان:
+            {["مدى", "Visa", "Mastercard", "Apple Pay"].map((m) => (
+              <span key={m} className="rounded-full bg-white border border-[#E2D8C9] px-3 py-1 font-bold text-[#2D3748]" dir="auto">{m}</span>
+            ))}
+            <span>أو من رصيدك في غِراس</span>
+          </div>
+        </div>
+      )}
 
       {/* VALUES */}
       <section className="py-16 md:py-24 bg-white" data-testid="values-section">
@@ -363,6 +417,13 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      {whatsapp && (
+        <a href={whatsapp} target="_blank" rel="noreferrer" aria-label="تواصل معنا على واتساب" data-testid="whatsapp-fab"
+          className="fixed bottom-5 left-5 z-40 w-14 h-14 rounded-full bg-[#25D366] text-white grid place-content-center shadow-xl hover:scale-105 transition">
+          <MessageCircle className="w-7 h-7" />
+        </a>
+      )}
 
       <Footer />
     </div>

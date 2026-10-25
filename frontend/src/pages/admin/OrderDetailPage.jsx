@@ -106,7 +106,7 @@ export default function OrderDetailPage() {
       </>}
       testId="order-page"
     >
-      {order.feedback && <FeedbackBanner orderId={order.id} feedback={order.feedback} onDone={load} />}
+      {order.feedback && <FeedbackBanner orderId={order.id} feedback={order.feedback} onDone={load} onShots={() => setTab("shots")} />}
       <div className="flex gap-1 mb-5 border-b border-[#E2D8C9] overflow-x-auto" role="tablist">
         {TABS.map((t) => (
           <button key={t.k} role="tab" aria-selected={tab === t.k} onClick={() => setTab(t.k)}
@@ -293,7 +293,7 @@ function History({ order }) {
 }
 
 // The parent's rating / problem report from the delivered page.
-function FeedbackBanner({ orderId, feedback, onDone }) {
+function FeedbackBanner({ orderId, feedback, onDone, onShots }) {
   const open = feedback.problem && feedback.problem_status !== "resolved";
   const resolve = async () => {
     try {
@@ -321,10 +321,15 @@ function FeedbackBanner({ orderId, feedback, onDone }) {
         )}
         <span className="text-xs text-[#8A9AB0]">{formatDate(feedback.at)}</span>
         {open && (
-          <ConfirmAction title="البلاغ اتحل؟" description="بعد ما أعدت اللقطة أو رجّعت المبلغ." confirmLabel="اتحل"
-            onConfirm={resolve} className="mr-auto rounded-full bg-[#87A96B] text-white px-4 py-1.5 text-xs font-bold">
-            علّمه اتحل
-          </ConfirmAction>
+          <span className="mr-auto flex items-center gap-2">
+            <button onClick={onShots} className="rounded-full bg-white border border-[#E07A5F]/50 text-[#B8612F] px-4 py-1.5 text-xs font-bold">
+              أعِد اللقطة من «اللقطات»
+            </button>
+            <ConfirmAction title="البلاغ اتحل؟" description="بعد ما أعدت اللقطة أو رجّعت المبلغ." confirmLabel="اتحل"
+              onConfirm={resolve} className="rounded-full bg-[#87A96B] text-white px-4 py-1.5 text-xs font-bold">
+              علّمه اتحل
+            </ConfirmAction>
+          </span>
         )}
       </div>
       {feedback.problem_note && <p className="mt-2 text-sm text-[#B8612F] font-bold whitespace-pre-wrap">{feedback.problem_note}</p>}

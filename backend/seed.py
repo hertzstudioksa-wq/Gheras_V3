@@ -99,6 +99,15 @@ CONTENT_BLOCKS = [
     {"section": "footer", "key": "footer.contact_email", "value": ""},
     {"section": "footer", "key": "footer.instagram", "value": ""},
     {"section": "footer", "key": "footer.x", "value": ""},
+    # Homepage sample (admin uploads; the section stays hidden while empty).
+    # Use a family's story only with that family's written consent.
+    {"section": "showcase", "key": "showcase.title", "value": "شاهد قصة من غِراس"},
+    {"section": "showcase", "key": "showcase.caption", "value": ""},
+    {"section": "showcase", "key": "showcase.video_url", "value": ""},
+    {"section": "showcase", "key": "showcase.poster_url", "value": ""},
+    {"section": "showcase", "key": "showcase.step1_image", "value": ""},
+    {"section": "showcase", "key": "showcase.step2_image", "value": ""},
+    {"section": "showcase", "key": "showcase.step3_image", "value": ""},
     # Business identity: required on a Saudi store's legal pages (e-commerce
     # law). Shown on the terms/privacy pages and the footer once filled in.
     {"section": "business", "key": "business.legal_name", "value": ""},

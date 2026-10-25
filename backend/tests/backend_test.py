@@ -102,7 +102,8 @@ def test_public_settings(session):
     r = session.get(f"{API}/public/settings")
     assert r.status_code == 200
     s = r.json()
-    assert "characters.max_count" in s and "upload.max_mb" in s
+    # Only the public allow-list (routes/admin_routes.KNOWN_SETTINGS, public=True).
+    assert "characters.max_count" in s and "upload.max_mb" not in s
 
 
 def test_auth(admin_token, parent_token):

@@ -1006,10 +1006,23 @@ async def operations_overview():
             "missing_keys": missing_keys,
             "disabled_optional": [s["name_ar"] for s in stages if s["toggleable"] and not s["enabled"]],
             "balance": await _engine_balance(),
+            "disk": _disk_usage(),
         },
         "recent_orders": recent,
         "thresholds": {"stuck_hours": STUCK_HOURS, "waiting_customer_hours": WAITING_CUSTOMER_HOURS},
     }
+
+
+def _disk_usage() -> dict | None:
+    """Free space where the media lives (a full disk stopped MongoDB twice on the laptop)."""
+    import shutil
+
+    try:
+        from storage import STORAGE_DIR
+        u = shutil.disk_usage(STORAGE_DIR)
+        return {"free_gb": round(u.free / 1024 ** 3, 1), "used_pct": round(u.used / u.total * 100)}
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def _engine_balance() -> dict:

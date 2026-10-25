@@ -18,4 +18,6 @@
 - كل `git push` على main بيعمل deploy لغِراس بس (`.github/workflows/deploy.yml`).
 - اللوجز: `journalctl -u gheras -f`
 - الملفات: `/var/lib/gheras/media` — النسخ الاحتياطي يشمله هو وقاعدة `gheras_prod`.
+- **نسخة احتياطية يومية** (`deploy/backup.sh`): `mongodump` لقاعدة `gheras_prod` بس (قراءة فقط، من غير ما يوقف أو يعيد تشغيل MongoDB اللي لزام بيستخدمه) + أرشيف الميديا، في `/var/backups/gheras`، وبيحتفظ بآخر 14 يوم. التسطيب والاسترجاع مكتوبين أول وآخر السكريبت.
+- **تنبيه امتلاء القرص** (`deploy/disk-check.sh`): كل نص ساعة، لو القرص عدّى 85% بيكتب تحذير في سجل النظام، وبيبعت إيميل لو `GHERAS_ALERT_EMAIL` و`mail` موجودين. لوحة الإدارة كمان بتبيّن مساحة القرص في كارت «حالة المحرك».
 - لما يبقى فيه دومين: سيرفر nginx منفصل لدومين غِراس + certbot لدومينه هو بس، وبعدها `PUBLIC_APP_URL` و`PUBLIC_API_URL` بـ https.

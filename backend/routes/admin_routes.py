@@ -173,11 +173,35 @@ ORDER_PHASES = {
 ORDER_LIST_FIELDS = {"_id": 0, "id": 1, "user_id": 1, "status": 1, "created_at": 1, "updated_at": 1,
                      "data.child.name": 1, "data.delivery": 1, "duration.seconds": 1, "price_quote": 1,
                      "production_plan_id": 1, "engine_paused": 1, "feedback.rating": 1, "feedback.problem": 1,
-                     "feedback.problem_status": 1, "payment.status": 1}
+                     "feedback.problem_status": 1, "payment.status": 1, "payment.amount_sar": 1}
 
 
 def _rx(text: str) -> dict:
     return {"$regex": re.escape(text.strip()), "$options": "i"}
+
+
+async def _add_cost_and_flags(items: list[dict]) -> None:
+    """Per row: the actual cost so far and the margin (same numbers as the order's
+    cost tab), and how many shots the automatic review flagged."""
+    import asyncio
+    from services.order_costs import actual_cost
+
+    async def cost(o):
+        try:
+            c = await actual_cost(o)
+            return {"cost_sar": c["total_sar"], "margin_pct": c["margin_pct"]}
+        except Exception:  # noqa: BLE001 — a row without a cost still lists
+            return {"cost_sar": None, "margin_pct": None}
+
+    for o, c in zip(items, await asyncio.gather(*(cost(o) for o in items))):
+        o.update(c)
+    flagged = {r["_id"]: r["n"] async for r in db.shot_assets.aggregate([
+        {"$match": {"order_id": {"$in": [o["id"] for o in items]},
+                    "$or": [{"keyframe_review.ok": False}, {"clip_review.ok": False}]}},
+        {"$group": {"_id": "$order_id", "n": {"$sum": 1}}},
+    ])}
+    for o in items:
+        o["flagged_shots"] = flagged.get(o["id"], 0)
 
 
 @router.get("/orders")
@@ -212,6 +236,7 @@ async def list_orders(q: str = "", phase: str = "all", page: int = 1, limit: int
         o["video_tier"] = None if o["output_type"] == "pdf" else (delivery.get("video_tier") or "balanced")
         o["title"] = titles.get(o.get("production_plan_id"))
         o["status_ar"] = ORDER_STATUS_AR.get(o.get("status"), o.get("status"))
+    await _add_cost_and_flags(items)
     # Phase counts for the filter chips (within the current search).
     counts = {k: 0 for k in ORDER_PHASES}
     async for row in db.orders.aggregate([{"$match": base}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]):

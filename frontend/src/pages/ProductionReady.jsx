@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import JourneySteps from "../components/gheras/JourneySteps";
 import StoryFeedbackCard from "../components/gheras/StoryFeedbackCard";
+import PlanScriptCard from "../components/gheras/PlanScriptCard";
 import { scenesLabel, imagesLabel, pagesLabel } from "../lib/arabic";
 
 const audioBgLabel = (mode) => ({
@@ -739,24 +740,8 @@ export default function ProductionReady() {
               </div>
             </div>
 
-            {summary.scenes?.length > 0 && (
-              <div className="bg-white rounded-[2rem] p-6 md:p-8 border border-[#E2D8C9] mb-5" data-testid="plan-script">
-                <div className="flex items-center gap-2 mb-1 text-[#729352] font-body text-sm font-bold">
-                  <BookOpen className="w-4 h-4" /> نص الحكاية كما سيرويه الراوي
-                </div>
-                <p className="font-body text-xs text-[#8A9AB0] mb-4">اقرأه قبل الاعتماد — إذا لم يناسبك يمكنك إعادة إعداد الخطة.</p>
-                <ol className="space-y-3">
-                  {summary.scenes.map((s) => (
-                    <li key={s.scene_index} className="bg-[#FDFBF7] rounded-2xl p-4 border border-[#E2D8C9]">
-                      <div className="font-heading font-bold text-[#2D3748] text-sm mb-1">
-                        المشهد {s.scene_index}{s.title ? ` — ${s.title}` : ""}
-                      </div>
-                      <p className="font-body text-[#2D3748] leading-loose">{s.narration_text}</p>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
+            <PlanScriptCard orderId={id} summary={summary} editable={planReady && !approved && !needsReview}
+              onSaved={() => fetchData({ silent: true })} />
 
             {/* Regen warning banner */}
             {remaining === 1 && (

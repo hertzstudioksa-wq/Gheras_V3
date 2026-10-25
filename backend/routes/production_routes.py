@@ -7,6 +7,7 @@ Flow:
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from pydantic import BaseModel, Field
 
 from db import db
 from auth import get_current_user, require_admin
@@ -192,8 +193,12 @@ async def get_production_summary(order_id: str, current=Depends(get_current_user
     summary = _user_summary(plan, order) if plan_is_live else None
     if summary:
         summary["scenes"] = await db.scene_plans.find(
-            {"production_plan_id": plan["id"]}, {"_id": 0, "scene_index": 1, "title": 1, "narration_text": 1}
+            {"production_plan_id": plan["id"]},
+            {"_id": 0, "scene_index": 1, "title": 1, "narration_text": 1,
+             "shots.shot_index": 1, "shots.narration_line": 1},
         ).sort("scene_index", 1).to_list(50)
+        summary["max_line_words"] = await _max_line_words()
+        summary["narration_edited"] = bool(order.get("narration_edited_at"))
     return {
         "status": effective_status,
         "raw_status": status,
@@ -227,6 +232,67 @@ async def user_approve_production(order_id: str, background: BackgroundTasks, cu
     from routes.media_routes import trigger_asset_generation
     run_id = await trigger_asset_generation(order_id, background)
     return {"ok": True, "asset_run_id": run_id}
+
+
+async def _max_line_words() -> int:
+    """The longest narration line that still fits one shot (same rule the plan follows)."""
+    from services import engine_config, house_style
+
+    pacing = await engine_config.get_pacing()
+    return house_style.max_line_words(pacing["shot_seconds"], pacing["words_per_second"])
+
+
+class NarrationEditIn(BaseModel):
+    # [{"scene_index": 1, "lines": ["…one line per shot…"]}]
+    scenes: list[dict] = Field(min_length=1, max_length=20)
+
+
+@user_router.put("/{order_id}/production/narration")
+async def user_edit_narration(order_id: str, payload: NarrationEditIn, current=Depends(get_current_user)):
+    """The parent rewords the narrator's lines before approving the plan. One
+    line per shot, the same count and length limit the plan was written to, so
+    each line still fits its animated shot (the drawings follow the plan)."""
+    order = await db.orders.find_one({"id": order_id, "user_id": current["id"]},
+                                     {"_id": 0, "status": 1, "production_plan_id": 1, "production_approved": 1})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if order.get("status") != OrderStatus.PRODUCTION_READY.value or order.get("production_approved"):
+        raise HTTPException(status_code=400, detail="يمكن تعديل النص قبل اعتماد الخطة فقط")
+    max_words = await _max_line_words()
+    updates = []
+    for edit in payload.scenes:
+        scene = await db.scene_plans.find_one(
+            {"production_plan_id": order.get("production_plan_id"), "scene_index": edit.get("scene_index")},
+            {"_id": 0, "id": 1, "scene_index": 1, "shots": 1})
+        if not scene:
+            raise HTTPException(status_code=404, detail="المشهد غير موجود")
+        shots = scene.get("shots") or []
+        lines = edit.get("lines") or []
+        if not isinstance(lines, list) or len(lines) != len(shots):
+            raise HTTPException(status_code=400, detail=f"يجب أن يبقى عدد السطور في المشهد {scene['scene_index']} كما هو ({len(shots)})")
+        clean = []
+        for i, line in enumerate(lines, 1):
+            text = " ".join(str(line or "").split())
+            if not text:
+                raise HTTPException(status_code=400, detail=f"السطر {i} في المشهد {scene['scene_index']} فارغ")
+            if len(text.split()) > max_words or len(text) > 220:
+                raise HTTPException(status_code=400,
+                                    detail=f"السطر {i} في المشهد {scene['scene_index']} أطول من {max_words} كلمات — اختصره ليناسب اللقطة")
+            clean.append(text)
+        new_shots = [{**sh, "narration_line": clean[i]} for i, sh in enumerate(shots)]
+        narration = " ".join(clean)
+        updates.append((scene["id"], new_shots, narration))
+    for scene_id, new_shots, narration in updates:
+        await db.scene_plans.update_one({"id": scene_id}, {"$set": {
+            "shots": new_shots, "narration_text": narration, "word_count": len(narration.split()),
+            "narration_edited_by_parent": True, "updated_at": _now()}})
+    await db.orders.update_one({"id": order_id}, {"$set": {"narration_edited_at": _now()}})
+    from services.audit_service import record_audit
+    await record_audit(entity_type="order", entity_id=order_id, action="order.narration_edit",
+                       actor_id=current["id"], actor_email=current.get("email"),
+                       summary=f"ولي الأمر عدّل سطور الراوي في {len(updates)} مشهد",
+                       metadata={"scenes": [s.get("scene_index") for s in payload.scenes]})
+    return {"ok": True, "scenes": len(updates)}
 
 
 @user_router.post("/{order_id}/production/regenerate")

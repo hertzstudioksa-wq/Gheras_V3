@@ -656,6 +656,24 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"how-it-works copy migration skipped: {e}")
+    # Old settings keys nothing reads (site.name, upload.max_mb, free_tier…)
+    # cluttered the settings page: removed once, their values kept in the
+    # migration record so they can be restored.
+    try:
+        if await _already_applied("settings_unused_cleanup"):
+            raise _SkipMigration
+        from routes.admin_routes import KNOWN_SETTINGS
+        unused = await db.settings.find({"key": {"$nin": list(KNOWN_SETTINGS)}}, {"_id": 0}).to_list(200)
+        if unused:
+            await db.settings.delete_many({"key": {"$in": [s["key"] for s in unused]}})
+        await _mark_applied("settings_unused_cleanup")
+        await db.migrations.update_one({"id": "settings_unused_cleanup"}, {"$set": {"removed": unused}})
+        if unused:
+            logger.info(f"settings: removed unused keys {[s['key'] for s in unused]}")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"unused settings cleanup skipped: {e}")
     # The narrator options said "a boy's / a girl's voice" but the voices are an
     # adult storyteller (Gemini Algieba / Sulafat); the gulf option writes Saudi.
     try:

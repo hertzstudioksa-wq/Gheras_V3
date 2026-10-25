@@ -165,7 +165,7 @@ export default function ScenarioSelection() {
           <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#87A96B]/10 blob-shape" />
           <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-[#D4A373]/15 blob-shape" />
           <div className="relative">
-            <JourneySteps status="scenarios_ready" className="mb-4" />
+            <JourneySteps status={state.status || "scenarios_ready"} className="mb-4" />
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
               {isLoading ? "جاري تجهيز أفكار القصة لطفلك..." : isFailed ? "حدث تعطّل بسيط" : "اختر الحكاية التي تناسب طفلك"}
             </h1>

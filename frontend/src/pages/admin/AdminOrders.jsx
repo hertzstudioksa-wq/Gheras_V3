@@ -74,6 +74,7 @@ export default function AdminOrders() {
                 <th className="px-5 py-3 font-bold">العميل</th>
                 <th className="px-5 py-3 font-bold">المدة</th>
                 <th className="px-5 py-3 font-bold">السعر</th>
+                <th className="px-5 py-3 font-bold">التكلفة · الهامش</th>
                 <th className="px-5 py-3 font-bold">التاريخ</th>
                 <th className="px-5 py-3 font-bold">الحالة</th>
               </tr>
@@ -90,6 +91,7 @@ export default function AdminOrders() {
                     {o.user_name && <div className="text-xs text-[#8A9AB0]">{o.user_email}</div>}</td>
                   <td className="px-5 py-3 font-body text-sm">{o.duration?.seconds ? `${o.duration.seconds} ث` : "—"}</td>
                   <td className="px-5 py-3 font-body text-sm">{o.price_quote?.price_sar ? `${o.price_quote.price_sar} ر.س` : "—"}</td>
+                  <td className="px-5 py-3 font-body text-sm"><CostCell o={o} /></td>
                   <td className="px-5 py-3 font-body text-xs text-[#8A9AB0]">{formatDate(o.created_at)}</td>
                   <td className="px-5 py-3"><OrderStatusBadge status={o.status} /></td>
                 </tr>
@@ -109,12 +111,25 @@ export default function AdminOrders() {
               <div className="font-body text-xs text-[#8A9AB0]">
                 {o.user_email} • {formatDate(o.created_at, false)}{o.duration?.seconds ? ` • ${o.duration.seconds} ث` : ""}
               </div>
+              {o.cost_sar > 0 && <div className="font-body text-xs mt-1"><CostCell o={o} /></div>}
             </button>
           ))}
         </div>
         <Pager page={data?.page || 1} limit={LIMIT} total={data?.total || 0} onPage={(p) => setParam({ page: p })} />
       </PageState>
     </AdminPage>
+  );
+}
+
+// Actual cost so far and the margin left (same numbers as the order's cost tab).
+function CostCell({ o }) {
+  if (!o.cost_sar) return <span className="text-[#8A9AB0]">—</span>;
+  const m = o.margin_pct;
+  const tone = m == null ? "text-[#8A9AB0]" : m >= 40 ? "text-[#4F6B3B]" : m >= 20 ? "text-[#8B5A2B]" : "text-[#B8612F]";
+  return (
+    <span className="whitespace-nowrap">
+      {o.cost_sar} ر.س{m != null && <b className={`${tone} mr-1`}> · {m}%</b>}
+    </span>
   );
 }
 
@@ -132,6 +147,11 @@ function OrderFlags({ o }) {
         <span className={`${chip} bg-[#E07A5F] text-white`}>بلاغ مشكلة</span>
       )}
       {o.feedback?.rating && <span className={`${chip} bg-[#FFF6DD] text-[#8B6A00]`}>★ {o.feedback.rating}</span>}
+      {o.flagged_shots > 0 && (
+        <span className={`${chip} bg-[#FCE6D4] text-[#B8612F]`} title="لقطات علّمت عليها المراجعة الآلية — افتح تبويب «اللقطات»">
+          ⚑ {o.flagged_shots} لقطة متعلّمة
+        </span>
+      )}
     </>
   );
 }

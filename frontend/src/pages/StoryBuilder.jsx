@@ -791,6 +791,7 @@ export default function StoryBuilder() {
             >
               <ChevronRight className="w-4 h-4" /> السابق
             </button>
+            {step >= 5 && <PriceTag data={data} />}
             {step < 6 ? (
               <button type="button" onClick={next} className="btn-primary inline-flex items-center gap-2" data-testid="wizard-next-btn">
                 التالي <ChevronLeft className="w-4 h-4" />
@@ -815,6 +816,7 @@ export default function StoryBuilder() {
         >
           السابق
         </button>
+        {step >= 5 && <PriceTag data={data} compact />}
         {step < 6 ? (
           <button onClick={next} className="flex-[2] btn-primary">التالي</button>
         ) : (
@@ -987,6 +989,21 @@ const VIDEO_TIER_COPY = {
   premium: { title: "فاخر", desc: "أعلى ثبات لملامح طفلك وحركة سينمائية أنعم" },
 };
 
+/** The price of what the parent picked, kept in view on the last two steps. */
+function PriceTag({ data, compact = false }) {
+  const outputType = data.delivery?.output_type || "both";
+  const tiers = useStoryPrices(data.duration?.seconds || 60, outputType);
+  const chosen = outputType === "pdf" ? tiers[0] : tiers.find((t) => t.video_tier === (data.delivery?.video_tier || "balanced"));
+  if (!chosen) return null;
+  return (
+    <div className={`text-center font-body leading-tight ${compact ? "shrink-0 px-1" : ""}`} data-testid="builder-price">
+      <div className="text-[11px] text-[#5A677D]">السعر</div>
+      <div className="font-heading font-bold text-[#2D3748] text-lg whitespace-nowrap">{Math.round(chosen.total_sar)} ر.س</div>
+      {!compact && <div className="text-[11px] text-[#8A9AB0]">تدفع بعد اختيار الحكاية</div>}
+    </div>
+  );
+}
+
 function useStoryPrices(seconds, outputType) {
   const [tiers, setTiers] = useState([]);
   useEffect(() => {
@@ -1137,7 +1154,7 @@ function Review({ data, categories, options, artStyles }) {
   const sub = cat?.subcategories?.find((s) => s.id === data.goal.subcategory_id);
   // Unset style choices are left to the story writer.
   const findOpt = (kind, id) => (options[kind] || []).find((o) => o.id === id)?.name_ar || "تلقائي";
-  const durSec = data.duration?.seconds || 90;
+  const durSec = data.duration?.seconds || 60;
   const durMeta = DURATION_META[durSec] || DURATION_META[60];
   const audioBgMode = data.audio_background?.mode || "music";
   const audioBgLabel = (AUDIO_BG_OPTIONS.find((o) => o.v === audioBgMode) || AUDIO_BG_OPTIONS[0]).l;

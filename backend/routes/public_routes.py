@@ -1,10 +1,30 @@
 """Public endpoints."""
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Response
 from db import db
 
 router = APIRouter(prefix="/public", tags=["public"])
 # Admin prompt direction stays server-side.
 HIDDEN = {"_id": 0, "prompt_fragment": 0}
+
+
+@router.get("/media/{file_id}")
+async def public_media(file_id: str, range_header: str | None = Header(None, alias="Range")):
+    """Homepage media the admin uploaded (scope "site"). Nothing else is served
+    here: customers' photos and stories stay behind their own tokens."""
+    from routes.upload_routes import file_response
+
+    rec = await db.files.find_one({"id": file_id, "scope": "site", "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="الملف غير موجود")
+    return await file_response(rec, range_header, cache="public, max-age=86400")
+
+
+@router.get("/payment-methods")
+async def payment_methods():
+    """What the homepage may promise: card payments only once Moyasar has a key."""
+    from services import moyasar
+
+    return {"card": bool(await moyasar.secret_key()), "wallet": True}
 
 
 @router.get("/categories")

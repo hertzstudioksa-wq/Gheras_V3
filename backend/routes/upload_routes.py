@@ -22,7 +22,10 @@ def _now():
 
 
 # "style" = an admin's art style reference / thumbnail (never a customer's photo).
-ADMIN_SCOPES = {"style"}
+# "site"  = homepage media the admin chooses (served publicly, see public_media).
+ADMIN_SCOPES = {"style", "site"}
+SITE_VIDEO_EXT = {"mp4": "video/mp4", "webm": "video/webm"}
+SITE_VIDEO_MAX = 40 * 1024 * 1024
 ALLOWED_SCOPES = {"child", "character", "toy"} | ADMIN_SCOPES
 MAX_SIDE = 2048
 
@@ -93,8 +96,37 @@ async def upload_image(
     })
 
     # Served by our backend; <img src> adds the short-lived media token (?mt=).
-    url = f"/api/uploads/file/{file_id}"
+    # Homepage media is public, so it gets the public path.
+    url = f"/api/public/media/{file_id}" if scope == "site" else f"/api/uploads/file/{file_id}"
     return {"id": file_id, "url": url, "storage_path": result["path"], "content_type": content_type}
+
+
+@router.post("/site-video")
+async def upload_site_video(file: UploadFile = File(...), current=Depends(get_current_user)):
+    """A homepage sample video (admin only, MP4/WebM up to 40 MB), served publicly."""
+    if current.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="ممنوع الوصول")
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in SITE_VIDEO_EXT:
+        raise HTTPException(status_code=400, detail="الفيديو لازم يكون MP4 أو WebM")
+    data = await file.read(SITE_VIDEO_MAX + 1)
+    if len(data) > SITE_VIDEO_MAX:
+        raise HTTPException(status_code=400, detail="الفيديو أكبر من 40 ميجا")
+    # The container's signature, whatever the extension says.
+    if not ((ext == "mp4" and data[4:8] == b"ftyp") or (ext == "webm" and data[:4] == b"\x1a\x45\xdf\xa3")):
+        raise HTTPException(status_code=400, detail="الملف مش فيديو صالح")
+    file_id = str(uuid.uuid4())
+    storage_path = f"{APP_NAME}/site/{file_id}.{ext}"
+    try:
+        result = put_object(storage_path, data, SITE_VIDEO_EXT[ext])
+    except Exception:
+        raise HTTPException(status_code=502, detail="تعذّر رفع الملف، حاول مرة أخرى")
+    await db.files.insert_one({
+        "id": file_id, "user_id": current["id"], "scope": "site", "storage_path": result["path"],
+        "original_filename": file.filename, "content_type": SITE_VIDEO_EXT[ext],
+        "size": result.get("size", len(data)), "is_deleted": False, "created_at": _now(),
+    })
+    return {"id": file_id, "url": f"/api/public/media/{file_id}", "content_type": SITE_VIDEO_EXT[ext]}
 
 
 _RANGE = re.compile(r"bytes=(\d*)-(\d*)$")
