@@ -84,6 +84,12 @@ async def actual_cost(order: dict) -> dict:
         note="شامل إعادة الرسم" if covers > 1 else None)
     add("cover", "الغلاف (Comfy)", cover_gpu, "ثانية GPU", gpu_usd, note=f"{comfy_covers} صورة")
 
+    # Story objects drawn once as references (Comfy), failed takes included.
+    object_gpu, objects = 0.0, 0
+    async for o in db.object_sheets.find({"order_id": order_id}, {"_id": 0, "gpu_seconds": 1}):
+        object_gpu, objects = object_gpu + float(o.get("gpu_seconds") or 0), objects + 1
+    add("object_sheets", "صور مرجع الحاجات (Comfy)", object_gpu, "ثانية GPU", gpu_usd, note=f"{objects} صورة")
+
     # Keyframes and clips (shot engine); older orders drew one image per scene.
     shot_quality = quality.get("scene_image_generation", "high")
     keyframes: dict[str, int] = {}

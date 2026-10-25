@@ -66,14 +66,21 @@ async def _file(file_id: str, prompt: str, size: str) -> str:
     return f"/api/uploads/file/{file_id}"
 
 
-async def _story(oid: str, narration=(2.4, 4.6, 7.9)):
-    """Lina (sheet), her father (sheet), her toy; scene 1 = two shots, scene 2 = one shot with nobody."""
+KITE = {"key": "kite", "name_en": "the red kite", "look": "a red diamond kite with a blue tail",
+        "sheet_view": "flat on the ground"}
+
+
+async def _story(oid: str, narration=(2.4, 4.6, 7.9), objects: bool = False):
+    """Lina (sheet), her father (sheet), her toy; scene 1 = two shots, scene 2 = one shot with nobody.
+    With `objects`, the plan has a recurring red kite in both shots of scene 1."""
     order = {"id": oid, "user_id": "u", "production_plan_id": f"p-{oid}",
              "data": {"child": {"name": "Lina"}, "characters": [], "delivery": {"output_type": "both"},
                       "personalization": {"toy_image_url": await _file(f"{oid}-toy", "toy", "1024x1024"),
                                           "toy_description_auto": "a blue knitted rabbit plush",
                                           "favorites": {"toy": {"name": "Bunbun", "selected": True}}}}}
-    plan = {"id": f"p-{oid}", "order_id": oid, "title": "x", "cover_prompt": "Lina holds Bunbun."}
+    plan = {"id": f"p-{oid}", "order_id": oid, "title": "x", "cover_prompt": "Lina holds Bunbun.",
+            "story_objects": [KITE] if objects else []}
+    kite = ["kite"] if objects else []
     await db.orders.insert_one(dict(order))
     await db.child_character_assets.insert_one({"order_id": oid, "status": "completed", "created_at": "1",
                                                "generated_image_url": await _file(f"{oid}-c", "child", "896x1344")})
@@ -85,9 +92,9 @@ async def _story(oid: str, narration=(2.4, 4.6, 7.9)):
     base = {"order_id": oid, "production_plan_id": plan["id"], "is_archived": False}
     await db.scene_plans.insert_many([
         {**base, "id": f"{oid}-s1", "scene_index": 1, "key_objects": ["Bunbun the blue rabbit plush"], "shots": [
-            {"shot_index": 1, "characters": ["child", "father"], "narration_line": "a",
+            {"shot_index": 1, "characters": ["child", "father"], "narration_line": "a", "objects": kite,
              "keyframe_prompt": "Lina and her father walk into the garden.", "motion_prompt": "They walk."},
-            {"shot_index": 2, "characters": ["child"], "narration_line": "b",
+            {"shot_index": 2, "characters": ["child"], "narration_line": "b", "objects": kite,
              "keyframe_prompt": "Lina hugs Bunbun the blue rabbit plush.", "motion_prompt": "She hugs it."}]},
         {**base, "id": f"{oid}-s2", "scene_index": 2, "shots": [
             {"shot_index": 1, "characters": [], "narration_line": "c",
@@ -288,4 +295,30 @@ def test_a_clip_review_on_an_empty_balance_pauses_and_resumes_without_paying_twi
         r = await _row("q", s, i)
         assert r["clip_url"] and r["clip_state"] == "completed"
         assert await db.fake_requests.count_documents({"kind": "comfy"}) == jobs and r["clip_gpu_seconds"] == gpu
+    run(go())
+
+
+def test_a_story_object_is_drawn_once_and_rides_along_its_shots():
+    async def go():
+        from services.order_costs import actual_cost
+
+        order, plan = await _story("o", objects=True)
+        drawn = await db.object_sheets.find({"order_id": "o"}, {"_id": 0}).to_list(10)
+        assert [(d["key"], d["gpu_seconds"]) for d in drawn] == [("kite", 20)] and drawn[0]["image_url"]
+        r11, r12, r21 = await _row("o", 1, 1), await _row("o", 1, 2), await _row("o", 2, 1)
+        assert r11["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> Omar (the child's father)'s sheet",
+                                        "<image3> the red kite's reference"]
+        assert r12["keyframe_refs"] == ["<image1> Lina's sheet", "<image2> the child's toy",
+                                        "<image3> the red kite's reference"]
+        assert "OBJECTS (they look exactly the same" in r11["keyframe_prompt_used"] and sp.GAZE in r11["keyframe_prompt_used"]
+        assert "OBJECTS" not in r21["keyframe_prompt_used"]
+        # a redrawn shot reuses the reference: one Comfy job, the keyframe
+        jobs = await db.fake_requests.count_documents({"kind": "comfy"})
+        await db.shot_assets.update_one({"order_id": "o", "scene_index": 1, "shot_index": 1},
+                                        {"$set": {"keyframe_url": None}})
+        await sp.execute_scene_keyframes({"id": "o-j3", "target_id": "o-s1"}, order, plan)
+        assert await db.fake_requests.count_documents({"kind": "comfy"}) == jobs + 1
+        cost = await actual_cost(await db.orders.find_one({"id": "o"}, {"_id": 0}))
+        item = next(i for i in cost["items"] if i["key"] == "object_sheets")
+        assert item["quantity"] == 20 and item["unit"] == "ثانية GPU"
     run(go())

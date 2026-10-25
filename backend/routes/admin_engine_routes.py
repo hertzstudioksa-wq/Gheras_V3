@@ -443,6 +443,7 @@ async def prompt_preview(order_id: str):
             image_provider, image_model = await shot_pipeline.keyframe_engine()
             on_comfy = image_provider == "comfy_image"
             toy = shot_pipeline.favourite_toy(order) if on_comfy else None
+            objects = shot_pipeline.story_objects(plan, toy)
             rows = []
             for sc in scenes:
                 for sh in sc.get("shots") or []:
@@ -453,7 +454,10 @@ async def prompt_preview(order_id: str):
                         notes.append(shot_pipeline.PREV_SHOT_NOTE)
                     elif previous == "scene":
                         notes.append(shot_pipeline.PREV_SCENE_NOTE)
-                    comfy_refs = shot_pipeline.comfy_references(sh, sc, sheets, toy, previous) if on_comfy else []
+                    in_shot = shot_pipeline.shot_objects(sh, objects)
+                    # On Comfy every story object gets its reference before the keyframes.
+                    comfy_refs = shot_pipeline.comfy_references(sh, sc, sheets, toy, previous, in_shot) \
+                        if on_comfy else []
                     mapping = [f"{sheets[t]['label']} is @Element{i + 1}" for i, t in enumerate(
                         shot_pipeline.by_likeness(sh.get("characters") or [], sheets)[:shot_pipeline.MAX_ELEMENTS])
                     ] if "/v3/" in model else []
@@ -462,8 +466,8 @@ async def prompt_preview(order_id: str):
                         "scene_index": sc["scene_index"], "shot_index": sh["shot_index"],
                         "narration_line": sh.get("narration_line"),
                         "keyframe_prompt": shot_pipeline.keyframe_prompt_comfy(sc, sh, profiles, sheets, child_name,
-                                                                               comfy_refs) if on_comfy else
-                        shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes, style),
+                                                                               comfy_refs, in_shot) if on_comfy else
+                        shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes, style, in_shot),
                         "keyframe_references": shot_pipeline.describe_refs(comfy_refs, sheets) if on_comfy else
                         [f"<image{i + 1}> {n}" for i, n in enumerate(notes)],
                         "keyframe_prompt_used": row.get("keyframe_prompt_used"),

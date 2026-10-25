@@ -5,6 +5,7 @@ One mega-JSON call that produces: production_plan + scene_plans + book_pages + c
 import os
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -59,6 +60,14 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
       "reference_image_url": null
     }
   ],
+  "story_objects": [
+    {
+      "key": "short_english_key (e.g. tower)",
+      "name_en": "English name as the shots say it (e.g. the block tower)",
+      "look": "English: what never changes — material, shape of its parts, exact colors, any special mark (e.g. smooth wooden cube blocks in red, blue, yellow and green, no studs, no arches). No size, no arrangement, no state.",
+      "sheet_view": "English: how its reference picture shows it alone (e.g. a short stack of four blocks with three loose blocks beside it)"
+    }
+  ],
   "scenes": [
     {
       "scene_index": 1,
@@ -96,8 +105,9 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
           "narration_line": "جملة سرد واحدة قصيرة (باللهجة المطلوبة) تُقال أثناء هذه اللقطة بالضبط",
           "shot_type": "wide | medium | close-up | insert | over-the-shoulder | back view",
           "characters": ["child", "mother"],
-          "keyframe_prompt": "English: the FIRST frame of this shot, at the very moment of narration_line — who is where, pose, the feeling on each face (tears, surprise, joy...), composition, background, lighting. Name characters (e.g. Sara, her mother) and keep their outfits from characters[]. No art-style words.",
-          "motion_prompt": "English: ONE small continuous movement of a named character that starts from the first frame (a face changing, a head turning, hands rising to the mouth, a hug, a hand slowly placing something down). Nothing else: no camera move, no environment motion, no object moving by itself."
+          "objects": ["keys of the story_objects seen in this shot"],
+          "keyframe_prompt": "English: the FIRST frame of this shot, at the very moment of narration_line — who is where, pose, where each character looks (at whom or what — never at the camera), the feeling on each face (tears, surprise, joy...), the size of each story object measured against a character's body, composition, background, lighting. Name characters (e.g. Sara, her mother) and keep their outfits from characters[]. No art-style words.",
+          "motion_prompt": "English: ONE small continuous movement of a named character that starts from the first frame (a face changing, a head turning, hands rising to the mouth, a hug, clapping). Nothing else: no camera move, no environment motion, no object moving by itself; a hand touching an object stays on it."
         }
       ]
     }
@@ -130,6 +140,11 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
   - motion_prompt يُظهر ما يقوله narration_line لنفس اللقطة — والحدث الفيزيائي يُظهر رد الفعل عليه (القاعدة السابقة).
 - لا تطلب أي كلام مكتوب في keyframe_prompt أو motion_prompt (أسماء أماكن، كلمات على خريطة، لافتات، عناوين، أرقام): الموديلات بتكتبها غلط. الخريطة أو اللافتة تبان برسومات بس (جزيرة، بركان، شجر، علامة X).
 - keyframe_prompt: يصف أول إطار فقط، في لحظة narration_line نفسها، والمشاعر ظاهرة على الوجوه (دموع، دهشة، فرح): أول إطار هو اللي بيحدد شكل الشخصية طول اللقطة. كل شخصية تظهر فيه يجب أن تكون في characters للقطة. لا تصف ملابس الشخصيات التي clothing_style لها "same as in the photo" (ملابسها تأتي من صورتها المرجعية).
+- story_objects: الأغراض التي لها دور في القصة وتظهر في لقطتين أو أكثر (برج مكعبات، طائرة ورقية، كرة، كعكة، صندوق...) — 3 بحد أقصى، وليس منها لعبة الطفل المرفوعة كصورة (لها صورتها). كل لقطة تُرسم وحدها، فالغرض الذي ليس له شكل ثابت مكتوب يتغيّر شكله من لقطة لأخرى. look: ما لا يتغيّر أبداً بتفاصيل محددة (الخامة، شكل الأجزاء، الألوان بالضبط، أي علامة مميزة)، بدون حجم ولا ترتيب ولا حالة. sheet_view: كيف يُرسم في صورته المرجعية وحده؛ لو الغرض يتغيّر في القصة (برج يُبنى ثم يقع، كعكة تُقطع) ارسم أجزاءه أو أبسط حالة له (بضع قطع سائبة بجانب كومة صغيرة)، لا الشكل النهائي.
+- objects في كل لقطة: keys الأغراض من story_objects التي تظهر فيها.
+- الأحجام بالجسم: كلما ذكر keyframe_prompt غرضاً من story_objects اكتب حجمه بالنسبة لجسم شخصية في نفس اللقطة (حتى ركبة / وسط / كتف / ذقن / فوق رأس فلان وهو واقف أو جالس أو راكع)، لا "كبير" ولا "أطول منهم". لو القصة تقارن (أكبر، أطول، أكثر من الأول): الحجم الجديد أكبر بوضوح بنفس المقياس الذي كُتب به الأول، ورتّب اللقطة ليظهر الفرق (الشخصيات واقفة بجانبه لا جالسة).
+- النظرة: keyframe_prompt يحدد لكل شخصية إلى من أو إلى ماذا تنظر (إلى بعضهم، إلى الغرض، إلى الطفل). لا أحد ينظر إلى الكاميرا: الصور المرجعية مرسومة تنظر للأمام، ومن لم تُكتب نظرته ينظر للمشاهد.
+- الأيدي: لو يد شخصية تلمس شيئاً في أول إطار تبقى ثابتة عليه طوال اللقطة، إلا لو كان السطر عن تحريك هذا الشيء نفسه — موديل الفيديو حين تبتعد اليد عن شيء يأخذه معها. سطر فيه وضع / تركيب / إغلاق / ترك شيء: أول إطار يكون الشيء في مكانه بالفعل والأيدي بعيدة عنه، وmotion_prompt رد فعل (ابتسامة، تصفيق، إشارة).
 - key_features لكل شخصية: صفات شكل دائمة فقط (الشعر، نظارة، نمش، إكسسوار) — ممنوع تعبيرات أو مشاعر (ابتسامة، تكشيرة، ضحكة): الصورة بتنسخها في كل لقطة حتى لو الشخصية بتعيّط.
 - اللقطات داخل المشهد الواحد في نفس المكان والإضاءة والملابس (استمرارية).
 - آخر لقطتين في القصة تختمان القصة بوضوح ودفء (لحظة الفرح/الطمأنينة بعد الحل).
@@ -552,6 +567,7 @@ def _normalise_shots(raw) -> list[dict]:
         if not line:
             continue
         chars = sh.get("characters") or []
+        objects = sh.get("objects") or []
         shots.append({
             "shot_index": len(shots) + 1,
             "narration_line": line,
@@ -559,8 +575,29 @@ def _normalise_shots(raw) -> list[dict]:
             "characters": [str(c).strip() for c in chars if str(c).strip()] if isinstance(chars, list) else [],
             "keyframe_prompt": str(sh.get("keyframe_prompt") or "").strip(),
             "motion_prompt": str(sh.get("motion_prompt") or "").strip(),
+            "objects": [_object_key(o) for o in objects if _object_key(o)] if isinstance(objects, list) else [],
         })
     return shots
+
+
+MAX_STORY_OBJECTS = 3
+
+
+def _object_key(raw) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(raw or "").strip().lower()).strip("_")[:40]
+
+
+def _normalise_objects(raw) -> list[dict]:
+    """The plan's recurring story objects: a key, a name and a look that never changes."""
+    objects: list[dict] = []
+    for o in raw or []:
+        if not isinstance(o, dict):
+            continue
+        key, name, look = _object_key(o.get("key") or o.get("name_en")), str(o.get("name_en") or "").strip(),             str(o.get("look") or "").strip()
+        if key and name and look and key not in {x["key"] for x in objects}:
+            objects.append({"key": key, "name_en": name[:80], "look": look[:400],
+                            "sheet_view": str(o.get("sheet_view") or "").strip()[:300]})
+    return objects[:MAX_STORY_OBJECTS]
 
 
 def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
@@ -615,6 +652,9 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             "created_at": now,
         })
 
+    story_objects = _normalise_objects(payload.get("story_objects"))
+    known_objects = {o["key"] for o in story_objects}
+
     # scenes + book pages
     scenes: list[dict] = []
     words_total = 0
@@ -627,6 +667,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             cpid = type_to_id.get(t)
             chars_in.append({"character_profile_id": cpid, "role_in_scene": t})
         shots = _normalise_shots(s.get("shots"))
+        for sh in shots:
+            sh["objects"] = [k for k in dict.fromkeys(sh["objects"]) if k in known_objects]
         narration = (" ".join(sh["narration_line"] for sh in shots) if shots
                      else str(s.get("narration_text") or "").strip())
         wc = len([w for w in narration.split() if w])
@@ -723,6 +765,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         "style_guide": engine.get("style_guide") or dict(house_style.STYLE_GUIDE),
         "engine_trace": engine.get("trace"),
         "cover_prompt": plan_payload.get("cover_prompt"),
+        # Recurring objects with a fixed look; the shots list theirs under "objects".
+        "story_objects": story_objects,
         # Phase D.4 — story-level downstream generator fields
         "story_keywords":        plan_payload.get("story_keywords") or [],
         "story_music_prompt":    plan_payload.get("story_music_prompt") or "",

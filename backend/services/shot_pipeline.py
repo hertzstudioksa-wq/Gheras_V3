@@ -243,7 +243,7 @@ NO_TEXT = ("No written words, letters, numbers or signs anywhere in the picture:
 
 
 def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_name: str,
-                    notes: list[str], style: dict) -> str:
+                    notes: list[str], style: dict, objects: list[dict] | None = None) -> str:
     cast = "; ".join(_cast_line(profiles[t], child_name, bool((sheets.get(t) or {}).get("from_photo")))
                      for t in sh.get("characters") or [] if t in profiles)
     return " ".join(p for p in [
@@ -251,6 +251,8 @@ def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_n
         f"Shot type: {sh.get('shot_type') or 'medium'}.",
         f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",
         f"Characters, matching their reference sheets exactly: {cast}." if cast else "",
+        GAZE if cast else "",
+        objects_line(objects or []),
         ("Reference images, in order: " + "; ".join(f"{i + 1}) {n}" for i, n in enumerate(notes)) + ".")
         if notes else "",
         f"Art style: {style['style_text']}",
@@ -274,6 +276,10 @@ COMFY_COPY = ("Copy each character's identity from their reference exactly: the 
               "simplify the faces. Facial expressions, gaze and poses follow the SCENE below, not the reference "
               "sheets.")
 COMFY_ONCE = "Each character appears exactly once and nobody else is in the picture."
+# The sheets face the viewer, and whoever the scene doesn't give a gaze kept it:
+# the parents clapped while staring into the camera.
+GAZE = ("Everyone looks at someone or something inside the picture, as the SCENE says; nobody looks out at the "
+        "viewer or the camera.")
 COMFY_NOBODY = "There are no people in this picture."
 COMFY_STYLE = ("STYLE: exactly the same 2D cartoon storybook art style, line quality and shading as the reference "
                "sheets; premium picture-book rendering with soft painterly shading, a gentle visible brush texture, "
@@ -281,6 +287,13 @@ COMFY_STYLE = ("STYLE: exactly the same 2D cartoon storybook art style, line qua
 COMFY_FRAME = "Full-bleed 16:9 frame filling the whole canvas edge to edge: no border, no white margin, no vignette."
 COVER_TITLE_SPACE = ("Leave calm sky or background space in the upper part of the frame for the book title "
                      "(the title is added later — don't write it).")
+# A thing the story keeps coming back to (a block tower, a kite, a cake) was
+# redrawn from two words in every shot: Lego-like in one, thin wooden blocks in
+# the next, and the "bigger" rebuilt tower came out shorter. The plan fixes its
+# look once (story_objects, sizes measured on the characters' bodies in each
+# shot), and on Comfy one reference picture of it is drawn before the keyframes.
+MAX_SHOT_OBJECTS = 2
+OBJECTS_NOTE = "how many pieces, how big and how they are arranged follow the SCENE"
 # Words a plan uses for a toy; the parent's own name for it counts too.
 TOY_WORDS = ("toy", "toys", "plush", "plushie", "stuffed animal", "teddy", "doll", "figurine", "action figure")
 
@@ -326,9 +339,119 @@ def _toy_ref(toy: dict, named: str) -> dict:
     return {"kind": "toy", "name": toy.get("name") or (named if named not in TOY_WORDS else "") or "favourite toy"}
 
 
-def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, previous: str | None) -> list[dict]:
+def story_objects(plan: dict, toy: dict | None = None) -> dict[str, dict]:
+    """key → {"key", "name", "look", "sheet_view"}: the plan's recurring objects,
+    without the child's toy (its photo is its reference)."""
+    out = {}
+    for o in plan.get("story_objects") or []:
+        if not (o.get("key") and o.get("name_en") and o.get("look")):
+            continue
+        if toy and toy_named_in(f"{o['name_en']} {o['look']}", toy):
+            continue
+        out[o["key"]] = {"key": o["key"], "name": o["name_en"], "look": o["look"], "sheet_view": o.get("sheet_view") or ""}
+    return out
+
+
+def shot_objects(sh: dict, objects: dict[str, dict]) -> list[dict]:
+    return [objects[k] for k in dict.fromkeys(sh.get("objects") or []) if k in objects][:MAX_SHOT_OBJECTS]
+
+
+def objects_line(objects: list[dict]) -> str:
+    """The fixed look of the shot's story objects, word for word in every shot."""
+    if not objects:
+        return ""
+    return ("OBJECTS (they look exactly the same in every picture of this story): "
+            + "; ".join(f"{o['name']}: {o['look'].rstrip('.')}" for o in objects) + f" — {OBJECTS_NOTE}.")
+
+
+def object_sheet_prompt(obj: dict) -> str:
+    """A story object alone, drawn once as its reference (<image1> = a cast sheet for the style)."""
+    return "\n".join(p for p in [
+        "Create a brand-new 16:9 children's storybook illustration (a new picture, not an edit of <image1>).",
+        "<image1> shows the art style only: the character in it is not in this picture.",
+        f"SUBJECT: {obj['name']} alone, as a clear reference picture: {obj['look'].rstrip('.')}."
+        + (f" {obj['sheet_view'].rstrip('.')}." if obj.get("sheet_view") else ""),
+        "Centered, whole and large in the frame on a plain soft cream background with a light shadow under it. "
+        "No people, no hands, nothing else.",
+        COMFY_STYLE,
+        NO_TEXT,
+    ] if p)
+
+
+_object_locks: dict[str, asyncio.Lock] = {}
+
+
+async def load_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
+    """key → {"url", "name"} for the story objects already drawn."""
+    return {s["key"]: {"url": s["image_url"], "name": s["name"]}
+            async for s in db.object_sheets.find({"order_id": order["id"], "production_plan_id": plan["id"],
+                                                  "image_url": {"$ne": None}},
+                                                 {"_id": 0, "key": 1, "image_url": 1, "name": 1})}
+
+
+async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
+    """Draw a reference picture of every story object a shot shows, once per plan
+    (Comfy keyframes only: a few cents each). Scenes drawn at the same time wait
+    for the first one; a failed picture only costs consistency (the shots still
+    get the fixed look in words)."""
+    if (await keyframe_engine())[0] != "comfy_image":
+        return {}
+    objects = story_objects(plan, favourite_toy(order))
+    used = {k for s in await _scenes(order, plan) for sh in s.get("shots") or [] for k in sh.get("objects") or []}
+    lock = _object_locks.setdefault(plan["id"], asyncio.Lock())
+    async with lock:
+        drawn = await load_object_sheets(order, plan)
+        todo = [objects[k] for k in sorted(used) if k in objects and k not in drawn]
+        if not todo:
+            return drawn
+        sheets = await load_character_sheets(order, plan)
+        style_type = by_likeness(sorted(sheets), sheets)[0] if sheets else None
+        style_ref = await _fetch_source_bytes(sheets[style_type]["url"]) if style_type else None
+        if not style_ref:
+            return drawn
+        _provider, model = await keyframe_engine()
+        from services.clip_review import static_verdict
+
+        async def draw(obj: dict) -> None:
+            prompt, gpu = object_sheet_prompt(obj), 0.0
+            try:
+                for _take in range(3):  # Qwen sometimes returns coloured static
+                    img, mime, meta = await comfy_image(stage="scene_image_generation", model=model, prompt=prompt,
+                                                        references=[style_ref[0]])
+                    gpu += meta.get("gpu_seconds") or 0
+                    if not await asyncio.to_thread(static_verdict, [img]):
+                        break
+                else:
+                    raise AIError(f"the reference of {obj['name']} came out as coloured static three times")
+            except AIPermanentError:
+                raise
+            except Exception as e:  # noqa: BLE001 — the shots still get the look in words
+                logger.warning(f"[shots] order={order['id']} object sheet {obj['key']} failed: {e}")
+                if gpu:  # paid all the same
+                    await db.object_sheets.insert_one({
+                        "id": str(uuid.uuid4()), "order_id": order["id"], "production_plan_id": plan["id"],
+                        "key": obj["key"], "name": obj["name"], "image_url": None, "model": model,
+                        "gpu_seconds": gpu, "created_at": _now()})
+                return
+            url = await _store(order, "object-sheet", img, mime, "png")
+            await db.object_sheets.insert_one({
+                "id": str(uuid.uuid4()), "order_id": order["id"], "production_plan_id": plan["id"],
+                "key": obj["key"], "name": obj["name"], "image_url": url, "prompt_used": prompt,
+                "model": model, "gpu_seconds": gpu, "created_at": _now()})
+            drawn[obj["key"]] = {"url": url, "name": obj["name"]}
+
+        results = await asyncio.gather(*(draw(o) for o in todo), return_exceptions=True)
+        for res in results:
+            if isinstance(res, AIPermanentError):
+                raise res
+        return drawn
+
+
+def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, previous: str | None,
+                     objects: list[dict] | None = None) -> list[dict]:
     """What each <imageN> of a Comfy keyframe is, in order: the cast's sheets (the
-    family first) and the child's toy when the shot shows it. The previous frame
+    family first), the child's toy when the shot shows it, and the reference of
+    each story object it shows (`objects`, those drawn). The previous frame
     (`previous` = "shot", "scene" or None) only goes with a shot that has nobody
     in it: Qwen copies the people it sees there too, and the first real story got
     the child twice (once from his sheet, once from the previous shot). A shot
@@ -337,6 +460,7 @@ def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, prev
     named = toy_named_in(sh.get("keyframe_prompt") or "", toy, scene.get("key_objects")) if toy else None
     if named:
         refs.append(_toy_ref(toy, named))
+    refs += [{"kind": "object", "key": o["key"], "name": o["name"]} for o in objects or []]
     if previous and not sh.get("characters"):
         refs.append({"kind": f"prev_{previous}"})
     if not refs and sheets:
@@ -366,6 +490,8 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
                          + (f" (keep {features} exactly as in the reference)" if features else ""))
         elif kind == "toy":
             parts.append(f"{tag} shows only the child's {r['name']} (ignore any hands or background around it)")
+        elif kind == "object":
+            parts.append(f"{tag} shows only {r['name']}: copy its material, shape and colors exactly; {OBJECTS_NOTE}")
         elif kind == "prev_shot":
             parts.append(f"{tag} is the previous shot of this scene: keep the same place, furniture and lighting, "
                          "and take the people from their own references")
@@ -378,8 +504,9 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
 
 
 def keyframe_prompt_comfy(scene: dict, sh: dict, profiles: dict, sheets: dict, child_name: str,
-                          refs: list[dict]) -> str:
-    """The README template, filled from the plan, the profiles and the sheets."""
+                          refs: list[dict], objects: list[dict] | None = None) -> str:
+    """The README template, filled from the plan, the profiles and the sheets;
+    `objects` = the shot's story objects (their fixed look goes in words)."""
     cast = list(dict.fromkeys(sh.get("characters") or []))
     with_ref = {r["type"] for r in refs if r["kind"] == "sheet"}
     without = [_cast_line(profiles[t], child_name) for t in cast if t not in with_ref and t in profiles]
@@ -397,6 +524,8 @@ def keyframe_prompt_comfy(scene: dict, sh: dict, profiles: dict, sheets: dict, c
             sh.get("keyframe_prompt") or scene.get("visual_description") or "",
             f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",
         ] if p),
+        objects_line(objects or []),
+        GAZE if cast else "",
         COMFY_STYLE,
         COMFY_FRAME,
         NO_TEXT,
@@ -423,7 +552,8 @@ def describe_refs(refs: list[dict], sheets: dict) -> list[str]:
     """The <imageN> list in words, for the admin."""
     words = {"toy": "the child's toy", "prev_shot": "the previous shot", "prev_scene": "the previous scene's last shot"}
     return [f"<image{n}> " + (sheets[r["type"]]["label"] + ("'s sheet (style only)" if r["kind"] == "style" else "'s sheet")
-                               if r["kind"] in ("sheet", "style") else words[r["kind"]])
+                               if r["kind"] in ("sheet", "style") else
+                               f"{r['name']}'s reference" if r["kind"] == "object" else words[r["kind"]])
             for n, r in enumerate(refs, 1)]
 
 
@@ -473,7 +603,7 @@ WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and o
 def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfit: bool = False) -> str:
     who = "Nobody is in the frame." if not people else (
         f"Exactly {people} {'person' if people == 1 else 'people'}, all already in the frame; nobody appears, leaves "
-        "or is duplicated, and bodies stay solid.")
+        "or is duplicated, bodies stay solid, and nobody turns to look at the camera.")
     return " ".join(p for p in [
         motion or "A small natural movement of the main character.",
         CALM_NOTE if calm else "",
@@ -489,6 +619,7 @@ def motion_prompt(motion: str | None, mapping: list[str], style: dict, cast: lis
         motion or "Gentle natural character motion and a slow camera push-in.",
         ("Characters: " + "; ".join(mapping) + ".") if mapping else "",
         cast_lock(cast or []),
+        "Nobody turns to look at the camera." if cast else "",
         PHYSICS,
         style["motion_text"],
         NO_TEXT,
@@ -569,6 +700,9 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
     toy = favourite_toy(order) if on_comfy else None
     toy_bytes: tuple[bytes, str] | None = None
     uploads: dict = {}  # Comfy names of the images already sent in this run
+    objects = story_objects(plan, toy)
+    object_refs = await ensure_object_sheets(order, plan) if objects and on_comfy else {}
+    object_bytes: dict[str, tuple[bytes, str] | None] = {}
 
     async def sheet_data(t: str) -> tuple[bytes, str] | None:
         if t not in sheet_bytes:
@@ -588,19 +722,25 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             hero_url = hero_url or row["keyframe_url"]
             continue
         refs, notes, comfy_refs = [], [], []
+        in_shot = shot_objects(sh, objects)
         if on_comfy:
-            for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None):
+            for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None,
+                                      [o for o in in_shot if o["key"] in object_refs]):
                 if r["kind"] in ("sheet", "style"):
                     data = await sheet_data(r["type"])
                 elif r["kind"] == "toy":
                     toy_bytes = toy_bytes or await _fetch_source_bytes(toy["url"])
                     data = toy_bytes
+                elif r["kind"] == "object":
+                    if r["key"] not in object_bytes:
+                        object_bytes[r["key"]] = await _fetch_source_bytes(object_refs[r["key"]]["url"])
+                    data = object_bytes[r["key"]]
                 else:
                     data = prev if r["kind"] == "prev_shot" else previous_scene
                 if data:
                     comfy_refs.append(r)
                     refs.append({"image_bytes": data[0], "mime_type": data[1]})
-            prompt = keyframe_prompt_comfy(scene, sh, profiles, sheets, child_name, comfy_refs)
+            prompt = keyframe_prompt_comfy(scene, sh, profiles, sheets, child_name, comfy_refs, in_shot)
         else:
             for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]:
                 if await sheet_data(t):
@@ -612,7 +752,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             elif previous_scene:
                 refs.append({"image_bytes": previous_scene[0], "mime_type": previous_scene[1]})
                 notes.append(PREV_SCENE_NOTE)
-            prompt = keyframe_prompt(scene, sh, profiles, sheets, child_name, notes, style)
+            prompt = keyframe_prompt(scene, sh, profiles, sheets, child_name, notes, style, in_shot)
         shot_key = f"{scene['scene_index']}_{sh['shot_index']}"
         cast = cast_labels(sh.get("characters") or [], sheets)
         # A Comfy job submitted before a restart is waited on, not paid for again.
