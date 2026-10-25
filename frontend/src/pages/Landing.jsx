@@ -53,6 +53,37 @@ const FAQ = [
     "من صفحة القصة تنشئ رابط مشاهدة خاصاً ترسله على واتساب للجدّ والجدّة، وتلغيه متى أردت."],
 ];
 
+/** The sample story: its cover with a play button; it plays with sound on tap
+ * (the narration is the point — a muted autoplay showed silent slides) and the
+ * file only downloads once the visitor asks for it. */
+function ShowcaseVideo({ src, poster }) {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <div className="relative rounded-[2rem] overflow-hidden border-8 border-white shadow-2xl bg-[#2D3748] max-w-3xl mx-auto mb-10 aspect-video"
+      data-testid="showcase-player">
+      {playing ? (
+        <video src={src} poster={poster || undefined} className="absolute inset-0 w-full h-full" controls playsInline autoPlay
+          data-testid="showcase-video" />
+      ) : (
+        <button type="button" onClick={() => setPlaying(true)} className="group absolute inset-0 w-full h-full"
+          aria-label="شغّل قصة يمان بالصوت" data-testid="showcase-play">
+          {poster && <img src={poster} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+          <span className="absolute inset-0 group-hover:bg-black/10 transition" />
+          {/* bottom-left, clear of the faces and of the title baked into the cover */}
+          <span className="absolute left-3 bottom-3 sm:left-5 sm:bottom-5 inline-flex items-center gap-2 rounded-full bg-white/95 shadow-xl
+            pl-4 pr-1.5 py-1.5 sm:pl-5 sm:pr-2 sm:py-2 group-hover:scale-105 transition" dir="rtl">
+            <span className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-[#87A96B] grid place-content-center">
+              {/* ▶ points right in every language (a media convention, not text direction) */}
+              <Play className="w-4 h-4 sm:w-5 sm:h-5 text-white fill-white ml-0.5" />
+            </span>
+            <span className="font-heading font-bold text-[#2D3748] text-sm sm:text-base">شاهد بالصوت</span>
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 function useStartingPrices() {
   const [prices, setPrices] = useState(null);
   useEffect(() => {
@@ -97,6 +128,9 @@ export default function Landing() {
   const sampleVideo = content["showcase.video_url"];
   const sampleSteps = ["step1_image", "step2_image", "step3_image"].map((k) => content[`showcase.${k}`]).filter(Boolean);
   const whatsapp = whatsappLink(content["business.phone"]);
+  // A real story's cover when the admin set one, else the house-style sample.
+  const heroImage = content["hero.image_url"] ? fileSrc(content["hero.image_url"]) : HERO_IMG;
+  const heroCaption = content["hero.image_url"] ? content["hero.image_caption"] : "";
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]" data-testid="landing-page">
@@ -142,33 +176,42 @@ export default function Landing() {
 
           <div className="relative animate-grow delay-2">
             <div className="absolute -inset-4 bg-[#E8F0E1] blob-shape opacity-50 -z-10" />
-            {/* The product, framed like the logo's little player. */}
-            <div className="relative rounded-[2.25rem] overflow-hidden shadow-2xl border-8 border-white bg-white">
-              <img src={HERO_IMG} alt="رسم كرتوني لعائلة بأسلوب غِراس" className="w-full aspect-[3/2] object-cover" />
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/45 to-transparent pt-10 pb-3 px-4 flex items-center gap-3" aria-hidden="true">
-                <span className="w-9 h-9 rounded-full bg-white/95 grid place-content-center shadow"><Play className="w-4 h-4 text-[#729352] fill-[#729352] -scale-x-100" /></span>
-                <span className="flex-1 h-1.5 rounded-full bg-white/40 overflow-hidden"><span className="block h-full w-2/5 bg-white rounded-full" /></span>
-                <span className="text-white text-xs font-bold font-body">0:45</span>
-              </div>
-            </div>
-            <div className="absolute -top-4 right-4 sm:-right-4 bg-white rounded-2xl px-3 py-2 shadow-lg flex items-center gap-2 animate-float">
-              <BookOpen className="w-5 h-5 text-[#729352]" />
-              <span className="font-body text-sm font-bold text-[#2D3748]">+ كتاب مصوّر</span>
-            </div>
-            <div className="absolute -bottom-5 left-4 sm:-left-4 bg-white rounded-2xl p-2.5 pl-4 shadow-lg flex items-center gap-3">
-              <div className="logo-icon h-11 w-11 shrink-0"><img src={LOGO_URL} alt="" /></div>
-              <div>
-                <p className="font-heading font-bold text-[#2D3748] text-sm">بطلها اسمه وملامحه</p>
-                <p className="font-body text-xs text-[#5A677D] inline-flex items-center gap-1"><Music className="w-3 h-3" /> صوت راوٍ وموسيقى</p>
-              </div>
-            </div>
+            {/* A real story's cover (admin: نصوص الموقع ← hero.image_url), one caption and a real
+                link to the sample video — no fake player bar or floating notes. */}
+            <a href={sampleVideo ? "#showcase" : "#what-you-get"} data-testid="hero-visual"
+              className="group block relative rounded-[2.25rem] overflow-hidden shadow-2xl border-8 border-white bg-white">
+              <img src={heroImage} alt={heroCaption || "رسم كرتوني لعائلة بأسلوب غِراس"} className="w-full aspect-[16/10] object-cover" />
+              {heroCaption && (
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 via-black/30 to-transparent pt-20 pb-4 px-4 sm:px-6 flex items-end justify-between gap-3">
+                  <div className="text-white min-w-0">
+                    <p className="font-body text-xs sm:text-sm opacity-90">قصة حقيقية من غِراس</p>
+                    <p className="font-heading font-bold text-xl sm:text-2xl leading-tight truncate">{heroCaption}</p>
+                  </div>
+                  {sampleVideo && (
+                    <span className="shrink-0 inline-flex items-center gap-2 rounded-full bg-white/95 shadow-lg pl-4 pr-1.5 py-1.5 group-hover:scale-105 transition">
+                      <span className="w-8 h-8 rounded-full bg-[#87A96B] grid place-content-center">
+                        <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+                      </span>
+                      <span className="font-heading font-bold text-[#2D3748] text-sm">شاهد</span>
+                    </span>
+                  )}
+                </div>
+              )}
+            </a>
+            <ul className="mt-5 flex flex-wrap justify-center gap-2 font-body text-sm text-[#2D3748]" data-testid="hero-includes">
+              {[[Clapperboard, "فيلم كرتون"], [BookOpen, "كتاب مصوّر"], [Music, "صوت راوٍ وموسيقى"]].map(([Icon, label]) => (
+                <li key={label} className="inline-flex items-center gap-1.5 rounded-full bg-white border border-[#E2D8C9] px-3.5 py-1.5 shadow-sm">
+                  <Icon className="w-4 h-4 text-[#729352]" /> {label}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
 
       {/* SAMPLE — what the admin uploaded */}
       {(sampleVideo || sampleSteps.length === 3) && (
-        <section className="py-14 md:py-20" data-testid="showcase-section">
+        <section id="showcase" className="py-14 md:py-20 scroll-mt-20" data-testid="showcase-section">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="font-heading text-3xl sm:text-4xl font-bold text-[#2D3748] mb-3">
               {content["showcase.title"] || "شاهد قصة من غِراس"}
@@ -177,10 +220,8 @@ export default function Landing() {
               <p className="font-body text-lg text-[#5A677D] mb-8 max-w-2xl mx-auto">{content["showcase.caption"]}</p>
             )}
             {sampleVideo && (
-              <div className="rounded-[2rem] overflow-hidden border-8 border-white shadow-2xl bg-black max-w-3xl mx-auto mb-10">
-                <video src={fileSrc(sampleVideo)} poster={content["showcase.poster_url"] ? fileSrc(content["showcase.poster_url"]) : undefined}
-                  className="w-full aspect-video" controls playsInline muted autoPlay loop preload="metadata" data-testid="showcase-video" />
-              </div>
+              <ShowcaseVideo src={fileSrc(sampleVideo)}
+                poster={content["showcase.poster_url"] ? fileSrc(content["showcase.poster_url"]) : ""} />
             )}
             {sampleSteps.length === 3 && (
               <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1.5 sm:gap-4" data-testid="showcase-steps">

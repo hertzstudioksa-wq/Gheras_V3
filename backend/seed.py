@@ -76,6 +76,9 @@ CONTENT_BLOCKS = [
      "value": "منصة غِراس تصنع لطفلك قصصاً شخصيّة باسمه وملامحه، تُعلّمه القيم الجميلة وتُعدّل سلوكياته بحُب."},
     {"section": "hero", "key": "hero.cta_primary", "value": "ابدأ أول قصة لطفلك"},
     {"section": "hero", "key": "hero.cta_secondary", "value": "كيف تعمل غِراس؟"},
+    # A real story's cover for the hero picture (empty = the house-style sample).
+    {"section": "hero", "key": "hero.image_url", "value": ""},
+    {"section": "hero", "key": "hero.image_caption", "value": ""},
     {"section": "how", "key": "how.title", "value": "كيف تعمل غِراس؟"},
     {"section": "how", "key": "how.subtitle", "value": "أربع خطوات بسيطة تفصلك عن قصة لن ينساها طفلك"},
     {"section": "how", "key": "how.step1.title", "value": "اختر القيمة والموقف"},
