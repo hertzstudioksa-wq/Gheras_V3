@@ -224,6 +224,12 @@ REDRAW_NOTE = ("Draw every person exactly once, each fully separate from the oth
 OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, badge, bag and piece of clothing stays "
                     "exactly as in the first frame until the last frame.")
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
+# How bad a flagged frame is, to keep the least broken of several takes.
+FLAW_WEIGHT = {"deformed": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2, "vanishing": 2}
+
+
+def flaw(review: dict) -> int:
+    return sum(FLAW_WEIGHT.get(p, 1) for p in review.get("problems") or []) or 1
 PREV_SHOT_NOTE = "the previous shot of this scene — keep the same place, furniture, lighting and outfits"
 PREV_SCENE_NOTE = ("the last shot of the previous scene — if the story is still in the same place, keep the "
                    "same room design and furniture (lighting may change)")
@@ -580,7 +586,10 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         # A Comfy job submitted before a restart is waited on, not paid for again.
         resume_id = row.get("keyframe_prompt_id") if on_comfy else None
         first = (row.get("keyframe_prompt_attempt") or 1) if resume_id else 1
-        for attempt in range(first, 3):
+        # A Comfy draw costs ~3 cents, so a flagged frame gets one more try; then the
+        # least broken take is kept (Qwen once returned pure noise on a redraw).
+        best = None
+        for attempt in range(first, (3 if on_comfy else 2) + 1):
             text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
             if on_comfy:
                 async def submitted(prompt_id: str, attempt: int = attempt) -> None:
@@ -620,9 +629,14 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 shot_key, img, mime, cast, sh.get("keyframe_prompt") or "",
                 [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
                  [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes])
-            review["redrawn"] = attempt == 2
+            review["redrawn"] = attempt >= 2
             if review.get("ok"):
                 break
+            if best is None or flaw(review) < flaw(best[3]):
+                best = (img, mime, meta, review)
+        else:
+            if best:
+                img, mime, meta, review = best
         url = await _store(order, "keyframe", img, mime, "png")
         model = meta.get("model")
         await _set_shot(order, plan, scene, sh["shot_index"], {
