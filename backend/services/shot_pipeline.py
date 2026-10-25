@@ -365,6 +365,8 @@ def keyframe_prompt_comfy(scene: dict, sh: dict, profiles: dict, sheets: dict, c
     cast = list(dict.fromkeys(sh.get("characters") or []))
     with_ref = {r["type"] for r in refs if r["kind"] == "sheet"}
     without = [_cast_line(profiles[t], child_name) for t in cast if t not in with_ref and t in profiles]
+    shot_type = sh.get("shot_type") or "medium"
+    article = "an" if shot_type[:1].lower() in "aeiou" else "a"
     return "\n".join(p for p in [
         COMFY_INTRO,
         comfy_identity(refs, profiles, sheets),
@@ -372,7 +374,7 @@ def keyframe_prompt_comfy(scene: dict, sh: dict, profiles: dict, sheets: dict, c
         f"Also in the picture, without a reference image: {'; '.join(without)}." if without else "",
         COMFY_ONCE if cast else COMFY_NOBODY,
         " ".join(p for p in [
-            f"SCENE: a {sh.get('shot_type') or 'medium'} shot, with the {'characters' if cast else 'main subject'} "
+            f"SCENE: {article} {shot_type} shot, with the {'characters' if cast else 'main subject'} "
             "large in the frame.",
             sh.get("keyframe_prompt") or scene.get("visual_description") or "",
             f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",

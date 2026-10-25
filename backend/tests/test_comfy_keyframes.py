@@ -183,3 +183,10 @@ def test_comfy_fits_only_its_stages():
     assert not fits_stage("comfy_image", "extra_character_i2i")
     assert fits_stage("fal_image", "child_character_i2i")
     assert fits_stage("comfy_video", "video_generation")
+
+
+@pytest.mark.parametrize("shot_type,phrase", [("insert", "SCENE: an insert shot"), ("over-the-shoulder", "SCENE: an over-the-shoulder shot"),
+                                              ("wide", "SCENE: a wide shot"), (None, "SCENE: a medium shot")])
+def test_scene_line_article(shot_type, phrase):
+    text, _ = build(["child"], shot_type=shot_type)
+    assert phrase in text

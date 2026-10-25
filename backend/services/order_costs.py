@@ -125,7 +125,7 @@ async def actual_cost(order: dict) -> dict:
             comfy_clips[1] += float(s["clip_gpu_seconds"])
         looks = [r for r in (kr, cr) if r and not r.get("skipped")]
         reviews += len(looks) + (1 if s.get("clip_calm_redo") else 0) + (1 if kr.get("redrawn") else 0)
-    if not keyframes:
+    if not keyframes and not comfy_keyframes[0]:  # an older order: one picture per scene
         n = await db.scene_images.count_documents({"order_id": order_id, "kind": "scene", "source_type": {"$ne": "mock"}})
         if n:
             keyframes[None] = n
