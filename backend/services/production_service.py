@@ -305,7 +305,7 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
     toy_block = ""
     if toy_desc or toy_url or toy_name:
         # Only a toy with a photo has its own reference; one named without a photo
-        # is a story object like any other (the plan once left a Sonic plush seen in
+        # is a story object like any other (the plan once left a favourite plush seen in
         # every shot out of story_objects because this header said "uploaded").
         lines = ["**لعبة/غرض مهم للطفل (مرفوع كصورة)**:" if toy_url else "**لعبة الطفل المفضّلة (بدون صورة)**:"]
         if toy_name:

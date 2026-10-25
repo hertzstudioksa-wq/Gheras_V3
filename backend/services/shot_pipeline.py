@@ -231,6 +231,19 @@ FLAW_WEIGHT = {"noise": 10, "deformed": 3, "melting": 3, "duplicate": 2, "extra_
 
 def flaw(review: dict) -> int:
     return sum(FLAW_WEIGHT.get(p, 1) for p in review.get("problems") or []) or 1
+
+
+# The reviewer called a redrawn cartoon face "wrong_look" on 7 of 9 keyframes of the
+# fourth real story; three takes each never cleared it (the face comes from the same
+# sheet every time), and a flagged start frame turned off the clip retakes for
+# real problems. A likeness-only flag stays on the shot for the admin, nothing more.
+SOFT_PROBLEMS = {"wrong_look"}
+
+
+def passes(review: dict | None) -> bool:
+    """The review found nothing worth another take."""
+    review = review or {}
+    return bool(review.get("ok", True)) or not (set(review.get("problems") or []) - SOFT_PROBLEMS)
 PREV_SHOT_NOTE = "the previous shot of this scene — keep the same place, furniture, lighting and outfits"
 PREV_SCENE_NOTE = ("the last shot of the previous scene — if the story is still in the same place, keep the "
                    "same room design and furniture (lighting may change)")
@@ -496,7 +509,9 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
         elif kind == "toy":
             parts.append(f"{tag} shows only the child's {r['name']} (ignore any hands or background around it)")
         elif kind == "object":
-            parts.append(f"{tag} shows only {r['name']}: copy its material, shape and colors exactly, {OBJECTS_NOTE}")
+            # A plush's red shoes ended up on the friend's feet: the object's look is its own.
+            parts.append(f"{tag} shows only {r['name']}: copy its material, shape and colors exactly, {OBJECTS_NOTE}; "
+                         "its colors and parts belong to it alone, people keep their own clothes and shoes")
         elif kind == "prev_shot":
             parts.append(f"{tag} is the previous shot of this scene: keep the same place, furniture and lighting, "
                          "and take the people from their own references")
@@ -605,7 +620,20 @@ WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and o
              "and keep their shape and size. No wind: hair and clothes hang still.")
 
 
-def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfit: bool = False) -> str:
+# A plush with a face is a character to a video model: a cartoon-hero plush raised its
+# arms and opened its mouth when the boys cheered.
+def lifeless(objects: list[str] | None) -> str:
+    if not objects:
+        return ""
+    names = list(dict.fromkeys(objects))
+    text = " and ".join(names)
+    one = len(names) == 1
+    return (f"{text[:1].upper()}{text[1:]} {'is a lifeless object' if one else 'are lifeless objects'}: never moving, "
+            f"waving, blinking or opening a mouth by {'itself' if one else 'themselves'}, only moved by a hand.")
+
+
+def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfit: bool = False,
+                      objects: list[str] | None = None) -> str:
     who = "Nobody is in the frame." if not people else (
         f"Exactly {people} {'person' if people == 1 else 'people'}, all already in the frame; nobody appears, leaves "
         "or is duplicated, bodies stay solid, and nobody turns to look at the camera.")
@@ -614,16 +642,19 @@ def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfi
         CALM_NOTE if calm else "",
         OUTFIT_REDO_NOTE if outfit else "",
         WAN_STILL,
+        lifeless(objects),
         who,
         "2D storybook cartoon, no written words.",
     ] if p)
 
 
-def motion_prompt(motion: str | None, mapping: list[str], style: dict, cast: list[str] | None = None) -> str:
+def motion_prompt(motion: str | None, mapping: list[str], style: dict, cast: list[str] | None = None,
+                  objects: list[str] | None = None) -> str:
     return " ".join(p for p in [
         motion or "Gentle natural character motion and a slow camera push-in.",
         ("Characters: " + "; ".join(mapping) + ".") if mapping else "",
         cast_lock(cast or []),
+        lifeless(objects),
         "Nobody turns to look at the camera." if cast else "",
         PHYSICS,
         style["motion_text"],
@@ -811,7 +842,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
                  [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes])
             review["redrawn"] = attempt >= 2
-            if review.get("ok"):
+            if passes(review):
                 break
             if best is None or flaw(review) < flaw(best[3]):
                 best = (img, mime, meta, review)
@@ -833,6 +864,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             "keyframe_prompt_id": None, "keyframe_prompt_attempt": None,
             "keyframe_refs": describe_refs(comfy_refs, sheets) if on_comfy else None,
             "keyframe_seed": meta.get("seed"),
+            "objects": [o["name"] for o in in_shot],
         })
         prev = (img, mime)
         hero_url = hero_url or url
@@ -1045,7 +1077,7 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
             elements.append({"frontal_image_url": sheet_urls[t], "reference_image_urls": [sheet_urls[t]]})
             mapping.append(f"{sheets[t]['label']} is @Element{len(elements)}")
     cast = cast_labels(row.get("characters") or [], sheets)
-    prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast)
+    prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast, row.get("objects"))
     if calm:
         prompt = f"{CALM_NOTE} {prompt}"
     if outfit:
@@ -1078,7 +1110,8 @@ async def _comfy_clip_fills(row: dict, model: str, sheets: dict, tail: float, st
             raise ValueError(f"keyframe for shot {row['scene_index']}.{row['shot_index']} is missing")
         uploads[row["keyframe_url"]] = await comfy.upload(
             img[0], f"shot{row['scene_index']}-{row['shot_index']}.png", stage="video_generation")
-    prompt = wan_motion_prompt(row.get("motion_prompt"), len(set(row.get("characters") or [])), calm, outfit)
+    prompt = wan_motion_prompt(row.get("motion_prompt"), len(set(row.get("characters") or [])), calm, outfit,
+                               row.get("objects"))
     return {
         "start_image": uploads[row["keyframe_url"]],
         "motion_prompt": prompt[:2400],
@@ -1215,12 +1248,12 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 refs, first = await review_refs(row)
                 review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
                                                        row.get("motion_prompt") or "", refs, first)
-                if not review.get("ok") and wan and not (row.get("keyframe_review") or {}).get("ok", True):
+                if not passes(review) and wan and not passes(row.get("keyframe_review")):
                     # The start frame itself was still flagged after its redraw: another
                     # Wan take animates the same picture, so none is paid for. The admin
                     # redoes frame + clip from the shots tab.
                     review = {**review, "start_frame_flagged": True}
-                elif not review.get("ok"):
+                elif not passes(review):
                     problems = "review: " + ", ".join(review.get("problems") or [])
                     if wan and (best is None or len(review.get("problems") or []) <= len(best[1].get("problems") or [])):
                         best = (data, review)

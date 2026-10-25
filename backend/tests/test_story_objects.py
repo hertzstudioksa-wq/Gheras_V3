@@ -111,3 +111,26 @@ def test_a_favourite_toy_without_a_photo_is_not_called_uploaded():
     assert "(بدون صورة)" in text and "مرفوع كصورة" not in text and "story_objects" in text
     order["data"]["personalization"]["toy_image_url"] = "/api/uploads/file/x"
     assert "مرفوع كصورة" in ps._build_user_prompt(order, {}, 4)
+
+
+def test_story_objects_stay_lifeless_in_clips():
+    # the Sonic plush raised its arms and opened its mouth when the boys cheered
+    text = sp.wan_motion_prompt("The boys cheer.", 2, objects=["the big blue Sonic plush"])
+    assert "The big blue Sonic plush is a lifeless object: never moving, waving, blinking or opening a mouth by " \
+           "itself" in text
+    assert "are lifeless objects" in sp.lifeless(["the kite", "the cake"]) and sp.lifeless([]) == ""
+    from services import engine_config
+
+    assert "lifeless" in sp.motion_prompt("The boys cheer.", [], engine_config.DEFAULT_STYLE, ["Lina"], ["the kite"])
+
+
+def test_an_object_reference_keeps_its_colours_to_itself():
+    objects = sp.shot_objects(shot([], ["kite"]), sp.story_objects(PLAN))
+    refs = sp.comfy_references(shot(["child"], ["kite"]), SCENE, SHEETS, None, None, objects)
+    assert "people keep their own clothes and shoes" in sp.comfy_identity(refs, PROFILES, SHEETS)
+
+
+def test_a_likeness_only_flag_is_soft():
+    assert sp.passes({"ok": False, "problems": ["wrong_look"]}) and sp.passes(None) and sp.passes({"ok": True})
+    assert not sp.passes({"ok": False, "problems": ["wrong_look", "duplicate"]})
+    assert not sp.passes({"ok": False, "problems": ["noise"]})
