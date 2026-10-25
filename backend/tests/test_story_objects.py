@@ -63,9 +63,9 @@ def test_comfy_keyframe_gets_the_object_reference_its_fixed_look_and_a_gaze():
     refs = sp.comfy_references(sh, SCENE, SHEETS, None, "shot", objects)
     assert [r["kind"] for r in refs] == ["sheet", "sheet", "object"]
     prompt = sp.keyframe_prompt_comfy(SCENE, sh, PROFILES, SHEETS, "Lina", refs, objects)
-    assert "<image3> shows only the red kite: copy its material, shape and colors exactly" in prompt
+    assert "<image3> shows only the red kite: copy its material, shape and colors exactly, not its arrangement" in prompt
     assert ("OBJECTS (they look exactly the same in every picture of this story): the red kite: a red diamond kite "
-            "with a yellow cross frame and a blue tail — how many pieces, how big") in prompt
+            "with a yellow cross frame and a blue tail — not its arrangement: how many pieces, how big") in prompt
     assert sp.GAZE in prompt
     assert sp.describe_refs(refs, SHEETS)[2] == "<image3> the red kite's reference"
 
@@ -87,7 +87,10 @@ def test_gpt_keyframe_gets_the_look_and_the_gaze_too():
 
 def test_the_object_reference_is_the_object_alone():
     prompt = sp.object_sheet_prompt(sp.story_objects(PLAN)["kite"])
-    assert "SUBJECT: the red kite alone" in prompt and "flat on the ground with its tail curled beside it." in prompt
+    # the reference view comes alone: the name pulled a finished tower over "loose cubes"
+    assert ("SUBJECT, as a clear reference picture: flat on the ground with its tail curled beside it. Look: a red "
+            "diamond kite") in prompt and "the red kite" not in prompt
+    assert "SUBJECT: the red kite alone" in sp.object_sheet_prompt({**sp.story_objects(PLAN)["kite"], "sheet_view": ""})
     assert "No people, no hands" in prompt and "<image1> shows the art style only" in prompt and sp.NO_TEXT in prompt
 
 

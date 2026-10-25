@@ -293,7 +293,9 @@ COVER_TITLE_SPACE = ("Leave calm sky or background space in the upper part of th
 # look once (story_objects, sizes measured on the characters' bodies in each
 # shot), and on Comfy one reference picture of it is drawn before the keyframes.
 MAX_SHOT_OBJECTS = 2
-OBJECTS_NOTE = "how many pieces, how big and how they are arranged follow the SCENE"
+# The reference's arrangement leaked: a toppled tower kept a stack standing among
+# the scattered blocks. Changing objects get loose parts as their reference.
+OBJECTS_NOTE = "not its arrangement: how many pieces, how big and how they are arranged follow the SCENE"
 # Words a plan uses for a toy; the parent's own name for it counts too.
 TOY_WORDS = ("toy", "toys", "plush", "plushie", "stuffed animal", "teddy", "doll", "figurine", "action figure")
 
@@ -369,8 +371,11 @@ def object_sheet_prompt(obj: dict) -> str:
     return "\n".join(p for p in [
         "Create a brand-new 16:9 children's storybook illustration (a new picture, not an edit of <image1>).",
         "<image1> shows the art style only: the character in it is not in this picture.",
-        f"SUBJECT: {obj['name']} alone, as a clear reference picture: {obj['look'].rstrip('.')}."
-        + (f" {obj['sheet_view'].rstrip('.')}." if obj.get("sheet_view") else ""),
+        # The name leads to the finished thing ("the block tower" got a tower drawn
+        # over "loose cubes"), so the reference view, when given, comes alone.
+        f"SUBJECT, as a clear reference picture: {obj['sheet_view'].rstrip('.')}. Look: {obj['look'].rstrip('.')}."
+        if obj.get("sheet_view") else
+        f"SUBJECT: {obj['name']} alone, as a clear reference picture: {obj['look'].rstrip('.')}.",
         "Centered, whole and large in the frame on a plain soft cream background with a light shadow under it. "
         "No people, no hands, nothing else.",
         COMFY_STYLE,
@@ -491,7 +496,7 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
         elif kind == "toy":
             parts.append(f"{tag} shows only the child's {r['name']} (ignore any hands or background around it)")
         elif kind == "object":
-            parts.append(f"{tag} shows only {r['name']}: copy its material, shape and colors exactly; {OBJECTS_NOTE}")
+            parts.append(f"{tag} shows only {r['name']}: copy its material, shape and colors exactly, {OBJECTS_NOTE}")
         elif kind == "prev_shot":
             parts.append(f"{tag} is the previous shot of this scene: keep the same place, furniture and lighting, "
                          "and take the people from their own references")

@@ -73,9 +73,21 @@ def pale_sheet_picture() -> bytes:
     return _png(img)
 
 
+def cubes_reference_picture() -> bytes:
+    """A story object's reference: bright cubes stacked and loose on a plain cream page."""
+    img = Image.new("RGB", (1536, 864), (252, 244, 226))
+    d = ImageDraw.Draw(img)
+    colors = [(220, 30, 20), (30, 90, 210), (40, 160, 40), (250, 200, 20)]
+    for i in range(8):  # a stack: a colour change every 70 px
+        d.rectangle((700, 120 + i * 70, 830, 190 + i * 70), fill=colors[i % 4])
+    for i, x in enumerate((450, 560, 930, 1040)):
+        d.rectangle((x, 640, x + 90, 730), fill=colors[(i + 1) % 4])
+    return _png(img)
+
+
 def test_static_is_caught_and_real_pictures_pass():
     assert clip_review.static_verdict([static_picture()])["problems"] == ["noise"]
-    for clean in (cartoon_picture(), jungle_picture(), pale_sheet_picture()):
+    for clean in (cartoon_picture(), jungle_picture(), pale_sheet_picture(), cubes_reference_picture()):
         assert clip_review.static_verdict([clean]) is None
     # one static frame among a clip's frames is enough; unreadable bytes are not static
     assert clip_review.static_verdict([cartoon_picture(), static_picture()])

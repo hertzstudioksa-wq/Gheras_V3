@@ -47,9 +47,13 @@ REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and co
 # colours point every way, over a washed-out canvas. Measured on 96 real
 # frames: static has a hue spread of 0.14-0.24 with under half of the blocks
 # saturated; real pictures stay under 0.03 when that pale, and colourful ones
-# (a jungle at sunset reached 0.12) are 75%+ saturated.
+# (a jungle at sunset reached 0.12) are 75%+ saturated. A few bright objects on
+# a plain background (a story object's reference, 0.12) are told apart by how
+# the colour clumps: 30-37% of static's coloured blocks have coloured blocks all
+# around them, 48%+ for real shapes (245 frames checked).
 STATIC_SPREAD = 0.10
 STATIC_SATURATED = 0.70
+STATIC_CLUSTERED = 0.42
 
 SYSTEM = (
     "You check frames of a 2D cartoon shot from a children's story before a family sees it. You get the people who "
@@ -106,8 +110,9 @@ def _shrink(data: bytes, side: int = REF_SIDE) -> tuple[bytes, str]:
     return out.getvalue(), "image/jpeg"
 
 
-def static_measure(data: bytes) -> tuple[float, float]:
-    """(hue spread inside the saturated 8px blocks, share of saturated blocks) of a 384px copy."""
+def static_measure(data: bytes) -> tuple[float, float, float]:
+    """(hue spread inside the saturated 8px blocks, share of saturated blocks, share
+    of those with saturated blocks on all four sides) of a 384px copy."""
     import numpy as np
     from PIL import Image
 
@@ -124,18 +129,27 @@ def static_measure(data: bytes) -> tuple[float, float]:
     # 1 - length of the mean colour vector: 0 = one hue per block, 1 = every hue
     spread = 1 - np.hypot(blocks(sat * np.cos(hue)), blocks(sat * np.sin(hue))) / (mean_sat + 1e-6)
     saturated = mean_sat > 0.2
-    return (float(spread[saturated].mean()) if saturated.any() else 0.0), float(saturated.mean())
+    inner = saturated.copy()
+    inner[1:, :] &= saturated[:-1, :]
+    inner[:-1, :] &= saturated[1:, :]
+    inner[:, 1:] &= saturated[:, :-1]
+    inner[:, :-1] &= saturated[:, 1:]
+    inner[0, :] = inner[-1, :] = inner[:, 0] = inner[:, -1] = False
+    if not saturated.any():
+        return 0.0, 0.0, 0.0
+    return float(spread[saturated].mean()), float(saturated.mean()), float(inner.sum() / saturated.sum())
 
 
 def static_verdict(images: list[bytes]) -> dict | None:
     """A flagged verdict when any image is coloured static, else None."""
     for data in images:
         try:
-            spread, saturated = static_measure(data)
+            spread, saturated, clustered = static_measure(data)
         except Exception:  # noqa: BLE001 — an unreadable image is the model check's business
             continue
-        if spread > STATIC_SPREAD and saturated < STATIC_SATURATED:
-            logger.warning(f"[review] coloured static: spread {spread:.3f}, saturated {saturated:.2f}")
+        if spread > STATIC_SPREAD and saturated < STATIC_SATURATED and clustered < STATIC_CLUSTERED:
+            logger.warning(f"[review] coloured static: spread {spread:.3f}, saturated {saturated:.2f}, "
+                           f"clustered {clustered:.2f}")
             return {"ok": False, "problems": ["noise"], "people_seen": None,
                     "note": f"coloured static, not a picture (spread {spread:.2f})"}
     return None
