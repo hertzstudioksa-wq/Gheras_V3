@@ -103,7 +103,9 @@ async def simulate(**flags) -> dict:
     """locked=True → every fal call answers "exhausted balance";
     comfy_locked=True → Comfy answers 402 at submit, running jobs fail with
     InsufficientFundsError and the balance reads $0;
-    bad_clips=["2_2"] → the clip review flags those shots once (then passes)."""
+    comfy_fail_clips=["1_2"] → Comfy clip jobs for those shots fail (out of memory);
+    bad_clips=["2_2"] → the clip review flags those shots once (then passes);
+    flag_times={"2_1": 2} → the clip review flags that shot that many times."""
     await db.fake_rehearsal.update_one({"id": "default"}, {"$set": {"id": "default", **flags}}, upsert=True)
     return await simulation()
 
@@ -144,12 +146,15 @@ async def text(stage: str, provider: str, system: str, user: str) -> str:
 
 
 async def _review(stage: str, user: str) -> str:
-    """Flags a shot listed in bad_clips the first time it's reviewed."""
+    """Flags a shot listed in bad_clips the first time it's reviewed (or as many
+    times as flag_times says)."""
     m = re.search(r'"shot"\s*:\s*"(\d+_\d+)"', user)
     shot = m.group(1) if m else ""
     sim = await simulation()
-    if stage == "clip_review" and shot in (sim.get("bad_clips") or []) and shot not in (sim.get("flagged") or []):
-        await db.fake_rehearsal.update_one({"id": "default"}, {"$addToSet": {"flagged": shot}})
+    times = int((sim.get("flag_times") or {}).get(shot) or (1 if shot in (sim.get("bad_clips") or []) else 0))
+    if stage == "clip_review" and times and int((sim.get("flag_counts") or {}).get(shot) or 0) < times:
+        await db.fake_rehearsal.update_one({"id": "default"}, {"$inc": {f"flag_counts.{shot}": 1},
+                                                              "$addToSet": {"flagged": shot}})
         return json.dumps({"ok": False, "people_seen": 4, "problems": ["duplicate person"],
                            "note": "rehearsal: simulated duplicate"})
     return json.dumps({"ok": True, "people_seen": None, "problems": [], "note": "rehearsal"})
@@ -441,7 +446,8 @@ async def comfy_submit(stage: str, workflow: str, prompt: dict) -> str:
         raise classify_http_error(stage, "Comfy", 402, message)
     spec = WORKFLOWS[workflow]
     node, field = spec["prompt_input"]
-    info = {"text": prompt[node]["inputs"][field]}
+    info = {"text": prompt[node]["inputs"][field],
+            "prefix": prompt[spec["output_node"]]["inputs"].get("filename_prefix") or ""}
     if "start_input" in spec:
         node, field = spec["start_input"]
         info["start_image"] = prompt[node]["inputs"][field]
@@ -471,7 +477,17 @@ async def comfy_job(prompt_id: str) -> dict:
     if remaining > 0:
         await asyncio.sleep(remaining)
     start_ms = int(float(req.get("t0") or time.time()) * 1000)
-    if (await simulation()).get("comfy_locked"):
+    sim = await simulation()
+    failing = [s for s in sim.get("comfy_fail_clips") or [] if clip and (req.get("info") or {}).get("prefix", "").endswith(f"clip_{s}")]
+    if failing:
+        job = {"id": prompt_id, "status": "failed", "execution_start_time": start_ms,
+               "execution_end_time": start_ms + 30000, "execution_error": {
+                   "exception_type": "OOMError", "exception_message": "rehearsal: out of GPU memory",
+                   "node_type": "KSamplerAdvanced", "node_id": "129:86", "traceback": [], "current_inputs": {},
+                   "current_outputs": {}}}
+        await db.fake_requests.update_one({"id": prompt_id}, {"$set": {"job": job}})
+        return job
+    if sim.get("comfy_locked"):
         job = {"id": prompt_id, "status": "failed", "execution_start_time": start_ms,
                "execution_end_time": start_ms + 1000, "execution_error": {
                    "exception_type": "InsufficientFundsError", "exception_message": "Account balance too low",

@@ -590,6 +590,12 @@ KNOWN_SETTINGS = {
                           "واحد بس؛ زوّده لو الباقة بتسمح بأكتر. التغيير بيسري في ثواني من غير restart.",
         "type": "int", "min": 1, "max": 8, "default": 1,
     },
+    "comfy.kling_rescue": {
+        "label_ar": "Kling كشبكة أمان لمقاطع Comfy",
+        "description_ar": "لو مقطع Wan على Comfy اتعلّم عليه في المراجعة مرتين أو فشل، اللقطة دي بس بتترندر بـ Kling "
+                          "الفاخر (أغلى، ≈ $0.11 للثانية). لو اتقفل، بيتسلّم مقطع Comfy زي ما هو أو اللقطة بتفشل.",
+        "type": "bool", "default": True,
+    },
 }
 
 

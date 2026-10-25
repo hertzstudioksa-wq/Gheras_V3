@@ -36,7 +36,9 @@ STAGE_LABELS_AR = {
 
 # Real-world seconds per unit, measured on the first full test order.
 EXPECT = {"planning": 115, "sheet": 95, "cover": 45, "keyframe": 50, "narration": 10, "music": 60,
-          "clip": 270, "review": 5, "assembly": 80}
+          "clip": 270, "review": 5, "assembly": 80,
+          # Comfy Cloud (wall time incl. upload and download; one job at a time on the Standard plan).
+          "comfy_keyframe": 30, "comfy_clip": 100}
 CLIP_CONCURRENCY = 4
 PLANNING_MESSAGES = [
     "بنكتب حكاية {name} مشهد مشهد ✍️",
@@ -83,14 +85,31 @@ def _child_name(order: dict) -> str:
     return ((order.get("data") or {}).get("child") or {}).get("name") or "طفلك"
 
 
+async def _engines(order: dict) -> dict:
+    """Which timings apply: Kling/GPT, or Comfy (whose keyframes and clips share its job slots)."""
+    from services import shot_pipeline
+    from services.ai import comfy
+    from services.config_service import video_tier_of
+    from services.model_catalog import video_model_for_tier
+
+    keyframes = (await shot_pipeline.keyframe_engine())[0] == "comfy_image"
+    clips = (await video_model_for_tier(video_tier_of(order)))[0] == "comfy_video"
+    return {"keyframe": "comfy_keyframe" if keyframes else "keyframe", "clip": "comfy_clip" if clips else "clip",
+            "clip_slots": await comfy._max_concurrent() if clips else CLIP_CONCURRENCY,
+            "shared": keyframes and clips}
+
+
 def _schedule(order: dict, planned: list, rows: dict, sheets_left: int, video: bool, music_done: bool,
-              narration_done: bool, now: datetime) -> float:
+              narration_done: bool, now: datetime, engines: dict | None = None) -> float:
     """Seconds until the story is ready, by replaying what's left of the run:
     the character sheets (drawn together), keyframes one after another, each scene's clips
     as soon as its keyframes exist (four at a time, the ones already at Kling
     counting down from when they were sent), music, then the assembly. A
     finished piece only ever brings the estimate down."""
-    S, K, C = _seconds("sheet"), _seconds("keyframe") + _seconds("review"), _seconds("clip") + _seconds("review")
+    engines = engines or {"keyframe": "keyframe", "clip": "clip", "clip_slots": CLIP_CONCURRENCY, "shared": False}
+    S = _seconds("sheet")
+    K = _seconds(engines["keyframe"]) + _seconds("review")
+    C = _seconds(engines["clip"]) + _seconds("review")
     t = 0.0
     if sheets_left:
         into = _since(order.get("asset_generation_started_at"), now)
@@ -110,13 +129,14 @@ def _schedule(order: dict, planned: list, rows: dict, sheets_left: int, video: b
     if video:
         scene_ready: dict = {}
         for k, ready in kf_ready.items():
-            scene_ready[k[0]] = max(scene_ready.get(k[0], 0.0), ready)
+            # On one Comfy slot the clips wait for the keyframes still to draw.
+            scene_ready[k[0]] = max(scene_ready.get(k[0], 0.0), t if engines["shared"] else ready)
         slots = []
         for k in planned:
             r = rows.get(k) or {}
             if not r.get("clip_url") and r.get("clip_state") in ("submitted", "retrying"):
                 slots.append(max(C - _since(r.get("updated_at"), now), 0.1 * C))
-        slots = sorted(slots + [0.0] * max(0, CLIP_CONCURRENCY - len(slots)))
+        slots = sorted(slots + [0.0] * max(0, engines["clip_slots"] - len(slots)))
         for k in planned:
             r = rows.get(k) or {}
             if r.get("clip_url") or r.get("clip_state") in ("submitted", "retrying"):
@@ -161,7 +181,8 @@ async def _shot_progress(order: dict, now: datetime) -> dict | None:
     in_flight = sum(1 for k in planned if (rows.get(k) or {}).get("clip_state") in ("submitted", "retrying")) if video else 0
 
     clips_left = (n - clips_done) if video else 0
-    remaining = _schedule(order, planned, rows, sheets_total - sheets_done, video, bool(music), narr_done >= n, now)
+    remaining = _schedule(order, planned, rows, sheets_total - sheets_done, video, bool(music), narr_done >= n, now,
+                          await _engines(order))
 
     name = _child_name(order)
     if sheets_done < sheets_total:

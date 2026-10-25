@@ -43,7 +43,7 @@ EXECUTORS = {
     "text": {"fal_llm", "anthropic", "openai", "gemini"},
     "image": {"fal_image", "openai", "gemini", "comfy_image"},
     "tts": {"fal_gemini_tts", "gemini_tts", "fal_tts", "elevenlabs", "openai"},
-    "video": {"kling"},  # the shot engine renders Kling (v2.x and v3) via fal
+    "video": {"kling", "comfy_video"},  # the shot engine: Kling (v2.x, v3) via fal, Wan 2.2 on Comfy
     "music": {"fal_music"},
 }
 
@@ -157,6 +157,12 @@ CATALOG_SEED = [
      "label": "Kling v3 Standard", "status": "available",
      "price": {"unit": "second", "usd": 0.084, "source": _INVOICE},
      "notes_ar": "أرخص من v3 pro بالربع وحركة أقل شوية (اختبار M1)."},
+    {"capability": "video", "provider": "comfy_video", "model_name": "comfy/clip_wan22",
+     "label": "Wan 2.2 I2V (Comfy Cloud)", "status": "available", "stages": ["video_generation"],
+     "price": {"unit": "second", "usd": 0.03, "source": _ESTIMATE},
+     "notes_ar": "Wan 2.2 I2V 14B + lightx2v 4-step، 1280x720 24 fps، من 3 لـ 7 ث بالظبط على طول السطر. المالك: "
+                 "«مقبولة جداً». ≈ 80 ث GPU للمقطع 5 ث (≈ $0.15). لو المقطع اتعلّم عليه مرتين أو فشل، اللقطة دي بس "
+                 "بتترندر بـ Kling (إعداد comfy.kling_rescue). الفاخر بيفضل Kling."},
     # ---- music
     {"capability": "music", "provider": "fal_music", "model_name": "fal-ai/elevenlabs/music",
      "label": "ElevenLabs Music (عبر fal)", "status": "recommended",

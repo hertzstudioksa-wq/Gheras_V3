@@ -78,7 +78,8 @@ async def actual_cost(order: dict) -> dict:
                                                                 "clip_seconds": 1, "clip_model": 1, "clip_url": 1,
                                                                 "keyframe_review": 1, "clip_review": 1,
                                                                 "clip_calm_redo": 1, "paid_keyframes": 1,
-                                                                "paid_clip_seconds": 1}):
+                                                                "paid_clip_seconds": 1, "comfy_clip_seconds": 1,
+                                                                "comfy_clip_model": 1}):
         # Every attempt sent is paid: the review's redos and the admin's
         # single-shot redos too. Shots made before the counters existed fall back
         # to what was kept (twice when the review sent it back).
@@ -88,7 +89,13 @@ async def actual_cost(order: dict) -> dict:
             keyframes[s.get("image_model")] = keyframes.get(s.get("image_model"), 0) + drawn
         if s.get("paid_clip_seconds") or (s.get("clip_url") and s.get("clip_seconds")):
             paid = s.get("paid_clip_seconds") or float(s["clip_seconds"]) * (2 if s.get("clip_calm_redo") else 1)
-            clip_seconds[s.get("clip_model")] = clip_seconds.get(s.get("clip_model"), 0) + float(paid)
+            # Seconds sent to Comfy are priced as Comfy even when Kling rescued the shot.
+            on_comfy = float(s.get("comfy_clip_seconds") or 0)
+            if on_comfy:
+                model = s.get("comfy_clip_model") or "comfy/clip_wan22"
+                clip_seconds[model] = clip_seconds.get(model, 0) + on_comfy
+            if float(paid) - on_comfy > 0:
+                clip_seconds[s.get("clip_model")] = clip_seconds.get(s.get("clip_model"), 0) + float(paid) - on_comfy
         looks = [r for r in (kr, cr) if r and not r.get("skipped")]
         reviews += len(looks) + (1 if s.get("clip_calm_redo") else 0) + (1 if kr.get("redrawn") else 0)
     if not keyframes:

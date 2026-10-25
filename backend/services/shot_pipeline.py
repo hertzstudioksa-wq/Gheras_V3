@@ -5,11 +5,13 @@ look of the reference videos the owner approved:
 
   character sheets   child from the photo; the rest of the cast drawn from the plan
   scene_keyframes    per shot, a 16:9 first frame drawn with the sheets (and the
-                     previous shot of the scene) as references
+                     previous shot of the scene) as references — GPT Image 2, or
+                     Qwen Image 2.1 on Comfy Cloud (each sheet its own <imageN>)
   narration          per scene, one Gemini take in the chosen dialect, split at
                      the pauses into one line per shot
-  clips              per shot, a Kling v3 clip at least as long as its line, so
-                     assembly never holds a frame
+  clips              per shot, a Kling clip (or Wan 2.2 on Comfy, Kling rescuing a
+                     shot it can't do) at least as long as its line, so assembly
+                     never holds a frame
 
 Everything per shot lives in `shot_assets`; assembly is
 video_assembly_service.assemble_shot_video.
@@ -30,11 +32,11 @@ from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
 from services import clip_review, engine_config, house_style
-from services.ai import AIPermanentError, fal
-from services.ai.image_client import WIDE, comfy_image
+from services.ai import AIConfigError, AIPermanentError, comfy, fal
+from services.ai.image_client import WIDE, comfy_image, comfy_workflow
 from services.child_character_service import _fetch_source_bytes
 from services.config_service import get_pipeline_config, resolve_model, video_tier_of
-from services.model_catalog import video_model_for_tier
+from services.model_catalog import premium_video_model, video_model_for_tier
 from services.image_generation_service import generate_image
 
 logger = logging.getLogger("shot_pipeline")
@@ -852,12 +854,45 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
     return args
 
 
+async def _comfy_clip_fills(row: dict, model: str, sheets: dict, tail: float, style: dict, pacing: dict,
+                            calm: bool, outfit: bool, uploads: dict) -> dict:
+    """Wan 2.2 on Comfy: the keyframe is the start image and the motion prompt is
+    Kling's without @Element names. The workflow runs at CFG 1, where a negative
+    prompt does nothing, so the cast lock, physics and no-text guards stay in the
+    prompt itself (they already are)."""
+    if row["keyframe_url"] not in uploads:
+        img = await _fetch_source_bytes(row["keyframe_url"])
+        if not img:
+            raise ValueError(f"keyframe for shot {row['scene_index']}.{row['shot_index']} is missing")
+        uploads[row["keyframe_url"]] = await comfy.upload(
+            img[0], f"shot{row['scene_index']}-{row['shot_index']}.png", stage="video_generation")
+    prompt = motion_prompt(row.get("motion_prompt"), [], style, cast_labels(row.get("characters") or [], sheets))
+    if calm:
+        prompt = f"{CALM_NOTE} {prompt}"
+    if outfit:
+        prompt = f"{OUTFIT_REDO_NOTE} {prompt}"
+    return {
+        "start_image": uploads[row["keyframe_url"]],
+        "motion_prompt": prompt[:2400],
+        "seed": comfy.new_seed(),
+        "duration_seconds": house_style.clip_seconds_for(model, (row.get("narration_seconds") or 0) + tail,
+                                                         pacing["line_gap_sec"], pacing["five_second_stretch"]),
+        "output_prefix": f"gheras/{row['order_id'][:8]}/clip_{row['scene_index']}_{row['shot_index']}",
+    }
+
+
+async def kling_rescue_enabled() -> bool:
+    s = await db.settings.find_one({"key": "comfy.kling_rescue"}, {"_id": 0, "value": 1})
+    return (s or {}).get("value", True) is not False
+
+
 async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int | None = None,
                          sem: asyncio.Semaphore | None = None, summarize: bool = True) -> dict:
-    """Animate the shots with Kling — one scene's (as soon as it's drawn) or
-    every shot still missing a clip. Request ids are saved before polling so a
-    crash can be resumed; each shot gets one retry on an error, and one calmer
-    redo when the reviewer flags the clip."""
+    """Animate the shots with Kling or Wan 2.2 on Comfy — one scene's (as soon as
+    it's drawn) or every shot still missing a clip. Request / prompt ids are
+    saved before polling so a crash can be resumed; each shot gets one retry on
+    an error, and one calmer redo when the reviewer flags the clip. A Wan clip
+    flagged again or failing goes to Kling for that shot only (comfy.kling_rescue)."""
     if get_order_output_type(order) not in ("video", "both"):
         return {"ran": False, "reason": "output_type does not include video"}
     cfg = await get_pipeline_config()
@@ -866,8 +901,11 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
     # The parent's tier picks the renderer they paid for (premium = the admin's premium model).
     tier = video_tier_of(order)
     provider, model = await video_model_for_tier(tier)
-    if provider != "kling":
+    if provider not in ("kling", "comfy_video"):
         return {"ran": False, "reason": f"video provider '{provider}' has no shot executor"}
+    on_comfy = provider == "comfy_video"
+    rescue_on = on_comfy and await kling_rescue_enabled()
+    rescue_model = await premium_video_model() if on_comfy else None
 
     all_rows = await shot_rows(order["id"], plan["id"])
     last = (all_rows[-1]["scene_index"], all_rows[-1]["shot_index"]) if all_rows else None
@@ -896,6 +934,101 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
         await db.shot_assets.update_one({**key, "scene_index": row["scene_index"], "shot_index": row["shot_index"]},
                                         {"$set": {**patch, "updated_at": _now()}})
 
+    async def _paid(row: dict, inc: dict) -> None:
+        await db.shot_assets.update_one({**key, "scene_index": row["scene_index"], "shot_index": row["shot_index"]},
+                                        {"$inc": inc})
+
+    uploads: dict[str, str] = {}  # keyframe url → its name on Comfy
+    rescued: list[str] = []
+
+    async def attempt(row: dict, engine: str, engine_model: str) -> str:
+        """One shot on one engine: "done", "failed", or "rescue" (a Wan clip
+        flagged twice or failing, when Kling may take over)."""
+        shot_key = f"{row['scene_index']}_{row['shot_index']}"
+        wan = engine == "comfy_video"
+        give_up = "rescue" if wan and rescue_on else "failed"
+        resume = row.get("clip_state") == "submitted"
+        request_id = row.get("clip_request_id") if resume and not wan else None
+        prompt_id = row.get("clip_prompt_id") if resume and wan else None
+        calm = outfit = False
+        tries = 0
+        while tries < 2:
+            tries += 1
+            try:
+                tail = pacing["end_tail_sec"] if (row["scene_index"], row["shot_index"]) == last else 0.0
+                remote = None
+                if wan:
+                    fills = {} if prompt_id else await _comfy_clip_fills(row, engine_model, sheets, tail, style,
+                                                                         pacing, calm, outfit, uploads)
+
+                    async def submitted(pid: str, fills: dict = fills) -> None:
+                        seconds = int(fills["duration_seconds"])
+                        await _paid(row, {"paid_clip_seconds": seconds, "comfy_clip_seconds": seconds})
+                        await _save(row, {"clip_prompt_id": pid, "clip_request_id": None, "clip_model": engine_model,
+                                          "comfy_clip_model": engine_model, "clip_state": "submitted",
+                                          "clip_seconds": seconds, "clip_prompt_used": fills["motion_prompt"],
+                                          "clip_run_id": run_id})
+
+                    data, _mime, job = await comfy.run(
+                        stage="video_generation", workflow=comfy_workflow(engine_model), fills=fills,
+                        on_submitted=submitted, prompt_id=prompt_id, timeout=1200.0, poll_interval=5.0)
+                    gpu = comfy.gpu_seconds(job)
+                    if gpu:
+                        await _paid(row, {"comfy_gpu_seconds": gpu})
+                else:
+                    if not request_id:
+                        args = await _clip_arguments(row, engine_model, sheets, sheet_urls, tail, style, pacing,
+                                                     calm, outfit)
+                        request_id = await fal.submit(stage="video_generation", env_key="FAL_KEY_VIDEO",
+                                                      model=engine_model, arguments=args)
+                        await _paid(row, {"paid_clip_seconds": int(args["duration"])})
+                        await _save(row, {"clip_request_id": request_id, "clip_prompt_id": None,
+                                          "clip_model": engine_model, "clip_state": "submitted",
+                                          "clip_seconds": int(args["duration"]), "clip_prompt_used": args["prompt"],
+                                          "clip_run_id": run_id})
+                    result = await fal.wait(stage="video_generation", env_key="FAL_KEY_VIDEO", model=engine_model,
+                                            request_id=request_id, timeout=1500, poll_interval=8)
+                    remote = ((result or {}).get("video") or {}).get("url")
+                    if not remote:
+                        raise RuntimeError("Kling returned no video url")
+                    data = await fal.download(remote)
+                request_id = prompt_id = None  # used: a redo is a new request
+                refs, first = await review_refs(row)
+                review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
+                                                       row.get("motion_prompt") or "", refs, first)
+                if not review.get("ok"):
+                    problems = "review: " + ", ".join(review.get("problems") or [])
+                    if not calm:
+                        # One calmer redo; it doesn't use up the error retry.
+                        calm, tries = True, tries - 1
+                        outfit = "outfit_change" in (review.get("problems") or [])
+                        await _save(row, {"clip_state": "retrying", "clip_review": {**review, "redone": True},
+                                          "clip_error": problems})
+                        continue
+                    if give_up == "rescue":
+                        await _save(row, {"clip_state": "retrying", "clip_review": {**review, "redone": True},
+                                          "clip_error": problems})
+                        return "rescue"
+                url = await _store(order, "clip", data, "video/mp4", "mp4")
+                await _save(row, {"clip_url": url, "clip_remote_url": remote, "clip_state": "completed",
+                                  "clip_error": None, "clip_review": review, "clip_calm_redo": calm,
+                                  "clip_prompt_id": None, "clip_engine": engine})
+                return "done"
+            except AIConfigError as e:
+                # No key or no credit: the order pauses for the top-up (engine_health);
+                # Kling doesn't quietly take over a whole story.
+                await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300], "clip_run_id": run_id})
+                return "failed"
+            except AIPermanentError as e:
+                await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300], "clip_run_id": run_id})
+                return give_up
+            except Exception as e:  # noqa: BLE001 — one fresh retry per shot
+                logger.warning(f"[shots] clip {shot_key} on {engine} attempt {tries}: {e}")
+                await _save(row, {"clip_state": "retrying" if tries == 1 else "failed",
+                                  "clip_error": f"{type(e).__name__}: {e}"[:300], "clip_run_id": run_id})
+                request_id = prompt_id = None
+        return give_up
+
     async def one(row: dict) -> bool:
         if row.get("clip_url"):
             return True
@@ -904,54 +1037,23 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
         if not row.get("keyframe_url") or not row.get("narration_seconds"):
             await _save(row, {"clip_state": "skipped", "clip_error": "missing keyframe or narration"})
             return False
-        shot_key = f"{row['scene_index']}_{row['shot_index']}"
         async with sem:
-            request_id = row.get("clip_request_id") if row.get("clip_state") == "submitted" else None
-            calm = outfit = False
-            attempt = 0
-            while attempt < 2:
-                attempt += 1
-                try:
-                    if not request_id:
-                        tail = pacing["end_tail_sec"] if (row["scene_index"], row["shot_index"]) == last else 0.0
-                        args = await _clip_arguments(row, model, sheets, sheet_urls, tail, style, pacing, calm, outfit)
-                        request_id = await fal.submit(stage="video_generation", env_key="FAL_KEY_VIDEO",
-                                                      model=model, arguments=args)
-                        await db.shot_assets.update_one(
-                            {**key, "scene_index": row["scene_index"], "shot_index": row["shot_index"]},
-                            {"$inc": {"paid_clip_seconds": int(args["duration"])}})
-                        await _save(row, {"clip_request_id": request_id, "clip_model": model, "clip_state": "submitted",
-                                          "clip_seconds": int(args["duration"]), "clip_prompt_used": args["prompt"],
-                                          "clip_run_id": run_id})
-                    result = await fal.wait(stage="video_generation", env_key="FAL_KEY_VIDEO", model=model,
-                                            request_id=request_id, timeout=1500, poll_interval=8)
-                    remote = ((result or {}).get("video") or {}).get("url")
-                    if not remote:
-                        raise RuntimeError("Kling returned no video url")
-                    data = await fal.download(remote)
-                    refs, first = await review_refs(row)
-                    review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
-                                                           row.get("motion_prompt") or "", refs, first)
-                    if not review.get("ok") and not calm:
-                        # One calmer redo; it doesn't use up the error retry.
-                        calm, attempt, request_id = True, attempt - 1, None
-                        outfit = "outfit_change" in (review.get("problems") or [])
-                        await _save(row, {"clip_state": "retrying", "clip_review": {**review, "redone": True},
-                                          "clip_error": "review: " + ", ".join(review.get("problems") or [])})
-                        continue
-                    url = await _store(order, "clip", data, "video/mp4", "mp4")
-                    await _save(row, {"clip_url": url, "clip_remote_url": remote, "clip_state": "completed",
-                                      "clip_error": None, "clip_review": review, "clip_calm_redo": calm})
-                    return True
-                except AIPermanentError as e:
-                    await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300], "clip_run_id": run_id})
-                    return False
-                except Exception as e:  # noqa: BLE001 — one fresh retry per shot
-                    logger.warning(f"[shots] clip {row['scene_index']}.{row['shot_index']} attempt {attempt}: {e}")
-                    await _save(row, {"clip_state": "retrying" if attempt == 1 else "failed",
-                                      "clip_error": f"{type(e).__name__}: {e}"[:300], "clip_run_id": run_id})
-                    request_id = None
-            return False
+            if on_comfy and row.get("clip_rescue"):
+                # Kling had taken over this shot before a restart: carry on there.
+                outcome = await attempt(row, "kling", rescue_model)
+            else:
+                outcome = await attempt(row, provider, model)
+                if outcome == "rescue":
+                    fresh = await db.shot_assets.find_one(
+                        {**key, "scene_index": row["scene_index"], "shot_index": row["shot_index"]},
+                        {"_id": 0, "clip_error": 1}) or {}
+                    logger.info(f"[shots] clip {row['scene_index']}.{row['shot_index']}: Wan gave up "
+                                f"({fresh.get('clip_error')}), rendering this shot with Kling")
+                    await _save(row, {"clip_rescue": {"from": model, "to": rescue_model, "at": _now(),
+                                                      "reason": fresh.get("clip_error")}})
+                    rescued.append(f"{row['scene_index']}_{row['shot_index']}")
+                    outcome = await attempt({**row, "clip_state": None}, "kling", rescue_model)
+            return outcome == "done"
 
     results = await asyncio.gather(*(one(r) for r in rows))
     saved = sum(1 for ok in results if ok)
@@ -959,5 +1061,6 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
         await db.orders.update_one({"id": order["id"]}, {"$set": {"video_generation_summary": {
             "mode": "shots", "total": len(rows), "saved": saved, "failed": len(rows) - saved,
             "model": model, "tier": tier, "run_id": run_id, "ran_at": _now(),
+            "kling_rescues": rescued,
         }}})
-    return {"ran": True, "saved": saved, "total": len(rows)}
+    return {"ran": True, "saved": saved, "total": len(rows), "kling_rescues": rescued}

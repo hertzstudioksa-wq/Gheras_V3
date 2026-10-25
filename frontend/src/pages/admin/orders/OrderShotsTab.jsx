@@ -69,6 +69,11 @@ function ShotCard({ orderId, shot, busy, onDone }) {
         <ReviewBadge label="الصورة" review={shot.keyframe_review} redoneKey="redrawn" />
         <ReviewBadge label="المقطع" review={shot.clip_review} redoneKey="redone" />
         {shot.clip_calm_redo && <span className="text-[11px] rounded-full px-2 py-0.5 bg-[#F8F1E7] text-[#8B5A2B]">حركة أهدى</span>}
+        {shot.clip_rescue && (
+          <span className="text-[11px] rounded-full px-2 py-0.5 bg-[#FCE6D4] text-[#B8612F]" title={shot.clip_rescue.reason || ""}>
+            اتعمل بـ Kling بعد Wan
+          </span>
+        )}
         {running && (
           <span className="text-[11px] rounded-full px-2 py-0.5 bg-[#FCE6D4] text-[#B8612F] inline-flex items-center gap-1">
             <Loader2 className="w-3 h-3 animate-spin" /> بتتعاد...
@@ -93,7 +98,7 @@ function ShotCard({ orderId, shot, busy, onDone }) {
         </button>
         <ConfirmAction tone="cost" disabled={running || busy} testId={`redo-clip-${keyStr}`}
                        title={`مقطع جديد للقطة ${keyStr}`}
-                       description={`مقطع Kling جديد (~$0.6 على رصيد fal)${reassemble ? "، وبعده الفيديو بيتجمّع من جديد ويوصل للعميل" : ""}.`}
+                       description={`مقطع جديد بموديل الفيديو الحالي (Kling ~$0.6، وWan على Comfy أرخص بكتير)${reassemble ? "، وبعده الفيديو بيتجمّع من جديد ويوصل للعميل" : ""}.`}
                        confirmLabel="ابدأ" onConfirm={() => redo("clip")}
                        className="inline-flex items-center gap-1 rounded-full bg-[#87A96B] text-white px-3 py-1.5 text-xs font-bold disabled:opacity-50">
           <Film className="w-3 h-3" /> مقطع جديد
