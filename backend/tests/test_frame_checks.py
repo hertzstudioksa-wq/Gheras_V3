@@ -119,7 +119,8 @@ def test_review_still_skips_a_passing_fault(monkeypatch):
     assert verdict["ok"] and verdict["skipped"] == "unavailable"
 
 
-def test_tashkeel_pauses_on_an_empty_balance_and_skips_other_faults(monkeypatch):
+def test_tashkeel_never_stops_the_book(monkeypatch):
+    # The owner: vowels are optional, the book goes plain rather than pausing the order.
     pages = [{"id": "p1", "page_text": "يمان يبني برجًا"}]
 
     async def locked(texts):
@@ -128,8 +129,6 @@ def test_tashkeel_pauses_on_an_empty_balance_and_skips_other_faults(monkeypatch)
     async def broken(texts):
         raise AIError("timeout")
 
-    monkeypatch.setattr(tashkeel_service, "diacritize", locked)
-    with pytest.raises(AIConfigError):
-        asyncio.run(tashkeel_service.vowelled_pages(pages))
-    monkeypatch.setattr(tashkeel_service, "diacritize", broken)
-    assert asyncio.run(tashkeel_service.vowelled_pages(pages)) == {}
+    for failing in (locked, broken):
+        monkeypatch.setattr(tashkeel_service, "diacritize", failing)
+        assert asyncio.run(tashkeel_service.vowelled_pages(pages)) == {}

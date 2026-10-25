@@ -200,11 +200,7 @@ async def assemble_pdf(
     try:
         from services.book_renderer import render_book_pdf
         rendered = await render_book_pdf(order_id, plan, cover_image_url, book_assets)
-    except Exception as e:  # noqa: BLE001 — a broken template must not stop delivery...
-        from services.engine_health import is_balance_message
-
-        if is_balance_message(e):
-            raise  # ...an empty balance pauses the order instead of a plain fallback book
+    except Exception as e:  # noqa: BLE001 — a broken template must not stop delivery
         logger.warning(f"[pdf] magazine renderer failed for {order_id}, using ReportLab: {type(e).__name__}: {e}")
         rendered = None
     if rendered:
