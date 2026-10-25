@@ -31,6 +31,8 @@ ENTITY_TYPES = (
     "asset", "retention_policy",
     # M6
     "wallet",
+    # Readiness (engine balance)
+    "engine",
 )
 ACTIONS = (
     "create", "update", "delete",
@@ -50,6 +52,8 @@ ACTIONS = (
     "pricing.settings", "pricing.override", "payment.paid", "payment.waived", "payment.refund",
     "wallet.topup", "wallet.charge", "wallet.refund", "wallet.adjust",
     "privacy.photos_deleted", "privacy.account_deleted", "safety.review",
+    # Readiness: resume after a top-up, redo one shot
+    "engine.resume_paused", "shot.redo",
 )
 
 

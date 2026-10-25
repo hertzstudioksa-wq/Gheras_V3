@@ -443,15 +443,15 @@ async def prompt_preview(order_id: str):
             rows = []
             for sc in scenes:
                 for sh in sc.get("shots") or []:
-                    notes = [f"{sheets[t]['label']}'s character sheet"
-                             for t in (sh.get("characters") or []) if t in sheets][:shot_pipeline.MAX_ELEMENTS]
+                    notes = [f"{sheets[t]['label']}'s character sheet" for t in shot_pipeline.by_likeness(
+                        sh.get("characters") or [], sheets)[:shot_pipeline.MAX_KEYFRAME_SHEETS]]
                     if sh["shot_index"] > 1:
                         notes.append(shot_pipeline.PREV_SHOT_NOTE)
                     elif sc["scene_index"] > 1:
                         notes.append(shot_pipeline.PREV_SCENE_NOTE)
-                    mapping = [f"{sheets[t]['label']} is @Element{i + 1}"
-                               for i, t in enumerate([t for t in (sh.get("characters") or []) if t in sheets]
-                                                     [:shot_pipeline.MAX_ELEMENTS])] if "/v3/" in model else []
+                    mapping = [f"{sheets[t]['label']} is @Element{i + 1}" for i, t in enumerate(
+                        shot_pipeline.by_likeness(sh.get("characters") or [], sheets)[:shot_pipeline.MAX_ELEMENTS])
+                    ] if "/v3/" in model else []
                     row = used.get((sc["scene_index"], sh["shot_index"])) or {}
                     rows.append({
                         "scene_index": sc["scene_index"], "shot_index": sh["shot_index"],

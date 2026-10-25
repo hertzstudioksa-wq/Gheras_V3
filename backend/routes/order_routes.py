@@ -68,6 +68,14 @@ async def append_status(order_id: str, from_status: str | None, to_status: str, 
 
 
 async def run_scenario_generation(order_id: str, batch_id: str):
+    """Scenario ideas, with a heartbeat on the order (see order_heartbeat)."""
+    from services.order_heartbeat import beating
+
+    async with beating(order_id):
+        await _run_scenario_generation(order_id, batch_id)
+
+
+async def _run_scenario_generation(order_id: str, batch_id: str):
     """Background task: generate a batch, persist (without deleting old), and advance status."""
     from services.ai.fake_providers import CURRENT_ORDER
     CURRENT_ORDER.set(order_id)  # rehearsals build their fake ideas from this order

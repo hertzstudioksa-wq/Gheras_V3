@@ -33,6 +33,7 @@ const ENTITY_LABEL = {
   asset: "أصل",
   retention_policy: "سياسة الاحتفاظ",
   wallet: "رصيد عميل",
+  engine: "محرك التوليد (رصيد fal)",
 };
 const ACTION_LABEL = {
   create: "إضافة", update: "تعديل", delete: "مسح", grant: "منح", reserve: "حجز", consume: "استهلاك",
@@ -53,6 +54,7 @@ const ACTION_LABEL = {
   "payment.paid": "دفع", "payment.waived": "تعدية مجانية", "payment.refund": "استرداد",
   "wallet.topup": "شحن رصيد", "wallet.charge": "خصم رصيد", "wallet.refund": "استرداد للرصيد", "wallet.adjust": "تعديل رصيد",
   "privacy.photos_deleted": "مسح الصور الأصلية", "privacy.account_deleted": "مسح بيانات حساب",
+  "engine.resume_paused": "استكمال الطلبات الموقوفة بعد الشحن", "shot.redo": "إعادة لقطة",
 };
 const ACTION_COLORS = {
   create: "bg-[#E8F0E1] text-[#4F6B3B]",

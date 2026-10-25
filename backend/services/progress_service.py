@@ -35,7 +35,7 @@ STAGE_LABELS_AR = {
 }
 
 # Real-world seconds per unit, measured on the first full test order.
-EXPECT = {"planning": 115, "sheet": 45, "cover": 45, "keyframe": 50, "narration": 10, "music": 60,
+EXPECT = {"planning": 115, "sheet": 95, "cover": 45, "keyframe": 50, "narration": 10, "music": 60,
           "clip": 270, "review": 5, "assembly": 80}
 CLIP_CONCURRENCY = 4
 PLANNING_MESSAGES = [
@@ -86,15 +86,15 @@ def _child_name(order: dict) -> str:
 def _schedule(order: dict, planned: list, rows: dict, sheets_left: int, video: bool, music_done: bool,
               narration_done: bool, now: datetime) -> float:
     """Seconds until the story is ready, by replaying what's left of the run:
-    sheets one after another, keyframes one after another, each scene's clips
+    the character sheets (drawn together), keyframes one after another, each scene's clips
     as soon as its keyframes exist (four at a time, the ones already at Kling
     counting down from when they were sent), music, then the assembly. A
     finished piece only ever brings the estimate down."""
     S, K, C = _seconds("sheet"), _seconds("keyframe") + _seconds("review"), _seconds("clip") + _seconds("review")
     t = 0.0
     if sheets_left:
-        into = _since(order.get("asset_generation_started_at"), now) % S
-        t = sheets_left * S - min(into, 0.85 * S)
+        into = _since(order.get("asset_generation_started_at"), now)
+        t = max(S - into, 0.15 * S)
     done_at = [r.get("keyframe_at") for r in rows.values() if r.get("keyframe_url") and r.get("keyframe_at")]
     since_kf = min((_since(x, now) for x in done_at), default=None)
     kf_ready, first = {}, True

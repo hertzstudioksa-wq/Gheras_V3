@@ -975,6 +975,27 @@ async def _process_job_with_retry(job: dict, order: dict, plan: dict) -> bool:
     return False
 
 
+async def _extras_stage(order: dict) -> None:
+    """extra_character_i2i: every visible relative with an uploaded photo.
+    Always safe: per-character try/except in the service, plus this one."""
+    try:
+        ec_result = await run_extra_characters_stage(order)
+        if ec_result.get("ran"):
+            logger.info(f"[extra_character_i2i] processed count={ec_result.get('count')} "
+                        f"results={[r.get('status') for r in (ec_result.get('results') or [])]}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[extra_character_i2i] unexpected crash (ignored): {e}")
+
+
+async def _text_sheets(order: dict, plan: dict) -> None:
+    """Sheets for cast members without a photo (drawn from the plan), alongside
+    the photo-based ones; _run_shot_assets fills in anything still missing."""
+    try:
+        await shot_pipeline.ensure_character_sheets(order, plan, photo_free_only=True)
+    except Exception as e:  # noqa: BLE001 — the later pass retries, keyframes fail loudly on a dead key
+        logger.warning(f"[shots] order={order['id']} text-drawn sheets failed: {e}")
+
+
 async def _run_jobs(jobs: list[dict], process) -> list[bool]:
     """Jobs one after another, in scene order."""
     results = []
@@ -1044,6 +1065,14 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
 
 # ---------------- Run (entrypoint) ----------------
 async def run_asset_generation(order_id: str, run_id: str):
+    """The asset pipeline, with a heartbeat on the order (see order_heartbeat)."""
+    from services.order_heartbeat import beating
+
+    async with beating(order_id):
+        await _run_asset_generation(order_id, run_id)
+
+
+async def _run_asset_generation(order_id: str, run_id: str):
     """Full pipeline — sequential dispatch of all jobs."""
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
@@ -1105,14 +1134,19 @@ async def run_asset_generation(order_id: str, run_id: str):
     narration_task = asyncio.create_task(_run_jobs(
         [j for j in jobs if j["job_type"] == "narration_audio"], process)) if shot_mode else None
 
-    # --- child_character_i2i: the child's cartoon character ------------------
-    # Runs BEFORE any scene image. When it ran (photo present, stage enabled)
-    # and failed, stop here: drawing the scenes without the child's likeness
-    # would deliver a generic book and still spend the whole image budget.
+    # --- Character sheets, before any scene image ---------------------------
+    # They don't depend on each other: the child's, the ones from relatives'
+    # photos and the ones drawn from the plan run together (a five-person story
+    # spent ~8 minutes drawing them one by one). When the child's sheet ran
+    # (photo present, stage enabled) and failed, stop here: drawing the scenes
+    # without the child's likeness would deliver a generic book and still spend
+    # the whole image budget.
+    extras_task = asyncio.create_task(_extras_stage(order))
+    text_sheets_task = asyncio.create_task(_text_sheets(order, plan)) if shot_mode else None
     cc_result = await run_child_character_stage(order, plan)
+    side_tasks = [t for t in (extras_task, text_sheets_task) if t]
     if cc_result.get("ran") and cc_result.get("status") != "completed":
-        if narration_task:
-            await asyncio.gather(narration_task, return_exceptions=True)
+        await asyncio.gather(*side_tasks, *([narration_task] if narration_task else []), return_exceptions=True)
         reason = f"child character failed: {cc_result.get('reason')}"
         logger.warning(f"[child_character_i2i] order={order_id} {reason}")
         # The jobs were planned before this stage; close them so they don't sit
@@ -1130,19 +1164,7 @@ async def run_asset_generation(order_id: str, run_id: str):
                              "system", reason=reason[:300])
         return
 
-    # --- Phase D: extra_character_i2i (OPTIONAL, disabled by default) -------
-    # Processes every visible extra character that has an uploaded image.
-    # Always safe: per-character try/except in the service, plus the outer
-    # try/except here. If no eligible character exists, early-return.
-    try:
-        ec_result = await run_extra_characters_stage(order)
-        if ec_result.get("ran"):
-            logger.info(
-                f"[extra_character_i2i] processed count={ec_result.get('count')} "
-                f"results={[r.get('status') for r in (ec_result.get('results') or [])]}"
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.exception(f"[extra_character_i2i] unexpected crash (ignored): {e}")
+    await asyncio.gather(*side_tasks, return_exceptions=True)
 
     if shot_mode:
         await _run_shot_assets(order, plan, run_id, jobs, process, narration_task)

@@ -41,6 +41,10 @@ logger = logging.getLogger("shot_pipeline")
 
 CLIP_CONCURRENCY = 4
 MAX_ELEMENTS = 3  # character sheets passed to Kling per shot
+# Sheets a start frame is drawn with. With only three, a five-person shot drew
+# the child's parents without theirs (the mother came out looking like the
+# other mother in the scene).
+MAX_KEYFRAME_SHEETS = 5
 # Scratch space on the data drive (C: is small on dev machines).
 WORK_ROOT = STORAGE_DIR / "tmp"
 
@@ -156,23 +160,29 @@ async def load_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
     return sheets
 
 
-async def ensure_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
+async def ensure_character_sheets(order: dict, plan: dict, photo_free_only: bool = False) -> dict[str, dict]:
     """Draw a reference sheet for every cast member who appears in a shot and has
     neither a photo-based character nor a sheet yet (e.g. the mother), so they
-    look the same in every shot. A failed sheet only costs consistency."""
+    look the same in every shot. A failed sheet only costs consistency.
+
+    The sheets are drawn at the same time. With `photo_free_only` (the pass that
+    runs alongside the photo-based sheets) cast members with a photo are left to
+    their own stage; the later pass draws any of those that failed."""
     child_name = ((order.get("data") or {}).get("child") or {}).get("name") or ""
     scenes = await _scenes(order, plan)
     needed = {c for s in scenes for sh in s.get("shots") or [] for c in sh.get("characters") or []}
     profiles = await _profiles(plan)
     sheets = await load_character_sheets(order, plan)
     style = await engine_config.style_for_order(order)
-    style_ref = None
-    for t in sorted(needed - set(sheets)):
-        profile = profiles.get(t)
-        if not profile or t == "child":
-            continue
+    with_photo = {c.get("type") for c in ((order.get("data") or {}).get("characters") or [])
+                  if c.get("role") == "visible" and c.get("image_url")}
+    todo = [t for t in sorted(needed - set(sheets)) if profiles.get(t) and t != "child"
+            and not (photo_free_only and t in with_photo)]
+    style_ref = await engine_config.style_reference_bytes(style) if todo else None
+
+    async def draw(t: str) -> None:
+        profile = profiles[t]
         label = _label(profile, child_name)
-        style_ref = style_ref or await engine_config.style_reference_bytes(style)
         prompt = (f"Character design for an animated children's story. Character: {_cast_line(profile, child_name)}. "
                   f"{profile.get('key_features') or ''} "
                   f"{house_style.STYLE_REF_NOTE if style_ref else ''} STYLE: {style['style_text']} "
@@ -186,7 +196,7 @@ async def ensure_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
             raise
         except Exception as e:  # noqa: BLE001 — shots still get drawn from the text description
             logger.warning(f"[shots] order={order['id']} sheet for {t} failed: {e}")
-            continue
+            return
         url = await _store(order, "character-sheet", img, mime, "png")
         await db.character_sheets.insert_one({
             "id": str(uuid.uuid4()), "order_id": order["id"], "production_plan_id": plan["id"],
@@ -194,6 +204,11 @@ async def ensure_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
             "model": meta.get("model"), "created_at": _now(),
         })
         sheets[t] = {"url": url, "label": label}
+
+    results = await asyncio.gather(*(draw(t) for t in todo), return_exceptions=True)
+    for res in results:
+        if isinstance(res, AIPermanentError):
+            raise res
     return sheets
 
 
@@ -234,10 +249,19 @@ def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_n
 # Kling invented a second father when a shot's camera arc "revealed" the room,
 # and walked the child through a rope railing in a shot that packed five
 # actions. Every clip now says who is in it and that bodies stay solid.
+OUTFIT_LOCK = ("Everyone keeps exactly the clothes and accessories they wear in the first frame (hats, caps, "
+               "badges, glasses, bags) for the whole shot; the character references are for faces only.")
 PHYSICS = ("Bodies stay solid: nobody passes through railings, ropes, furniture, walls or each other, and nobody "
            "floats.")
 CLIP_NEGATIVE_GUARD = ("duplicate person, cloned character, twins, extra people, person appearing from nowhere, "
                        "body passing through objects, clipping, merged bodies, floating, character vanishing")
+
+
+def by_likeness(types: list[str], sheets: dict) -> list[str]:
+    """Cast members with a sheet, the ones the family will recognise first: the
+    child, then relatives drawn from their photos, then everyone else."""
+    have = [t for t in dict.fromkeys(types) if t in sheets]
+    return sorted(have, key=lambda t: (t != "child", not (sheets[t] or {}).get("from_photo"), have.index(t)))
 
 
 def cast_labels(types: list[str], sheets: dict) -> list[str]:
@@ -250,7 +274,8 @@ def cast_lock(labels: list[str]) -> str:
         return "Nobody new enters the frame and no one is duplicated."
     n = len(labels)
     return (f"Exactly {n} {'person' if n == 1 else 'people'} in this shot — {'; '.join(labels)} — each appearing "
-            "only once and all already in the first frame: nobody new enters and no one is duplicated.")
+            "only once and all already in the first frame: nobody new enters and no one is duplicated. "
+            f"{OUTFIT_LOCK}")
 
 
 def clip_negative(style: dict) -> str:
@@ -277,7 +302,7 @@ async def cover_request(order: dict, plan: dict) -> tuple[str, list[dict], list[
     sheets = await load_character_sheets(order, plan)
     profiles = await _profiles(plan)
     style = await engine_config.style_for_order(order)
-    cast_types = sorted(sheets, key=lambda t: (t != "child", t))[:MAX_ELEMENTS + 1]
+    cast_types = by_likeness(sorted(sheets), sheets)[:MAX_KEYFRAME_SHEETS]
     refs, notes = [], []
     for t in cast_types:
         got = await _fetch_source_bytes(sheets[t]["url"])
@@ -333,9 +358,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             hero_url = hero_url or done["keyframe_url"]
             continue
         refs, notes = [], []
-        for t in sh.get("characters") or []:
-            if t not in sheets or len(refs) >= MAX_ELEMENTS:
-                continue
+        for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]:
             if t not in sheet_bytes:
                 got = await _fetch_source_bytes(sheets[t]["url"])
                 if got:
@@ -360,6 +383,11 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             )
             # A start frame with a cloned person or written words would be
             # animated as is: redraw it once (an image is cheaper than a clip).
+            await db.shot_assets.update_one(
+                {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
+                 "shot_index": sh["shot_index"]},
+                {"$inc": {"paid_keyframes": 1}, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now()}},
+                upsert=True)
             review = await clip_review.review_keyframe(shot_key, img, mime, cast, sh.get("keyframe_prompt") or "")
             review["redrawn"] = attempt == 2
             if review.get("ok"):
@@ -572,9 +600,7 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
     v3 = "/v3/" in model
     elements, mapping = [], []
     if v3:
-        for t in row.get("characters") or []:
-            if t not in sheets or len(elements) >= MAX_ELEMENTS:
-                continue
+        for t in by_likeness(row.get("characters") or [], sheets)[:MAX_ELEMENTS]:
             if t not in sheet_urls:
                 got = await _fetch_source_bytes(sheets[t]["url"])
                 if not got:
@@ -655,6 +681,9 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                         args = await _clip_arguments(row, model, sheets, sheet_urls, tail, style, pacing, calm)
                         request_id = await fal.submit(stage="video_generation", env_key="FAL_KEY_VIDEO",
                                                       model=model, arguments=args)
+                        await db.shot_assets.update_one(
+                            {**key, "scene_index": row["scene_index"], "shot_index": row["shot_index"]},
+                            {"$inc": {"paid_clip_seconds": int(args["duration"])}})
                         await _save(row, {"clip_request_id": request_id, "clip_model": model, "clip_state": "submitted",
                                           "clip_seconds": int(args["duration"]), "clip_prompt_used": args["prompt"],
                                           "clip_run_id": run_id})

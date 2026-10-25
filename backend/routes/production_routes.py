@@ -26,6 +26,14 @@ def _now():
 
 # ---------------- Background task ----------------
 async def run_production_generation(order_id: str, run_id: str):
+    """Production planning, with a heartbeat on the order (see order_heartbeat)."""
+    from services.order_heartbeat import beating
+
+    async with beating(order_id):
+        await _run_production_generation(order_id, run_id)
+
+
+async def _run_production_generation(order_id: str, run_id: str):
     """Generate a new production plan in background, archiving any previous plans."""
     from services.ai.fake_providers import CURRENT_ORDER
     CURRENT_ORDER.set(order_id)  # rehearsals build their fake plan from this order

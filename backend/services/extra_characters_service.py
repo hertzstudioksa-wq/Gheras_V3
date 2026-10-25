@@ -15,6 +15,7 @@ Safety contract (MUST NOT CHANGE):
   4. NEVER raises — orchestrator continues scene generation regardless.
   5. Reuses child_character_service helpers (same prompt family, same provider).
 """
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -194,13 +195,15 @@ async def safe_run(order: dict) -> dict:
         provider, model_name, src = "openai", "gpt-image-1", "fallback"
     logger.info(f"[config] stage=extra_character_i2i model_source={src} model={provider}/{model_name}")
 
-    # Process each character independently. One failure does not block others.
-    results = []
-    for idx, c in eligible:
+    # Each character independently and at the same time (~1.5 min each at
+    # high quality); one failure does not block the others.
+    async def one(idx: int, c: dict) -> dict:
         try:
             r = await _run_one(order, idx, c, provider, model_name, stage_cfg)
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[extra_character_i2i] unexpected error on idx={idx}: {e}")
             r = {"skipped": False, "status": "error", "reason": str(e)}
-        results.append({"character_index": idx, **r})
+        return {"character_index": idx, **r}
+
+    results = list(await asyncio.gather(*(one(idx, c) for idx, c in eligible)))
     return {"ran": True, "skipped": False, "count": len(results), "results": results}

@@ -81,7 +81,11 @@ async def recover_interrupted(booted_at: str | None = None) -> dict:
     free rehearsal)."""
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=RESUME_WITHIN_HOURS)).isoformat()
     resumed, failed = [], []
-    query: dict = {"status": {"$in": list(STEP_OF_STATUS)}}
+    from services.order_heartbeat import stale_before
+
+    query: dict = {"status": {"$in": list(STEP_OF_STATUS)},
+                   # Another live process is still working on an order with a recent heartbeat.
+                   "$or": [{"heartbeat_at": None}, {"heartbeat_at": {"$lt": stale_before()}}]}
     if booted_at:
         query["updated_at"] = {"$lt": booted_at}
     async for o in db.orders.find(query,

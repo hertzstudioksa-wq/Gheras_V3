@@ -13,6 +13,8 @@ from __future__ import annotations
 from db import db
 from services import model_catalog, story_pricing
 
+REVIEW_USD = 0.005  # one automatic review look (Haiku vision via fal)
+
 
 async def _price_by_model(model_name: str | None, quality: str | None = None) -> float | None:
     if not model_name:
@@ -71,12 +73,24 @@ async def actual_cost(order: dict) -> dict:
     shot_quality = quality.get("scene_image_generation", "high")
     keyframes: dict[str, int] = {}
     clip_seconds: dict[str, float] = {}
+    reviews = 0
     async for s in db.shot_assets.find({"order_id": order_id}, {"_id": 0, "keyframe_url": 1, "image_model": 1,
-                                                                "clip_seconds": 1, "clip_model": 1, "clip_url": 1}):
-        if s.get("keyframe_url"):
-            keyframes[s.get("image_model")] = keyframes.get(s.get("image_model"), 0) + 1
-        if s.get("clip_url") and s.get("clip_seconds"):
-            clip_seconds[s.get("clip_model")] = clip_seconds.get(s.get("clip_model"), 0) + float(s["clip_seconds"])
+                                                                "clip_seconds": 1, "clip_model": 1, "clip_url": 1,
+                                                                "keyframe_review": 1, "clip_review": 1,
+                                                                "clip_calm_redo": 1, "paid_keyframes": 1,
+                                                                "paid_clip_seconds": 1}):
+        # Every attempt sent is paid: the review's redos and the admin's
+        # single-shot redos too. Shots made before the counters existed fall back
+        # to what was kept (twice when the review sent it back).
+        kr, cr = s.get("keyframe_review") or {}, s.get("clip_review") or {}
+        if s.get("keyframe_url") or s.get("paid_keyframes"):
+            drawn = s.get("paid_keyframes") or (2 if kr.get("redrawn") else 1)
+            keyframes[s.get("image_model")] = keyframes.get(s.get("image_model"), 0) + drawn
+        if s.get("paid_clip_seconds") or (s.get("clip_url") and s.get("clip_seconds")):
+            paid = s.get("paid_clip_seconds") or float(s["clip_seconds"]) * (2 if s.get("clip_calm_redo") else 1)
+            clip_seconds[s.get("clip_model")] = clip_seconds.get(s.get("clip_model"), 0) + float(paid)
+        looks = [r for r in (kr, cr) if r and not r.get("skipped")]
+        reviews += len(looks) + (1 if s.get("clip_calm_redo") else 0) + (1 if kr.get("redrawn") else 0)
     if not keyframes:
         n = await db.scene_images.count_documents({"order_id": order_id, "kind": "scene", "source_type": {"$ne": "mock"}})
         if n:
@@ -86,6 +100,9 @@ async def actual_cost(order: dict) -> dict:
         add("keyframes", "صور اللقطات", n, "صورة", unit if unit is not None else story_pricing.IMAGE_MEDIUM, note=model)
     for model, seconds in clip_seconds.items():
         add("clips", "مقاطع الفيديو", seconds, "ثانية", await _price_by_model(model), note=model)
+    if reviews:
+        # Haiku vision, a keyframe or four clip frames: about half a cent a look.
+        add("reviews", "المراجعة الآلية", reviews, "مراجعة", REVIEW_USD, note="anthropic/claude-haiku-5.5")
 
     narration: dict[str, float] = {}
     async for n in db.narration_assets.find({"order_id": order_id}, {"_id": 0, "model": 1, "duration_seconds": 1}):

@@ -146,6 +146,14 @@ async def _process_with_retry(job: dict, order: dict, plan: dict, executor) -> b
 
 
 async def run_final_assembly(order_id: str, run_id: str):
+    """Final assembly, with a heartbeat on the order (see order_heartbeat)."""
+    from services.order_heartbeat import beating
+
+    async with beating(order_id):
+        await _run_final_assembly(order_id, run_id)
+
+
+async def _run_final_assembly(order_id: str, run_id: str):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         return

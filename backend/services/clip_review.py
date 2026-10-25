@@ -38,7 +38,9 @@ SYSTEM = (
     "- vanishing: a character disappears or pops in between frames\n"
     "- text: written words or letters anywhere\n"
     "- deformed: a badly broken face or body\n"
-    "A natural cartoon pose, motion blur, or someone partly out of frame is fine. When unsure, it is fine.\n"
+    "A natural cartoon pose, motion blur, or someone partly out of frame is fine. A count that differs from the "
+    "expected people is not a problem by itself: someone can be hidden in a hug, behind another person or at the "
+    "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
     '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed], '
     '"note": "<one short English sentence>"}'
