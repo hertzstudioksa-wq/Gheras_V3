@@ -882,8 +882,10 @@ async def _comfy_clip_fills(row: dict, model: str, sheets: dict, tail: float, st
 
 
 async def kling_rescue_enabled() -> bool:
+    """Off unless the owner turns it on: a Kling shot costs 4-5 times a Wan one,
+    and the story was priced on Wan."""
     s = await db.settings.find_one({"key": "comfy.kling_rescue"}, {"_id": 0, "value": 1})
-    return (s or {}).get("value", True) is not False
+    return (s or {}).get("value") is True
 
 
 async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int | None = None,
@@ -950,7 +952,8 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
         resume = row.get("clip_state") == "submitted"
         request_id = row.get("clip_request_id") if resume and not wan else None
         prompt_id = row.get("clip_prompt_id") if resume and wan else None
-        calm = outfit = False
+        calm = outfit = reseeded = False
+        best = None  # the flagged Wan take with the fewest problems
         tries = 0
         while tries < 2:
             tries += 1
@@ -998,6 +1001,8 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                                                        row.get("motion_prompt") or "", refs, first)
                 if not review.get("ok"):
                     problems = "review: " + ", ".join(review.get("problems") or [])
+                    if wan and (best is None or len(review.get("problems") or []) <= len(best[1].get("problems") or [])):
+                        best = (data, review)
                     if not calm:
                         # One calmer redo; it doesn't use up the error retry.
                         calm, tries = True, tries - 1
@@ -1009,6 +1014,14 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                         await _save(row, {"clip_state": "retrying", "clip_review": {**review, "redone": True},
                                           "clip_error": problems})
                         return "rescue"
+                    if wan and not reseeded:
+                        # One more Wan take (every submit draws a new seed), then the best of them.
+                        reseeded, tries = True, tries - 1
+                        await _save(row, {"clip_state": "retrying", "clip_review": {**review, "redone": True},
+                                          "clip_error": problems})
+                        continue
+                    if wan and best:
+                        data, review = best[0], {**best[1], "best_of_takes": True}
                 url = await _store(order, "clip", data, "video/mp4", "mp4")
                 await _save(row, {"clip_url": url, "clip_remote_url": remote, "clip_state": "completed",
                                   "clip_error": None, "clip_review": review, "clip_calm_redo": calm,

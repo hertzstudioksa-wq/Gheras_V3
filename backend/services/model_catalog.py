@@ -161,8 +161,9 @@ CATALOG_SEED = [
      "label": "Wan 2.2 I2V (Comfy Cloud)", "status": "available", "stages": ["video_generation"],
      "price": {"unit": "second", "usd": 0.03, "source": _ESTIMATE},
      "notes_ar": "Wan 2.2 I2V 14B + lightx2v 4-step، 1280x720 24 fps، من 3 لـ 7 ث بالظبط على طول السطر. المالك: "
-                 "«مقبولة جداً». ≈ 80 ث GPU للمقطع 5 ث (≈ $0.15). لو المقطع اتعلّم عليه مرتين أو فشل، اللقطة دي بس "
-                 "بتترندر بـ Kling (إعداد comfy.kling_rescue). الفاخر بيفضل Kling."},
+                 "«مقبولة جداً». ≈ 80 ث GPU للمقطع 5 ث (≈ $0.15). المقطع اللي المراجعة بتعلّم عليه بيتعاد على Wan "
+                 "(حركة أهدى، وبعدين seed جديد) ويتسلّم أحسن نسخة؛ Kling كشبكة أمان مقفول افتراضياً "
+                 "(إعداد comfy.kling_rescue). الفاخر بيفضل Kling."},
     # ---- music
     {"capability": "music", "provider": "fal_music", "model_name": "fal-ai/elevenlabs/music",
      "label": "ElevenLabs Music (عبر fal)", "status": "recommended",
