@@ -228,7 +228,9 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
              "clip_run_id": None, "redo": {"state": "running", "target": payload.target, "by": admin.get("email"),
                                            "at": _now()}}
     if payload.target == "both":
-        reset.update({"keyframe_url": None, "keyframe_review": None})
+        # A stale Comfy job id would hand back the old picture instead of a new one.
+        reset.update({"keyframe_url": None, "keyframe_review": None, "keyframe_prompt_id": None,
+                      "keyframe_prompt_attempt": None})
     if payload.motion_prompt is not None and payload.motion_prompt.strip():
         reset["motion_prompt"] = payload.motion_prompt.strip()
         # The plan keeps the edit too, so a later full rerun uses it.

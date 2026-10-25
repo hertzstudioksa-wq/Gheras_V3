@@ -41,11 +41,20 @@ CAPABILITY_LABELS = {"text": "نصوص", "image": "صور", "tts": "صوت ال�
 # music_generation_service, shot_pipeline). Anything else can't be selected.
 EXECUTORS = {
     "text": {"fal_llm", "anthropic", "openai", "gemini"},
-    "image": {"fal_image", "openai", "gemini"},
+    "image": {"fal_image", "openai", "gemini", "comfy_image"},
     "tts": {"fal_gemini_tts", "gemini_tts", "fal_tts", "elevenlabs", "openai"},
     "video": {"kling"},  # the shot engine renders Kling (v2.x and v3) via fal
     "music": {"fal_music"},
 }
+
+# Providers that only fit some stages of their capability: Comfy's workflows draw
+# shot keyframes and animate clips; the sheets stay on GPT Image 2.
+STAGE_LIMITS = {"comfy_image": {"scene_image_generation"}, "comfy_video": {"video_generation"}}
+
+
+def fits_stage(provider: str, stage: str) -> bool:
+    return stage in STAGE_LIMITS.get(provider, {stage})
+
 
 # Stages the owner may switch off; the rest are the product itself.
 TOGGLEABLE_STAGES = {
@@ -114,6 +123,12 @@ CATALOG_SEED = [
      "label": "Gemini 2.5 Flash Image", "status": "testing_only",
      "price": {"unit": "image", "usd": 0.04, "source": _LIST},
      "notes_ar": "للتجربة بس — المفتاح المجاني حده 0 صور، ومحتاج billing."},
+    {"capability": "image", "provider": "comfy_image", "model_name": "comfy/keyframe_qwen21",
+     "label": "Qwen Image 2.1 Edit (Comfy Cloud)", "status": "available", "stages": ["scene_image_generation"],
+     "price": {"unit": "image", "usd": 0.04, "source": _ESTIMATE},
+     "notes_ar": "صور اللقطات والغلاف بس (الشيتات بتفضل GPT Image 2). كل شيت مرجع لوحده + لعبة الطفل + اللقطة "
+                 "اللي قبلها، ومن غير صورة الستايل. في المقارنة قريب من GPT Image 2 في الشبه بربع السعر تقريباً "
+                 "(صورة حقيقية: 12 ث GPU ≈ $0.02). الرخصة لسه محتاجة تأكيد مكتوب من Comfy."},
     # ---- narration
     {"capability": "tts", "provider": "fal_gemini_tts", "model_name": "fal-ai/gemini-3.1-flash-tts",
      "label": "Gemini 3.1 Flash TTS (عبر fal)", "status": "recommended",
@@ -287,7 +302,7 @@ async def set_stage_model(stage: str, provider: str, model_name: str, admin: dic
         raise ValueError(f"الموديل ده {CAPABILITY_LABELS[entry['capability']]} والمرحلة محتاجة {CAPABILITY_LABELS[cap]}")
     if not entry.get("active") or entry.get("status") == "retired":
         raise ValueError("الموديل ده متوقف في الكتالوج")
-    if provider not in EXECUTORS[cap]:
+    if provider not in EXECUTORS[cap] or not fits_stage(provider, stage):
         raise ValueError("مفيش كود بيشغّل المزوّد ده للمرحلة دي")
     env_key = env_key_for(provider)
     key = await key_status(env_key)
@@ -360,6 +375,6 @@ async def preset_is_valid(preset: dict) -> bool:
         cap = CAPABILITY_OF_STAGE.get(stage)
         entry = await find_model(m.get("provider"), m.get("model_name"))
         if not cap or not entry or not entry.get("active") or entry["capability"] != cap \
-                or m.get("provider") not in EXECUTORS[cap]:
+                or m.get("provider") not in EXECUTORS[cap] or not fits_stage(m.get("provider"), stage):
             return False
     return True

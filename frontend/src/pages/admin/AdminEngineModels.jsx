@@ -157,7 +157,8 @@ export function StagesTab() {
 
       <div className="space-y-3">
         {state.stages.map((row) => {
-          const options = byCap[row.capability] || [];
+          // Some models fit only certain stages (Comfy draws keyframes, not sheets).
+          const options = (byCap[row.capability] || []).filter((m) => !m.stages || m.stages.includes(row.stage_key));
           const current = `${row.provider}|${row.model_name}`;
           const t = tests[row.stage_key];
           return (

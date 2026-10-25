@@ -150,7 +150,8 @@ export default function OrderPromptPreview({ orderId }) {
           <h4 className="font-heading font-bold text-[#2D3748] mb-1 flex items-center gap-2 flex-wrap">
             اللقطات ({shots.shots?.length || 0})
             <span className="font-body text-[11px] font-normal text-[#8A9AB0]">
-              فيديو: <bdi>{shots.video_model}</bdi> • صور: {QUALITY[shots.image_quality] || shots.image_quality}
+              فيديو: <bdi>{shots.video_model}</bdi> • صور: <bdi>{shots.image_model}</bdi>
+              {!shots.image_on_comfy && <> ({QUALITY[shots.image_quality] || shots.image_quality})</>}
             </span>
           </h4>
           {shots.error ? <p className="font-body text-xs text-[#B8612F]">{shots.error}</p> : (
@@ -161,6 +162,11 @@ export default function OrderPromptPreview({ orderId }) {
                   <div className="font-body text-xs font-bold text-[#8B5A2B] mb-1">مشهد {sh.scene_index} • لقطة {sh.shot_index}</div>
                   <p className="font-body text-sm text-[#2D3748] mb-2" dir="rtl">«{sh.narration_line}»</p>
                   <Block title="صورة اللقطة" text={sh.keyframe_prompt} note={<Same now={sh.keyframe_prompt} used={sh.keyframe_prompt_used} />} />
+                  {sh.keyframe_references?.length > 0 && (
+                    <p className="font-body text-[11px] text-[#5A677D] mb-2" dir="ltr">
+                      {sh.keyframe_references.join(" • ")}
+                    </p>
+                  )}
                   <Block title="حركة الفيديو" text={sh.motion_prompt} note={<Same now={sh.motion_prompt} used={sh.motion_prompt_used} />} />
                 </div>
               ))}
