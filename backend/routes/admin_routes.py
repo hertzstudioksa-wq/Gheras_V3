@@ -607,7 +607,8 @@ KNOWN_SETTINGS = {
     "generation.max_parallel_orders": {
         "label_ar": "أقصى عدد قصص بتتولّد في نفس الوقت",
         "description_ar": "الزيادة بتستنى في طابور حسب ترتيب الاعتماد، وولي الأمر بيشوف دوره. "
-                          "ارفعه حسب حد fal/ComfyUI وحجم السيرفر (.claude/production-plan.md).",
+                          "لما صور اللقطات أو المقاطع على ComfyUI، الحد الفعلي = خانات Comfy + 1 لو أقل من الرقم ده "
+                          "(أكتر من كده بيداخل القصص في بعض وكلها تخلص متأخر). ارفعه حسب حد fal وحجم السيرفر.",
         "type": "int", "min": 1, "max": 200, "default": 6,
     },
     "render.max_parallel": {

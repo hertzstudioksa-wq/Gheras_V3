@@ -1068,9 +1068,11 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
 # ---------------- Run (entrypoint) ----------------
 async def run_asset_generation(order_id: str, run_id: str):
     """The asset pipeline, with a heartbeat on the order (see order_heartbeat)."""
+    from services.ai.fake_providers import CURRENT_ORDER
     from services.limits import wait_for_generation_slot
     from services.order_heartbeat import beating
 
+    CURRENT_ORDER.set(order_id)  # Comfy's gate serves the oldest order first
     async with beating(order_id):
         # A busy day queues approved orders instead of starting them all at once.
         await wait_for_generation_slot(order_id)

@@ -21,12 +21,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import heapq
+import itertools
 import json
 import logging
 import os
 import re
 import secrets
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -184,13 +187,41 @@ async def usd_per_gpu_second() -> float:
         return DEFAULT_USD_PER_GPU_SECOND
 
 
+_order_keys: dict[str, str] = {}
+
+
+async def order_priority(order_id: str | None) -> str:
+    """Queue key of a job: its order's approval time, so the oldest story gets
+    the next free slot. Jobs without an order (lab, previews) queue by arrival."""
+    now = datetime.now(timezone.utc).isoformat()
+    if not order_id:
+        return now
+    if order_id not in _order_keys:
+        from db import db
+
+        try:
+            o = await db.orders.find_one({"id": order_id}, {"_id": 0, "production_approved_at": 1, "created_at": 1})
+            _order_keys[order_id] = (o or {}).get("production_approved_at") or (o or {}).get("created_at") or now
+        except Exception:  # noqa: BLE001
+            return now
+        if len(_order_keys) > 2000:
+            _order_keys.pop(next(iter(_order_keys)))
+    return _order_keys[order_id]
+
+
 class _Gate:
     """Jobs in flight across the whole process (the Standard plan runs one at a
-    time). The limit is re-read every few seconds, so a change needs no restart."""
+    time). The limit is re-read every few seconds, so a change needs no restart.
+
+    A free slot goes to the waiting job of the OLDEST order (first approved,
+    first served), not to whoever wakes first: with one slot, two interleaved
+    stories both finished at ~50 min; in order the first is ready at ~25 min and
+    the second right after."""
 
     def __init__(self):
-        self._cond: asyncio.Condition | None = None
         self._busy = 0
+        self._waiting: list[tuple[str, int, asyncio.Future]] = []  # heap of (priority, arrival, grant)
+        self._arrivals = itertools.count()
         self._limit, self._at = 1, -1e9
 
     async def _current_limit(self) -> int:
@@ -198,21 +229,45 @@ class _Gate:
             self._limit, self._at = await _max_concurrent(), time.monotonic()
         return self._limit
 
-    @contextlib.asynccontextmanager
-    async def slot(self):
-        if self._cond is None:
-            self._cond = asyncio.Condition()
-        async with self._cond:
-            while self._busy >= await self._current_limit():
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(self._cond.wait(), LIMIT_CACHE_SECONDS)
+    def _grant(self) -> None:
+        while self._waiting and self._busy < self._limit:
+            _, _, grant = heapq.heappop(self._waiting)
+            if grant.done():  # the waiter gave up
+                continue
             self._busy += 1
+            grant.set_result(True)
+
+    @contextlib.asynccontextmanager
+    async def slot(self, priority: str | None = None):
+        limit = await self._current_limit()
+        if self._busy < limit and not self._waiting:
+            self._busy += 1
+        else:
+            grant = asyncio.get_running_loop().create_future()
+            heapq.heappush(self._waiting, (priority or datetime.now(timezone.utc).isoformat(),
+                                           next(self._arrivals), grant))
+            try:
+                while not grant.done():
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(asyncio.shield(grant), LIMIT_CACHE_SECONDS)
+                    if not grant.done():  # the admin may have raised the limit
+                        await self._current_limit()
+                        self._grant()
+            except BaseException:
+                if grant.done() and not grant.cancelled():
+                    self._busy -= 1  # granted while being cancelled: hand it on
+                    self._grant()
+                else:
+                    grant.cancel()
+                raise
         try:
             yield
         finally:
-            async with self._cond:
-                self._busy -= 1
-                self._cond.notify_all()
+            self._busy -= 1
+            self._grant()
+
+    def waiting(self) -> int:
+        return sum(1 for _, _, g in self._waiting if not g.done())
 
 
 _gate = _Gate()
@@ -414,7 +469,7 @@ async def run(*, stage: str, workflow: str, fills: dict, refs: list[str] | None 
     `on_submitted(prompt_id)` runs before the wait, so the caller can save the id
     and a crash resumes the paid job instead of paying again. Returns
     (bytes, mime, job); `gpu_seconds(job)` is what the job cost."""
-    async with _gate.slot():
+    async with _gate.slot(await order_priority(fake_providers.CURRENT_ORDER.get())):
         if not prompt_id:
             prompt_id = await submit(stage=stage, workflow=workflow, fills=fills, refs=refs)
             if on_submitted:

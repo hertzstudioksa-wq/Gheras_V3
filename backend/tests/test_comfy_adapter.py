@@ -339,6 +339,55 @@ def test_gate_limits_jobs_in_flight(monkeypatch, offline, limit):
     assert flight["max"] == limit and state["submits"] == 4
 
 
+def test_gate_serves_the_oldest_order_first(monkeypatch):
+    async def one():
+        return 1
+
+    monkeypatch.setattr(comfy, "_max_concurrent", one)
+    gate = comfy._Gate()
+    order = []
+
+    async def job(name, priority, hold=0.01):
+        async with gate.slot(priority):
+            order.append(name)
+            await asyncio.sleep(hold)
+
+    async def scenario():
+        first = asyncio.create_task(job("running", "2026-01-05", hold=0.05))
+        await asyncio.sleep(0.01)  # it holds the only slot
+        waiting = [asyncio.create_task(job(n, p)) for n, p in
+                   (("newest", "2026-01-04"), ("oldest", "2026-01-01"), ("middle", "2026-01-02"))]
+        await asyncio.gather(first, *waiting)
+
+    run(scenario())
+    assert order == ["running", "oldest", "middle", "newest"]
+
+
+def test_gate_cancelled_waiter_does_not_leak_a_slot(monkeypatch):
+    async def one():
+        return 1
+
+    monkeypatch.setattr(comfy, "_max_concurrent", one)
+    gate = comfy._Gate()
+    done = []
+
+    async def job(name, hold=0.02):
+        async with gate.slot("2026-01-01"):
+            done.append(name)
+            await asyncio.sleep(hold)
+
+    async def scenario():
+        holder = asyncio.create_task(job("a"))
+        await asyncio.sleep(0.005)
+        quitter = asyncio.create_task(job("quits"))
+        await asyncio.sleep(0.005)
+        quitter.cancel()
+        await asyncio.gather(holder, job("b"), return_exceptions=True)
+
+    run(scenario())
+    assert done == ["a", "b"] and gate._busy == 0 and gate.waiting() == 0
+
+
 # ---------------------------------------------------------------- lock rules
 @pytest.mark.parametrize("message,provider,status,locks", [
     ("User is locked. Exhausted balance.", "fal", 403, True),

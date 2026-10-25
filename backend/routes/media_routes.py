@@ -247,7 +247,9 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
 
     async def _redo():
         from services import shot_pipeline
+        from services.ai.fake_providers import CURRENT_ORDER
 
+        CURRENT_ORDER.set(order_id)  # a fix for a delivered story keeps its order's place in Comfy's line
         state, error = "done", None
         try:
             plan = await db.production_plans.find_one({"id": order["production_plan_id"]}, {"_id": 0})

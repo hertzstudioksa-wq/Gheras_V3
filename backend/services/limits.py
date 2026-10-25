@@ -3,7 +3,8 @@
 * Generation queue (`generation.max_parallel_orders`): how many orders may be in
   the asset stage (drawing, voicing, animating) at once. The rest wait in order
   of approval; the parent sees their place. Counted from the database, so it
-  holds across restarts and processes.
+  holds across restarts and processes. When keyframes or clips run on Comfy,
+  the limit is also capped at Comfy's slots + 1 (`comfy.max_concurrent`).
 * Render slots (`render.max_parallel`): how many video assemblies (ffmpeg, ~0.6
   GB) and picture books (Chromium, ~1.1 GB) run at once in this process.
 
@@ -45,6 +46,30 @@ async def setting_int(key: str) -> int:
 
 
 # ---------------------------------------------------------------- generation queue
+# With shot keyframes/clips on Comfy, every story waits for the same GPU slots:
+# more stories at once than slots only interleaves them (all finish late). One
+# extra story fills the gap while its sheets and voice are made on fal.
+COMFY_EXTRA_ORDERS = 1
+_comfy_cache: dict = {"at": -1e9, "in_use": False}
+
+
+async def generation_limit() -> tuple[int, str]:
+    """How many stories may generate at once, and what set it ("setting"/"comfy")."""
+    limit = await setting_int(GENERATION_SETTING)
+    try:
+        if time.monotonic() - _comfy_cache["at"] > LIMIT_CACHE_SECONDS * 3:
+            from services import engine_health
+            _comfy_cache.update(at=time.monotonic(), in_use=await engine_health.comfy_in_use())
+        if _comfy_cache["in_use"]:
+            from services.ai.comfy import _max_concurrent
+            tied = await _max_concurrent() + COMFY_EXTRA_ORDERS
+            if tied < limit:
+                return tied, "comfy"
+    except Exception as e:  # noqa: BLE001 — fall back to the plain setting
+        logger.warning(f"[queue] comfy-tied limit unavailable: {type(e).__name__}: {e}")
+    return limit, "setting"
+
+
 async def queue_position(order_id: str, since: str) -> int:
     """1 = next to start."""
     ahead = await db.orders.count_documents({
@@ -62,7 +87,7 @@ async def wait_for_generation_slot(order_id: str) -> None:
     since = ((order or {}).get("generation_queue") or {}).get("since") or _now()
     announced = False
     while True:
-        limit = await setting_int(GENERATION_SETTING)
+        limit, _why = await generation_limit()
         # A slot just granted counts at once: the order's status only becomes
         # assets_generating a moment later, and the next in line must not slip
         # into that gap. A grant that never turned into work expires.
