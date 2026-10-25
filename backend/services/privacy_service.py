@@ -119,6 +119,8 @@ async def delete_account(user_id: str, *, actor: dict | None, reason: str) -> di
     if credit > 0:
         raise ValueError(f"عندك رصيد {credit / 100:.2f} ر.س — تواصل معانا نرجّعه قبل مسح الحساب")
 
+    from services.share_service import revoke_for_user
+    await revoke_for_user(user_id)  # family watch links stop working first
     files = await _delete_files({"user_id": user_id})
     orders = await db.orders.update_many({"user_id": user_id}, {
         "$set": {"data.child": {"name": "محذوف", "age": None, "gender": None, "image_url": None},

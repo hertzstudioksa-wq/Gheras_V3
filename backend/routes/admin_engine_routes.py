@@ -459,9 +459,11 @@ async def prompt_preview(order_id: str):
                         "keyframe_prompt": shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes,
                                                                          style),
                         "keyframe_prompt_used": row.get("keyframe_prompt_used"),
-                        "motion_prompt": shot_pipeline.motion_prompt(sh.get("motion_prompt"), mapping, style),
+                        "motion_prompt": shot_pipeline.motion_prompt(
+                            sh.get("motion_prompt"), mapping, style,
+                            shot_pipeline.cast_labels(sh.get("characters") or [], sheets)),
                         "motion_prompt_used": row.get("clip_prompt_used"),
-                        "negative_prompt": style["negative_text"],
+                        "negative_prompt": shot_pipeline.clip_negative(style),
                     })
             return {"image_model": "scene_image_generation",
                     "image_quality": house_style.image_quality("scene_image_generation", pacing["image_quality"]),
@@ -542,6 +544,37 @@ async def reset_engine_stage(stage: str, admin: dict = Depends(require_admin)):
 # Key / connection checks (no generation, nothing billed).
 _DIRECT_TESTS = {"anthropic": "anthropic", "openai": "openai", "gemini": "gemini", "gemini_tts": "gemini",
                  "elevenlabs": "elevenlabs"}
+
+
+# ============================================================================
+# ENGINE HEALTH (fal balance)
+# ============================================================================
+@router.get("/engine/health")
+async def engine_health_status():
+    from services import engine_health
+
+    return await engine_health.status(fresh=True)
+
+
+@router.post("/engine/health/probe")
+async def engine_health_probe():
+    """A real few-token request: the only check that sees an exhausted balance."""
+    from services import engine_health
+
+    return {**await engine_health.probe(), **await engine_health.status(fresh=True)}
+
+
+@router.post("/engine/resume-paused")
+async def engine_resume_paused(admin: dict = Depends(require_admin)):
+    from services import engine_health
+
+    result = await engine_health.resume_paused(admin.get("id"))
+    if not result["ok"]:
+        raise HTTPException(status_code=409, detail=f"لسه مش شغّال: {result['error']}")
+    await _audit(admin, "engine", "fal", "engine.resume_paused",
+                 f"استكمال {len(result['resumed'])} طلب موقوف بعد شحن الرصيد",
+                 after={"resumed": result["resumed"], "skipped": result["skipped"]})
+    return result
 
 
 @router.post("/engine/stages/{stage}/test")

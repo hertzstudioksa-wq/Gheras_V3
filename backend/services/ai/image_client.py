@@ -45,6 +45,10 @@ async def generate_image(
     endpoint so the likeness carries across pages."""
     if provider not in IMAGE_PROVIDERS:
         raise AIConfigError(f"No image executor for provider '{provider}' (stage {stage})")
+    from services.ai import fake_providers
+
+    if fake_providers.enabled():
+        return await fake_providers.image(stage, provider, model, prompt, size, quality)
     if provider == "gemini":
         return await _gemini(stage, model, prompt, references, size, timeout)
     if provider == "fal_image":

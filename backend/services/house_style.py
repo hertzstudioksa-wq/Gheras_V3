@@ -36,11 +36,13 @@ SHEET_RULES = (
 )
 SHEET_SIZE = "1024x1536"  # one tall figure: the face gets the pixels it needs for likeness
 
-# Image quality per stage (owner decision 2026-10-24): character sheets stay at
-# high — every later picture inherits their likeness — while shot keyframes use
-# medium, which looked the same in the bake-off at about a quarter of the cost.
+# Image quality per stage. Shot keyframes went to medium on 2026-10-24 (it looked
+# the same in a one-scene bake-off), but in the first full story the owner saw
+# flatter faces and simpler eyes than the earlier high-quality story — and every
+# Kling clip inherits its keyframe's faces — so keyframes are back at high
+# (owner, 2026-10-25). Character sheets were always high.
 IMAGE_QUALITY = {
-    "scene_image_generation": "medium",
+    "scene_image_generation": "high",
     "book_page_image_generation": "medium",
 }
 
@@ -72,8 +74,13 @@ def outfit_rule(outfit: str | None) -> str:
     unless the story needs specific clothes."""
     o = (outfit or "").strip()
     if not o or any(k in o.lower() for k in _SAME_AS_PHOTO):
-        return ("keep the same outfit as in the photo, with the same colors and details (if the photo shows formal "
-                "wear such as a suit and tie, use simple casual clothes in similar colors instead)")
+        # Parents upload holiday and sports photos: the person's own clothes carry
+        # over, the gear of the moment (life jacket, harness, helmet) doesn't.
+        return ("dress the character in the person's own everyday clothes from the photo, with the same colors and "
+                "details. If the photo shows formal or office wear (a suit, a blazer or a tie), draw simple casual "
+                "clothes in similar colors instead, with no tie. Leave out activity and safety gear such as life "
+                "jackets, harnesses, straps, helmets, goggles or ski wear, and anything the person is holding. If the "
+                "feet are bare, add simple shoes that match the outfit")
     return f"dress the character in {o}"
 
 

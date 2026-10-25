@@ -136,12 +136,17 @@ async def download_file(
     if rec.get("user_id") != uid and role != "admin":
         raise HTTPException(status_code=403, detail="ممنوع الوصول")
 
+    return await file_response(rec, range_header)
+
+
+async def file_response(rec: dict, range_header: str | None, cache: str = "private, max-age=3600") -> Response:
+    """A stored file as a response, honouring byte ranges (shared by family links)."""
     try:
         data, ct = get_object(rec["storage_path"])
     except Exception:
         raise HTTPException(status_code=502, detail="تعذّر تحميل الملف")
     media_type = rec.get("content_type", ct)
-    headers = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}
+    headers = {"Accept-Ranges": "bytes", "Cache-Control": cache}
     m = _RANGE.match((range_header or "").strip())
     if m and (m.group(1) or m.group(2)):
         size = len(data)

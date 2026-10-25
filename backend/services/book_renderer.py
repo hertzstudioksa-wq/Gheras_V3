@@ -249,7 +249,11 @@ async def _book_data(order_id: str, plan: dict, cover_url: str | None, book_asse
         "child": {"name": child.get("name") or "", "female": female},
         "summary": (plan.get("story_summary") or "").split("\n")[0],
         "lesson": plan.get("main_message") or "",
-        "value": enriched.get("subcategory_name") or enriched.get("category_name") or "القيم الجميلة",
+        # A topic the parent typed is a sentence, not a value name: the certificate
+        # then gives the lesson alone instead of the broad category.
+        "value": enriched.get("subcategory_name") or (
+            None if (data.get("goal") or {}).get("custom_subcategory")
+            else enriched.get("category_name") or "القيم الجميلة"),
         "cover": cover, "logo": "logo.png" if LOGO.exists() else None,
         "pages": pages, "cast": cast, "strip": (strip + ([cover] if cover else []))[:5],
         "palette": _palette(cover_bytes), "text_size": _text_size(longest), "fonts": fonts,

@@ -3,6 +3,7 @@ import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-do
 import { useAuth } from "../../contexts/AuthContext";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import AdminPasswordGate from "./AdminPasswordGate";
+import EngineHealthBanner from "../../components/admin/EngineHealthBanner";
 import { Sheet, SheetContent, SheetTitle } from "../../components/ui/sheet";
 import {
   LayoutDashboard, Users, BookOpen, Sprout, FileText, CreditCard, Settings, LogOut, Palette,
@@ -149,6 +150,7 @@ export default function AdminLayout() {
 
         <div className="p-4 md:p-8 lg:p-10">
           <ErrorBoundary resetKey={location.pathname}>
+            {!user?.must_change_password && <EngineHealthBanner />}
             {user?.must_change_password ? <AdminPasswordGate /> : <Outlet />}
           </ErrorBoundary>
         </div>

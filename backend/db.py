@@ -48,3 +48,6 @@ async def ensure_indexes():
     await db.payments.create_index([("order_id", 1), ("created_at", -1)])
     await db.files.create_index("storage_path")
     await db.files.create_index("user_id")
+    # Family watch links
+    await db.share_links.create_index("token", unique=True)
+    await db.share_links.create_index([("order_id", 1), ("created_at", -1)])

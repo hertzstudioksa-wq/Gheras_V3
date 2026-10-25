@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { orderPath } from "../lib/orderPath";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
@@ -50,13 +51,7 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="orders-grid">
             {orders.map((o, i) => {
-              const target =
-                o.status === "scenarios_ready" || o.status === "scenarios_generating"
-                  ? `/orders/${o.id}/scenarios`
-                  : ["awaiting_payment", "production_ready", "production_planning", "production_approved", "ready_for_ai",
-                     "assets_generating", "assets_ready", "assembling", "delivered", "media_failed"].includes(o.status)
-                  ? `/orders/${o.id}/production-ready`
-                  : `/orders/${o.id}`;
+              const target = orderPath(o);
               return (
               <Link
                 key={o.id}

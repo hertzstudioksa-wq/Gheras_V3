@@ -10,6 +10,10 @@ import {
 } from "lucide-react";
 import { fileSrc } from "../lib/api";
 import OrderPayment from "../components/gheras/OrderPayment";
+import FamilyShareCard from "../components/gheras/FamilyShareCard";
+import {
+  NotifyWhenReady, PreviewStrip, StepList, TimeChips, notifyReady, useLiveNumbers,
+} from "../components/gheras/LiveProgress";
 import { toast } from "sonner";
 
 const audioBgLabel = (mode) => ({
@@ -76,6 +80,7 @@ export default function ProductionReady() {
   const pollRef = useRef(null);
 
   const errorShownRef = useRef(false);
+  const prevStatusRef = useRef(null);
   const lastUpdateRef = useRef(Date.now());
   const startRef = useRef(Date.now());
   const [stuckHint, setStuckHint] = useState(false);
@@ -101,8 +106,13 @@ export default function ProductionReady() {
       lastUpdateRef.current = Date.now();
       errorShownRef.current = false;
       // Poll while the pipeline is still active; stop on terminal delivered/failed.
+      if (data.status === "delivered" && prevStatusRef.current && prevStatusRef.current !== "delivered") {
+        notifyReady(data.summary?.child_name);
+      }
+      prevStatusRef.current = data.status;
+      // A story paused by our engine keeps polling: it resumes on its own.
       const stopStates = ["delivered", "failed", "completed"];
-      if (stopStates.includes(data.status) && pollRef.current) {
+      if (stopStates.includes(data.status) && !data.progress?.paused && pollRef.current) {
         // eslint-disable-next-line no-console
         console.debug("[prod-ready] poll:stopped reason=terminal-", data.status);
         clearInterval(pollRef.current);
@@ -234,12 +244,21 @@ export default function ProductionReady() {
   const needsReview = !!summary && summary.safety_check && summary.safety_check !== "ok" && summary.safety_review !== "approve";
   // Unified progress from backend (0..100 across the whole pipeline).
   const progress = state?.progress;
-  const rawPercent = progress?.percent ?? 0;
+  const live = useLiveNumbers(progress);
+  const isPaused = !!progress?.paused;
   // UX override: when the plan is ready (waiting for approval) or delivered,
   // show 100% instead of the backend's internal stage weight.
-  const progressPercent = (planReady || isDelivered) ? 100 : rawPercent;
+  const progressPercent = (planReady || isDelivered) ? 100 : live.percent;
   const progressStage = progress?.stage;
   const progressMessage = progress?.message_ar;
+
+  // The tab shows how far along the story is while the parent browses elsewhere.
+  useEffect(() => {
+    const base = "غِراس";
+    const working = ["production_planning", "assets_generating", "assets_ready", "assembling"].includes(status);
+    document.title = working ? `${progressPercent}% · ${base}` : isDelivered ? `🎉 جاهزة · ${base}` : base;
+    return () => { document.title = base; };
+  }, [status, progressPercent, isDelivered]);
   const [delivery, setDelivery] = useState(null);
 
   useEffect(() => {
@@ -365,7 +384,9 @@ export default function ProductionReady() {
               <Sparkles className="w-3 h-3" /> الخطوة 8 من 8
             </div>
             <h1 className="font-heading text-3xl md:text-4xl font-bold text-[#2D3748] mb-2">
-              {isAwaitingPayment
+              {isPaused
+                ? "تأخير بسيط في تجهيز قصتك ⏳"
+                : isAwaitingPayment
                 ? "اخترت القصة 🌱 فاضل خطوة الدفع"
                 : isDelivered
                 ? "🎉 قصتك أصبحت جاهزة!"
@@ -388,7 +409,9 @@ export default function ProductionReady() {
                 : "نُعِدّ خطة القصة لطفلك..."}
             </h1>
             <p className="font-body text-[#5A677D] max-w-xl">
-              {isAwaitingPayment
+              {isPaused
+                ? progressMessage
+                : isAwaitingPayment
                 ? "ادفع السعر اللي شفته وإنت بتجهّز القصة، وبعدها نبدأ على طول."
                 : isDelivered
                 ? "يمكنك الآن مشاهدة الفيديو وتحميل القصة المصوّرة."
@@ -441,7 +464,8 @@ export default function ProductionReady() {
                   </div>
                 </div>
                 <StagePill stage={progressStage} />
-                {stuckHint && (
+                <TimeChips elapsed={live.elapsed} eta={live.eta} />
+                {stuckHint && live.eta == null && (
                   <p className="mt-2 text-[11px] font-body text-[#8A9AB0] text-center" data-testid="stuck-hint">
                     ما زلنا نعمل على قصتك، قد يستغرق الأمر وقتاً أطول من المعتاد 💚
                   </p>
@@ -459,27 +483,6 @@ export default function ProductionReady() {
         )}
 
         {/* FAILED STATE */}
-        {isFailed && !approved && (
-          <div className="bg-white rounded-3xl p-8 border border-[#E2D8C9] text-center" data-testid="failed-state">
-            <div className="w-20 h-20 rounded-3xl bg-[#FCE6D4] grid place-content-center mx-auto mb-4">
-              <AlertTriangle className="w-10 h-10 text-[#B8612F]" />
-            </div>
-            <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-2">نحتاج إعادة المحاولة</h2>
-            <p className="font-body text-[#5A677D] mb-5">
-              لم نتمكن من إعداد الخطة هذه المرة. اضغط "إعادة المحاولة" لنجرّب مرة أخرى.
-            </p>
-            <button
-              onClick={regenerate}
-              disabled={regenerating || limitReached}
-              className="btn-primary inline-flex items-center gap-2 disabled:opacity-50"
-              data-testid="retry-btn"
-            >
-              <RefreshCcw className="w-4 h-4" />
-              {limitReached ? "استُهلكت المحاولة" : "إعادة المحاولة"}
-            </button>
-          </div>
-        )}
-
         {/* DELIVERED STATE — final outputs */}
         {isDelivered && delivery && (
           <div className="space-y-5" data-testid="delivered-state">
@@ -545,8 +548,8 @@ export default function ProductionReady() {
               </div>
             )}
 
-            {/* WhatsApp share */}
-            <WhatsAppShareCard />
+            {/* Family watch link + WhatsApp */}
+            <FamilyShareCard orderId={id} childName={summary?.child_name} />
 
             {/* Completion card */}
             <div
@@ -591,7 +594,7 @@ export default function ProductionReady() {
                 <h2 className="font-heading text-xl font-bold text-[#2D3748]">
                   {isAssembling ? "جاري التجميع النهائي" :
                    isMediaReady ? "الوسائط جاهزة" :
-                   isMediaFailed ? "تعذّر إكمال الوسائط" :
+                   isMediaFailed ? (isPaused ? "متوقفة مؤقتاً — هنكمّلها إحنا" : "تعذّر إكمال الوسائط") :
                    "جاري إنتاج الوسائط"}
                 </h2>
                 <p className="font-body text-xs text-[#5A677D]" data-testid="progress-stage-label">
@@ -606,10 +609,18 @@ export default function ProductionReady() {
               <p className="font-body text-sm text-[#5A677D]" data-testid="media-hint">
                 {isAssembling ? "قد يستغرق هذا دقيقة إلى دقيقتين. يمكنك تصفح بقية التطبيق والعودة لاحقاً." :
                  isMediaReady ? "تمت هذه الخطوة. جارٍ تحضير الفيديو والكتاب..." :
-                 "تصفح بقية التطبيق — سنحدّث هذه الصفحة تلقائياً حال الانتهاء."}
+                 "تقدر تقفل الصفحة وترجع لها من «قصصي» — وهي بتتحدّث لوحدها."}
               </p>
             )}
-            {isMediaFailed && (
+            {!isMediaFailed && <StepList steps={progress?.steps} />}
+            {!isMediaFailed && <PreviewStrip previews={progress?.previews} />}
+            {(isGeneratingMedia || isAssembling) && <NotifyWhenReady />}
+            {isMediaFailed && isPaused && (
+              <p className="font-body text-sm text-[#5A677D] mt-2" data-testid="paused-hint">
+                فريقنا هيكمّل القصة من نفس المكان اللي وقفت عنده، والصفحة دي هتتحدّث لوحدها.
+              </p>
+            )}
+            {isMediaFailed && !isPaused && (
               <div className="flex items-center gap-3 mt-3 flex-wrap">
                 <button
                   type="button"
@@ -813,6 +824,15 @@ export default function ProductionReady() {
             "FALLBACK_UNKNOWN"
           );
           // Failed status — explicit retry card instead of a blank page.
+          if (isFailed && isPaused) {
+            return (
+              <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#D4A373]/50 text-center" data-testid="plan-paused-card">
+                <Clock className="w-10 h-10 text-[#D4A373] mx-auto mb-2" />
+                <h2 className="font-heading text-xl font-bold text-[#2D3748] mb-2">قصتك في الطابور</h2>
+                <p className="font-body text-sm text-[#5A677D]">{progressMessage}</p>
+              </div>
+            );
+          }
           if (isFailed) {
             return (
               <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#E07A5F] text-center" data-testid="plan-failed-card">
@@ -934,50 +954,6 @@ function StagePill({ stage }) {
           {s.label}
         </div>
       ))}
-    </div>
-  );
-}
-
-function WhatsAppShareCard() {
-  const handleShare = () => {
-    const landingUrl = window.location.origin + "/";
-    const message =
-      "شوفوا القصة الجميلة دي ✨\n" +
-      "طفلي بقى بطل حكاية خاصة بيه 😍\n" +
-      "جربوا تعملوا قصة لأطفالكم من هنا:\n" +
-      landingUrl;
-    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-  return (
-    <div
-      className="bg-white rounded-[2rem] p-5 md:p-6 border-2 border-[#25D366]/40"
-      data-testid="whatsapp-share-card"
-    >
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-12 h-12 rounded-2xl bg-[#25D366]/10 grid place-content-center">
-          <svg className="w-6 h-6 text-[#25D366]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-          </svg>
-        </div>
-        <div>
-          <h2 className="font-heading text-xl font-bold text-[#2D3748]">شارك القصة مع العائلة</h2>
-          <p className="font-body text-xs text-[#5A677D]">
-            ادعُ أقاربك وأصدقاءك لإنشاء قصة خاصة بأطفالهم
-          </p>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={handleShare}
-        className="inline-flex items-center justify-center gap-2 w-full md:w-auto rounded-full bg-[#25D366] hover:bg-[#1EBE57] text-white px-6 py-3 text-sm font-bold transition-colors"
-        data-testid="whatsapp-share-btn"
-      >
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-        </svg>
-        مشاركة عبر واتساب
-      </button>
     </div>
   );
 }

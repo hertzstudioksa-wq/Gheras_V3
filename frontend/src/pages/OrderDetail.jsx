@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fileSrc } from "../lib/api";
+import { orderPath } from "../lib/orderPath";
 import Navbar from "../components/gheras/Navbar";
 import Footer from "../components/gheras/Footer";
 import OrderStatusBadge from "../components/gheras/OrderStatusBadge";
@@ -115,19 +116,23 @@ export default function OrderDetail() {
         <div className="bg-gradient-to-br from-[#E8F0E1] to-[#F8F1E7] rounded-[2rem] p-8 md:p-10 border border-[#E2D8C9] text-center">
           <Sprout className="w-12 h-12 text-[#729352] mx-auto mb-3" />
           <h3 className="font-heading text-xl font-bold text-[#2D3748] mb-2">
-            {order.status === "completed" ? "القصة جاهزة 🎉"
-            : order.selected_scenario_snapshot ? "السيناريو مختار وجاهز للتوليد"
+            {order.status === "delivered" ? "القصة جاهزة 🎉"
+            : order.status === "failed" ? "وقف تجهيز القصة"
             : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اختر سيناريو القصة"
+            : order.selected_scenario_snapshot ? "السيناريو مختار وجاهز للتوليد"
             : "القصة قيد التحضير"}
           </h3>
           <p className="font-body text-[#5A677D] max-w-lg mx-auto mb-4">
-            {order.status === "completed" ? "يمكنك تحميل الفيديو و PDF أو مشاركة القصة"
+            {order.status === "delivered" ? "تقدر تشوف الفيديو وتحمّله، وتحمّل القصة المصوّرة"
+            : order.status === "failed" ? "افتح صفحة القصة وجرّب تاني من نفس المكان اللي وقفت عنده"
             : ["scenarios_generating","scenarios_ready"].includes(order.status) ? "اضغط لاختيار السيناريو الذي يناسب طفلك"
             : "بنجهّز قصة طفلك. هتلاقيها هنا وفي «قصصي» أول ما تخلص."}
           </p>
-          {["scenarios_generating","scenarios_ready"].includes(order.status) && (
-            <Link to={`/orders/${order.id}/scenarios`} className="btn-primary inline-flex items-center gap-2">
-              <Sprout className="w-4 h-4" /> اذهب لاختيار السيناريو
+          {orderPath(order) !== `/orders/${order.id}` && (
+            <Link to={orderPath(order)} className="btn-primary inline-flex items-center gap-2" data-testid="order-continue-link">
+              <Sprout className="w-4 h-4" />
+              {["scenarios_generating","scenarios_ready"].includes(order.status) ? "اذهب لاختيار السيناريو"
+               : order.status === "delivered" ? "شوف القصة" : "افتح صفحة القصة"}
             </Link>
           )}
         </div>

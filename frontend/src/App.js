@@ -15,6 +15,7 @@ import Signup from "./pages/Signup";
 import StoryBuilder from "./pages/StoryBuilder";
 import Dashboard from "./pages/Dashboard";
 import OrderDetail from "./pages/OrderDetail";
+import SharedStory from "./pages/SharedStory";
 import ScenarioSelection from "./pages/ScenarioSelection";
 import ProductionReady from "./pages/ProductionReady";
 
@@ -63,6 +64,7 @@ function App() {
             <Route path="/categories" element={<Categories />} />
             <Route path="/privacy" element={<LegalPage kind="privacy" />} />
             <Route path="/terms" element={<LegalPage kind="terms" />} />
+            <Route path="/s/:token" element={<SharedStory />} />
             <Route
               path="/account"
               element={

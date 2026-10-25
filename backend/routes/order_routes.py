@@ -69,6 +69,8 @@ async def append_status(order_id: str, from_status: str | None, to_status: str, 
 
 async def run_scenario_generation(order_id: str, batch_id: str):
     """Background task: generate a batch, persist (without deleting old), and advance status."""
+    from services.ai.fake_providers import CURRENT_ORDER
+    CURRENT_ORDER.set(order_id)  # rehearsals build their fake ideas from this order
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         return
@@ -144,6 +146,10 @@ async def create_order(payload: OrderCreate, background: BackgroundTasks, curren
         await db.safety_refusals.insert_one({"id": str(uuid.uuid4()), "user_id": current["id"], "at": _now(),
                                              "category": safety["category"], "reason_ar": safety["reason_ar"]})
         raise HTTPException(status_code=400, detail=refusal_message(safety))
+    # The safety call above goes through fal: an exhausted balance shows up here
+    # before the parent has paid anything.
+    from services.engine_health import ensure_available
+    await ensure_available()
 
     # Duration — normalize & compute meta
     raw_seconds = int((data.get("duration") or {}).get("seconds") or 90)
@@ -395,6 +401,8 @@ async def regenerate_scenarios(order_id: str, background: BackgroundTasks, curre
             (o.get("status") == OrderStatus.FAILED.value and o.get("production_plan_id")):
         raise HTTPException(status_code=400, detail="لا يمكن تغيير الأفكار بعد بدء إعداد القصة")
 
+    from services.engine_health import ensure_available
+    await ensure_available()
     used = int(o.get("regeneration_count", 0))
     max_regen = int(o.get("max_regenerations", MAX_REGENERATIONS))
     if used >= max_regen:
@@ -424,6 +432,8 @@ async def select_scenario(order_id: str, scenario_id: str, background: Backgroun
     from services.order_state import SCENARIO_SELECTABLE, claim
     if o.get("status") not in SCENARIO_SELECTABLE:
         raise HTTPException(status_code=400, detail="القصة اتختارت وبدأ تجهيزها بالفعل")
+    from services.engine_health import ensure_available
+    await ensure_available()
     scenario = await db.scenarios.find_one({"id": scenario_id, "order_id": order_id}, {"_id": 0})
     if not scenario:
         raise HTTPException(status_code=404, detail="السيناريو غير موجود")

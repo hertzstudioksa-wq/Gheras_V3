@@ -10,7 +10,8 @@ import logging
 
 import httpx
 
-from services.ai import AIConfigError, AIError, classify_http_error
+from services import engine_health
+from services.ai import AIConfigError, AIError, classify_http_error, fake_providers
 
 logger = logging.getLogger("ai.fal")
 
@@ -35,6 +36,12 @@ async def resolve_key(env_key: str) -> str:
     return value
 
 
+async def _http_error(stage: str, e) -> AIError:
+    """Classify a fal HTTP error; an exhausted balance also pauses the engine."""
+    await engine_health.note_error(stage, e.message)
+    return classify_http_error(stage, "fal", e.status_code, e.message)
+
+
 def _client(key: str, timeout: float):
     import fal_client
 
@@ -45,14 +52,18 @@ async def submit(*, stage: str, env_key: str, model: str, arguments: dict) -> st
     """Queue a request and return its request_id (persist it to resume later)."""
     import fal_client
 
+    if fake_providers.enabled():
+        return await fake_providers.fal_submit(stage, model, arguments)
+
     client = _client(await resolve_key(env_key), 60.0)
     try:
         handle = await client.submit(model, arguments)
     except fal_client.FalClientHTTPError as e:
-        raise classify_http_error(stage, "fal", e.status_code, e.message) from e
+        raise await _http_error(stage, e) from e
     except fal_client.FalClientError as e:
         raise AIError(f"fal submit failed ({stage}): {type(e).__name__}: {e}") from e
     logger.info(f"[ai.fal] stage={stage} model={model} submitted request_id={handle.request_id}")
+    await engine_health.note_success()
     return handle.request_id
 
 
@@ -60,6 +71,9 @@ async def wait(*, stage: str, env_key: str, model: str, request_id: str,
                timeout: float = 900.0, poll_interval: float = 3.0) -> dict:
     """Wait for a queued request and return its result JSON."""
     import fal_client
+
+    if fake_providers.enabled():
+        return await fake_providers.fal_wait(stage, model, request_id)
 
     client = _client(await resolve_key(env_key), timeout)
     loop = asyncio.get_running_loop()
@@ -72,11 +86,13 @@ async def wait(*, stage: str, env_key: str, model: str, request_id: str,
             if loop.time() > deadline:
                 raise AIError(f"fal request timed out after {int(timeout)}s ({stage}, request_id={request_id})")
             await asyncio.sleep(poll_interval)
-        return await client.result(model, request_id)
+        result = await client.result(model, request_id)
     except fal_client.FalClientHTTPError as e:
-        raise classify_http_error(stage, "fal", e.status_code, e.message) from e
+        raise await _http_error(stage, e) from e
     except fal_client.FalClientError as e:
         raise AIError(f"fal request failed ({stage}): {type(e).__name__}: {e}") from e
+    await engine_health.note_success()
+    return result
 
 
 async def run(*, stage: str, env_key: str, model: str, arguments: dict,
@@ -91,15 +107,20 @@ async def upload(*, env_key: str, data: bytes, content_type: str, file_name: str
     import fal_client
     from fal_client.client import StorageSettings
 
+    if fake_providers.enabled():
+        return await fake_providers.fal_upload(data, content_type)
+
     client = _client(await resolve_key(env_key), 120.0)
     try:
         return await client.upload(data, content_type, file_name,
                                    lifecycle=StorageSettings(expires_in=UPLOAD_TTL))
     except fal_client.FalClientHTTPError as e:
-        raise classify_http_error("upload", "fal", e.status_code, e.message) from e
+        raise await _http_error("upload", e) from e
 
 
 async def download(url: str, timeout: float = 120.0) -> bytes:
+    if url.startswith(fake_providers.PREFIX):
+        return fake_providers.read(url)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as c:
         r = await c.get(url)
     if r.status_code != 200:

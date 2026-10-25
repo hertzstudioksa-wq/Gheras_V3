@@ -298,7 +298,7 @@ img { display: block; }
     <h2>شهادة بطل الحكاية</h2>
     <div class="for">تُمنح هذه الشهادة {{ "للبطلة" if child.female else "للبطل" }}</div>
     <div class="name">{{ child.name }}</div>
-    <p class="why">{{ "لأنها تعلّمت" if child.female else "لأنه تعلّم" }} معنى <span class="value">{{ value }}</span>:
+    <p class="why">{{ "لأنها تعلّمت" if child.female else "لأنه تعلّم" }}{% if value %} معنى <span class="value">{{ value }}</span>{% endif %}:
       {{ lesson }}</p>
   </div>
   <svg class="medal" viewBox="0 0 100 100">

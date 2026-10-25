@@ -84,12 +84,19 @@ async def list_assets(order_id: str) -> list[dict]:
 
 
 async def _run_one(order: dict, character_index: int, character: dict,
-                   provider: str, model_name: str, stage_cfg: dict) -> dict:
-    """Process a single character. Never raises. Returns a descriptor."""
+                   provider: str, model_name: str, stage_cfg: dict, force: bool = False) -> dict:
+    """Process a single character. Never raises. Returns a descriptor. A sheet
+    already drawn for this plan from the same photo is reused unless `force`."""
     order_id = order["id"]
     source_url = character.get("image_url")
     if not source_url:
         return {"skipped": True, "reason": "no_image"}
+    existing = await db.extra_character_assets.find_one({"order_id": order_id, "character_index": character_index},
+                                                        {"_id": 0})
+    if not force and existing and existing.get("status") == "completed" and existing.get("generated_image_url") \
+            and existing.get("source_image_url") == source_url \
+            and existing.get("production_plan_id") == order.get("production_plan_id"):
+        return {"skipped": False, "status": "completed", "reused": True, "asset": existing}
 
     await _upsert_asset(order_id, character_index, {
         "character_type":  character.get("type"),
@@ -141,6 +148,7 @@ async def _run_one(order: dict, character_index: int, character: dict,
             "fallback_used":       False,
             "mock":                False,
             "meta":                real_meta,
+            "production_plan_id":  order.get("production_plan_id"),
         })
         logger.info(f"[extra_character_i2i] ok order={order_id} char={character_index}")
         return {"skipped": False, "status": "completed", "asset": asset}

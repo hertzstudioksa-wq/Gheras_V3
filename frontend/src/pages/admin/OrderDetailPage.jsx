@@ -8,6 +8,7 @@ import { AdminPage, ConfirmAction, PageState } from "../../components/admin/Admi
 import { STATUS_LABELS, formatDate } from "../../lib/orderStatus";
 import AdminStoryboard from "./AdminStoryboard";
 import OrderPromptPreview from "./OrderPromptPreview";
+import OrderShotsTab from "./orders/OrderShotsTab";
 import { AdminMediaTab, AdminPricingTab, AdminProductionTab, AdminScenariosTab, Field } from "./orders/OrderTabs";
 
 // The full order page (M5, replaces the orders modal and the separate
@@ -19,6 +20,7 @@ const TABS = [
   { k: "scenarios", l: "السيناريوهات" },
   { k: "production", l: "خطة الإنتاج" },
   { k: "media", l: "الوسائط والتسليم" },
+  { k: "shots", l: "اللقطات" },
   { k: "trace", l: "تتبّع الإنتاج" },
   { k: "prompt", l: "البرومبت الفعلي" },
   { k: "cost", l: "التكلفة" },
@@ -123,6 +125,7 @@ export default function OrderDetailPage() {
         )}
         {tab === "production" && <AdminProductionTab orderId={orderId} />}
         {tab === "media" && <AdminMediaTab orderId={orderId} />}
+        {tab === "shots" && <OrderShotsTab orderId={orderId} />}
         {tab === "trace" && <AdminStoryboard embedded />}
         {tab === "prompt" && <OrderPromptPreview orderId={orderId} />}
         {tab === "cost" && <AdminPricingTab orderId={orderId} />}

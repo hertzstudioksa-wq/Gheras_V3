@@ -27,6 +27,8 @@ def _now():
 # ---------------- Background task ----------------
 async def run_production_generation(order_id: str, run_id: str):
     """Generate a new production plan in background, archiving any previous plans."""
+    from services.ai.fake_providers import CURRENT_ORDER
+    CURRENT_ORDER.set(order_id)  # rehearsals build their fake plan from this order
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         return
@@ -143,6 +145,7 @@ def _user_summary(plan: dict | None, order: dict) -> dict | None:
     return {
         "plan_id": plan["id"],
         "title": plan.get("title"),
+        "child_name": ((order.get("data") or {}).get("child") or {}).get("name"),
         "story_summary": plan.get("story_summary"),
         "main_message": plan.get("main_message"),
         "target_scene_count": plan.get("target_scene_count"),
@@ -224,6 +227,8 @@ async def user_regenerate_production(order_id: str, background: BackgroundTasks,
     if order.get("production_approved") or order.get("status") not in PLAN_REGENERABLE or \
             (order.get("status") == OrderStatus.FAILED.value and not plan_failed):
         raise HTTPException(status_code=400, detail="لا يمكن إعادة التوليد بعد بدء الإنتاج")
+    from services.engine_health import ensure_available
+    await ensure_available()
     used = int(order.get("production_regeneration_count", 0))
     if used >= MAX_USER_PRODUCTION_REGENERATIONS:
         raise HTTPException(

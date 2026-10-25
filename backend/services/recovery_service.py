@@ -74,10 +74,17 @@ async def _resume(order: dict, step: str) -> None:
         asyncio.create_task(run_final_assembly(oid, str(uuid.uuid4())))
 
 
-async def recover_interrupted() -> dict:
+async def recover_interrupted(booted_at: str | None = None) -> dict:
+    """Resume orders caught mid-run by the restart. Only orders last touched
+    before this boot count: one a parent started in the seconds after boot is
+    running fine, and "resuming" it started a second paid run (found in the
+    free rehearsal)."""
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=RESUME_WITHIN_HOURS)).isoformat()
     resumed, failed = [], []
-    async for o in db.orders.find({"status": {"$in": list(STEP_OF_STATUS)}},
+    query: dict = {"status": {"$in": list(STEP_OF_STATUS)}}
+    if booted_at:
+        query["updated_at"] = {"$lt": booted_at}
+    async for o in db.orders.find(query,
                                   {"_id": 0, "id": 1, "status": 1, "updated_at": 1, "recovery_count": 1,
                                    "current_scenario_batch_id": 1}):
         step = STEP_OF_STATUS[o["status"]]
@@ -101,8 +108,9 @@ async def recover_interrupted() -> dict:
 
 
 async def recover_after_boot() -> None:
+    booted_at = _now()
     await asyncio.sleep(BOOT_DELAY_SECONDS)  # let startup (seeding, migrations) finish first
     try:
-        await recover_interrupted()
+        await recover_interrupted(booted_at)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[recovery] skipped: {type(e).__name__}: {e}")

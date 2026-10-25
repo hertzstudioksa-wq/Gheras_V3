@@ -28,6 +28,10 @@ async def generate_text(
 ) -> str:
     """Single-turn generation. Returns the response text (valid JSON when
     `json_schema` is given and the provider supports structured output)."""
+    from services.ai import fake_providers
+
+    if fake_providers.enabled():
+        return await fake_providers.text(stage, provider, system, user)
     if provider == "anthropic":
         return await _anthropic(stage, model, system, user, json_schema, effort, max_tokens, timeout)
     if provider == "openai":
@@ -41,6 +45,32 @@ async def generate_text(
         return await _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout,
                               reasoning=effort != "low")
     raise AIConfigError(f"No text executor for provider '{provider}' (stage {stage})")
+
+
+FAL_VISION_ENDPOINT = "openrouter/router/vision"
+
+
+async def generate_vision(*, stage: str, model: str, system: str, user: str, image_urls: list[str],
+                          max_tokens: int = 400, timeout: float = 90.0) -> str:
+    """One question about a few images, through fal's OpenRouter vision
+    endpoint (same balance as everything else). Returns the answer text."""
+    from services.ai import fake_providers, fal
+
+    if fake_providers.enabled():
+        return await fake_providers.text(stage, "fal_llm", system, user)
+    result = await fal.run(stage=stage, env_key="FAL_KEY_TEXT", model=FAL_VISION_ENDPOINT, timeout=timeout,
+                           poll_interval=1.0, arguments={
+                               "model": model, "system_prompt": system, "prompt": user, "image_urls": image_urls,
+                               "max_tokens": max_tokens, "reasoning": False, "temperature": 0})
+    if result.get("error"):
+        raise AIError(f"fal vision error ({stage}, {model}): {result['error']}")
+    text = result.get("output") or ""
+    usage = result.get("usage") or {}
+    logger.info(f"[ai.vision] stage={stage} model={model} images={len(image_urls)} "
+                f"tokens_in={usage.get('prompt_tokens')} cost={usage.get('cost')}")
+    if not text.strip():
+        raise AIError(f"fal vision returned no text ({stage}, {model})")
+    return text
 
 
 async def _fal_llm(stage, model, system, user, json_schema, max_tokens, timeout, reasoning: bool = True) -> str:

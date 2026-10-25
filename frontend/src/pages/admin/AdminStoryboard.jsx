@@ -14,6 +14,7 @@ const STATUS_STYLE = {
   running:   { bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]", label: "قيد التنفيذ",  Icon: Loader2 },
   failed:    { bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]", label: "فشل",          Icon: XCircle },
   skipped:   { bg: "bg-[#EEE9E0]", fg: "text-[#5A677D]", label: "متخطَّى",       Icon: CircleDashed },
+  superseded: { bg: "bg-[#EEE9E0]", fg: "text-[#5A677D]", label: "اتلغى (تشغيل أحدث)", Icon: CircleDashed },
   pending:   { bg: "bg-[#F8F1E7]", fg: "text-[#8B5A2B]", label: "بانتظار",       Icon: Clock },
 };
 

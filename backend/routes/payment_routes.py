@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_admin, get_current_user
 from db import db
-from services import moyasar, payment_service, rate_limit, wallet_service
+from services import engine_health, moyasar, payment_service, rate_limit, wallet_service
 
 
 def _origin(request: Request) -> str:
@@ -189,6 +189,7 @@ async def order_payment(order_id: str, current=Depends(get_current_user)):
 @order_payment_router.post("/{order_id}/payment/wallet")
 async def pay_with_wallet(order_id: str, background: BackgroundTasks, current=Depends(get_current_user)):
     order = await _own_order(order_id, current)
+    await engine_health.ensure_available()
     try:
         return await payment_service.pay_order_with_wallet(order, current, background)
     except ValueError as e:
@@ -202,6 +203,7 @@ async def pay_with_card(order_id: str, request: Request, background: BackgroundT
     rate_limit.check(f"checkout:{current['id']}", 20, 3600)
     if not await moyasar.secret_key():
         raise HTTPException(503, "الدفع بالبطاقة مش متاح لسه")
+    await engine_health.ensure_available()
     try:
         return await payment_service.start_order_checkout(order, current, _origin(request), background)
     except (ValueError, LookupError, moyasar.MoyasarError) as e:

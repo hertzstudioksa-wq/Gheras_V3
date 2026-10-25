@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import engine_config, house_style
+from services import clip_review, engine_config, house_style
 from services.ai import AIPermanentError, fal
 from services.ai.image_client import WIDE
 from services.child_character_service import _fetch_source_bytes
@@ -200,9 +200,18 @@ async def ensure_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
 # ---------------------------------------------------------------- prompt builders
 # Shared by the executors and the admin prompt preview, so the preview shows
 # exactly what the image and video models receive.
+# Appended when the reviewer flagged a start frame or a clip.
+REDRAW_NOTE = "Draw every person exactly once, each fully separate from the others, and no written words at all."
+CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
 PREV_SHOT_NOTE = "the previous shot of this scene — keep the same place, furniture, lighting and outfits"
 PREV_SCENE_NOTE = ("the last shot of the previous scene — if the story is still in the same place, keep the "
                    "same room design and furniture (lighting may change)")
+
+
+# Image and video models misspell any word they draw (a map once read "Costa
+# Rria"), so pictures carry no writing at all.
+NO_TEXT = ("No written words, letters, numbers or signs anywhere in the picture: maps, signs, books and screens "
+           "show drawings only.")
 
 
 def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_name: str,
@@ -218,14 +227,44 @@ def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_n
         if notes else "",
         f"Art style: {style['style_text']}",
         style["frame_rules"],
+        NO_TEXT,
     ] if p)
 
 
-def motion_prompt(motion: str | None, mapping: list[str], style: dict) -> str:
+# Kling invented a second father when a shot's camera arc "revealed" the room,
+# and walked the child through a rope railing in a shot that packed five
+# actions. Every clip now says who is in it and that bodies stay solid.
+PHYSICS = ("Bodies stay solid: nobody passes through railings, ropes, furniture, walls or each other, and nobody "
+           "floats.")
+CLIP_NEGATIVE_GUARD = ("duplicate person, cloned character, twins, extra people, person appearing from nowhere, "
+                       "body passing through objects, clipping, merged bodies, floating, character vanishing")
+
+
+def cast_labels(types: list[str], sheets: dict) -> list[str]:
+    return [sheets[t]["label"] if t in sheets else ("the child" if t == "child" else f"the child's {t}")
+            for t in types]
+
+
+def cast_lock(labels: list[str]) -> str:
+    if not labels:
+        return "Nobody new enters the frame and no one is duplicated."
+    n = len(labels)
+    return (f"Exactly {n} {'person' if n == 1 else 'people'} in this shot — {'; '.join(labels)} — each appearing "
+            "only once and all already in the first frame: nobody new enters and no one is duplicated.")
+
+
+def clip_negative(style: dict) -> str:
+    return f"{style['negative_text']}, {CLIP_NEGATIVE_GUARD}"
+
+
+def motion_prompt(motion: str | None, mapping: list[str], style: dict, cast: list[str] | None = None) -> str:
     return " ".join(p for p in [
         motion or "Gentle natural character motion and a slow camera push-in.",
         ("Characters: " + "; ".join(mapping) + ".") if mapping else "",
+        cast_lock(cast or []),
+        PHYSICS,
         style["motion_text"],
+        NO_TEXT,
     ] if p)
 
 
@@ -255,7 +294,9 @@ async def cover_request(order: dict, plan: dict) -> tuple[str, list[dict], list[
         ("Reference images, in order: " + "; ".join(f"{i + 1}) {n}" for i, n in enumerate(notes)) + ". "
          "Draw every character exactly like their sheet (face, hair, beard, glasses, clothes, colors); "
          "where the scene description says otherwise, the sheet wins.") if notes else "",
-        "Leave calm sky or background space in the upper part of the frame for the book title.",
+        "Leave calm sky or background space in the upper part of the frame for the book title "
+        "(the title is added later — don't write it).",
+        NO_TEXT,
         f"Art style: {style['style_text']}",
         style["frame_rules"],
     ] if p)
@@ -309,14 +350,24 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             refs.append({"image_bytes": previous_scene[0], "mime_type": previous_scene[1]})
             notes.append(PREV_SCENE_NOTE)
         prompt = keyframe_prompt(scene, sh, profiles, sheets, child_name, notes, style)
-        img, mime, meta = await generate_image(
-            scene_prompt=prompt, references=refs or None, stage="scene_image_generation", size=WIDE,
-            raw_prompt=True, session_hint=f"shot-{scene['scene_index']}-{sh['shot_index']}-{order['id'][:6]}",
-        )
+        shot_key = f"{scene['scene_index']}_{sh['shot_index']}"
+        cast = cast_labels(sh.get("characters") or [], sheets)
+        for attempt in (1, 2):
+            img, mime, meta = await generate_image(
+                scene_prompt=prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}", references=refs or None,
+                stage="scene_image_generation", size=WIDE, raw_prompt=True,
+                session_hint=f"shot-{shot_key}-{order['id'][:6]}-{attempt}",
+            )
+            # A start frame with a cloned person or written words would be
+            # animated as is: redraw it once (an image is cheaper than a clip).
+            review = await clip_review.review_keyframe(shot_key, img, mime, cast, sh.get("keyframe_prompt") or "")
+            review["redrawn"] = attempt == 2
+            if review.get("ok"):
+                break
         url = await _store(order, "keyframe", img, mime, "png")
         model = meta.get("model")
         await _set_shot(order, plan, scene, sh["shot_index"], {
-            "keyframe_url": url, "keyframe_prompt_used": prompt, "image_model": model,
+            "keyframe_url": url, "keyframe_at": _now(), "keyframe_prompt_used": prompt, "image_model": model, "keyframe_review": review,
             "narration_line": sh["narration_line"], "shot_type": sh.get("shot_type"),
             "characters": sh.get("characters") or [], "motion_prompt": sh.get("motion_prompt") or "",
             "style_key": style.get("key"), "style_version": style.get("version"),
@@ -417,6 +468,15 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
     if not shots:
         raise ValueError(f"scene_plan {job['target_id']} has no shots")
     lines = [sh["narration_line"] for sh in shots]
+    voiced = {r["shot_index"]: r for r in await db.shot_assets.find(
+        {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
+         "narration_url": {"$ne": None}}, {"_id": 0, "shot_index": 1, "narration_url": 1,
+                                           "narration_line": 1}).to_list(50)}
+    if all((voiced.get(sh["shot_index"]) or {}).get("narration_line") == sh["narration_line"] for sh in shots):
+        take = await db.narration_assets.find_one({"order_id": order["id"], "production_plan_id": plan["id"],
+                                                   "scene_index": scene["scene_index"]}, {"_id": 0})
+        return ((take or {}).get("audio_url") or voiced[shots[0]["shot_index"]]["narration_url"],
+                {"provider": (take or {}).get("provider"), "model": (take or {}).get("model"), "reused": True})
     provider, model = await _resolve_narration_provider()
     dialect = await engine_config.get_dialect(await house_style.dialect_for_order(order))
     dialect_key = dialect["key"]
@@ -501,7 +561,7 @@ async def story_seconds(order_id: str, plan_id: str) -> float:
 
 # ---------------------------------------------------------------- clips
 async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict, tail: float = 0.0,
-                          style: dict | None = None, pacing: dict | None = None) -> dict:
+                          style: dict | None = None, pacing: dict | None = None, calm: bool = False) -> dict:
     style = style or engine_config.DEFAULT_STYLE
     pacing = pacing or engine_config.DEFAULT_PACING
     img = await _fetch_source_bytes(row["keyframe_url"])
@@ -523,12 +583,15 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
                                                  file_name=f"sheet-{t}.png")
             elements.append({"frontal_image_url": sheet_urls[t], "reference_image_urls": [sheet_urls[t]]})
             mapping.append(f"{sheets[t]['label']} is @Element{len(elements)}")
-    prompt = motion_prompt(row.get("motion_prompt"), mapping, style)
+    cast = cast_labels(row.get("characters") or [], sheets)
+    prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast)
+    if calm:
+        prompt = f"{CALM_NOTE} {prompt}"
     args = {
         "prompt": prompt[:2400],
         "duration": str(house_style.clip_seconds_for(model, (row.get("narration_seconds") or 0) + tail,
                                                      pacing["line_gap_sec"], pacing["five_second_stretch"])),
-        "negative_prompt": style["negative_text"],
+        "negative_prompt": clip_negative(style),
         "cfg_scale": 0.5,
     }
     if v3:
@@ -540,9 +603,12 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
     return args
 
 
-async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
-    """Animate every shot with Kling. Request ids are saved before polling so a
-    crash can be resumed; each shot gets one retry."""
+async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int | None = None,
+                         sem: asyncio.Semaphore | None = None, summarize: bool = True) -> dict:
+    """Animate the shots with Kling — one scene's (as soon as it's drawn) or
+    every shot still missing a clip. Request ids are saved before polling so a
+    crash can be resumed; each shot gets one retry on an error, and one calmer
+    redo when the reviewer flags the clip."""
     if get_order_output_type(order) not in ("video", "both"):
         return {"ran": False, "reason": "output_type does not include video"}
     cfg = await get_pipeline_config()
@@ -554,12 +620,14 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
     if provider != "kling":
         return {"ran": False, "reason": f"video provider '{provider}' has no shot executor"}
 
-    rows = await shot_rows(order["id"], plan["id"])
+    all_rows = await shot_rows(order["id"], plan["id"])
+    last = (all_rows[-1]["scene_index"], all_rows[-1]["shot_index"]) if all_rows else None
+    rows = [r for r in all_rows if scene_index is None or r["scene_index"] == scene_index]
     sheets = await load_character_sheets(order, plan)
     style = await engine_config.style_for_order(order)
     pacing = await engine_config.get_pacing()
     sheet_urls: dict[str, str] = {}
-    sem = asyncio.Semaphore(CLIP_CONCURRENCY)
+    sem = sem or asyncio.Semaphore(CLIP_CONCURRENCY)
     key = {"order_id": order["id"], "production_plan_id": plan["id"]}
 
     async def _save(row: dict, patch: dict) -> None:
@@ -569,16 +637,22 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
     async def one(row: dict) -> bool:
         if row.get("clip_url"):
             return True
+        if row.get("clip_run_id") == run_id and row.get("clip_state") == "failed":
+            return False  # already tried and retried in this run
         if not row.get("keyframe_url") or not row.get("narration_seconds"):
             await _save(row, {"clip_state": "skipped", "clip_error": "missing keyframe or narration"})
             return False
+        shot_key = f"{row['scene_index']}_{row['shot_index']}"
         async with sem:
             request_id = row.get("clip_request_id") if row.get("clip_state") == "submitted" else None
-            for attempt in (1, 2):
+            calm = False
+            attempt = 0
+            while attempt < 2:
+                attempt += 1
                 try:
                     if not request_id:
-                        tail = pacing["end_tail_sec"] if row is rows[-1] else 0.0
-                        args = await _clip_arguments(row, model, sheets, sheet_urls, tail, style, pacing)
+                        tail = pacing["end_tail_sec"] if (row["scene_index"], row["shot_index"]) == last else 0.0
+                        args = await _clip_arguments(row, model, sheets, sheet_urls, tail, style, pacing, calm)
                         request_id = await fal.submit(stage="video_generation", env_key="FAL_KEY_VIDEO",
                                                       model=model, arguments=args)
                         await _save(row, {"clip_request_id": request_id, "clip_model": model, "clip_state": "submitted",
@@ -590,24 +664,33 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str) -> dict:
                     if not remote:
                         raise RuntimeError("Kling returned no video url")
                     data = await fal.download(remote)
+                    review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
+                                                           row.get("motion_prompt") or "")
+                    if not review.get("ok") and not calm:
+                        # One calmer redo; it doesn't use up the error retry.
+                        calm, attempt, request_id = True, attempt - 1, None
+                        await _save(row, {"clip_state": "retrying", "clip_review": {**review, "redone": True},
+                                          "clip_error": "review: " + ", ".join(review.get("problems") or [])})
+                        continue
                     url = await _store(order, "clip", data, "video/mp4", "mp4")
                     await _save(row, {"clip_url": url, "clip_remote_url": remote, "clip_state": "completed",
-                                      "clip_error": None})
+                                      "clip_error": None, "clip_review": review, "clip_calm_redo": calm})
                     return True
                 except AIPermanentError as e:
-                    await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300]})
+                    await _save(row, {"clip_state": "failed", "clip_error": str(e)[:300], "clip_run_id": run_id})
                     return False
                 except Exception as e:  # noqa: BLE001 — one fresh retry per shot
                     logger.warning(f"[shots] clip {row['scene_index']}.{row['shot_index']} attempt {attempt}: {e}")
                     await _save(row, {"clip_state": "retrying" if attempt == 1 else "failed",
-                                      "clip_error": f"{type(e).__name__}: {e}"[:300]})
+                                      "clip_error": f"{type(e).__name__}: {e}"[:300], "clip_run_id": run_id})
                     request_id = None
             return False
 
     results = await asyncio.gather(*(one(r) for r in rows))
     saved = sum(1 for ok in results if ok)
-    await db.orders.update_one({"id": order["id"]}, {"$set": {"video_generation_summary": {
-        "mode": "shots", "total": len(rows), "saved": saved, "failed": len(rows) - saved,
-        "model": model, "tier": tier, "run_id": run_id, "ran_at": _now(),
-    }}})
+    if summarize:
+        await db.orders.update_one({"id": order["id"]}, {"$set": {"video_generation_summary": {
+            "mode": "shots", "total": len(rows), "saved": saved, "failed": len(rows) - saved,
+            "model": model, "tier": tier, "run_id": run_id, "ran_at": _now(),
+        }}})
     return {"ran": True, "saved": saved, "total": len(rows)}

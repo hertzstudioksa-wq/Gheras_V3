@@ -542,6 +542,12 @@ async def _save_image_to_storage(order_id: str, kind: str, image_bytes: bytes, m
 
 # ---------------- Per-job executors ----------------
 async def _execute_cover_image(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
+    # A resumed or retried run keeps the cover it already drew for this plan
+    # (the admin's "regenerate media" clears it first).
+    drawn = await db.scene_images.find_one({"order_id": order["id"], "production_plan_id": plan["id"], "kind": "cover"},
+                                           {"_id": 0, "image_url": 1, "provider": 1}, sort=[("created_at", -1)])
+    if drawn and drawn.get("image_url"):
+        return drawn["image_url"], {"provider": drawn.get("provider"), "reused": True}
     shot_plan = bool(await db.scene_plans.find_one(
         {"production_plan_id": plan["id"], "shots.0": {"$exists": True}}, {"_id": 1}))
     if shot_plan:
@@ -902,6 +908,13 @@ async def _execute_book_page_asset(job: dict, order: dict, plan: dict) -> tuple[
     if not illustration_url:
         raise PermanentJobError(f"no scene image to reuse for page {page.get('page_number')}")
     provider = "reused"
+    # A resumed run keeps the page row (and its cached tashkeel) when nothing changed.
+    existing = await db.book_assets.find_one({"order_id": order["id"], "production_plan_id": plan["id"],
+                                              "book_page_id": page["id"]}, {"_id": 0, "id": 1, "illustration_url": 1})
+    if existing and existing.get("illustration_url") == illustration_url:
+        return illustration_url, {"provider": provider}
+    await db.book_assets.delete_many({"order_id": order["id"], "production_plan_id": plan["id"],
+                                      "book_page_id": page["id"]})
     await db.book_assets.insert_one({
         "id": str(uuid.uuid4()),
         "order_id": order["id"],
@@ -962,6 +975,73 @@ async def _process_job_with_retry(job: dict, order: dict, plan: dict) -> bool:
     return False
 
 
+async def _run_jobs(jobs: list[dict], process) -> list[bool]:
+    """Jobs one after another, in scene order."""
+    results = []
+    for job in sorted(jobs, key=lambda j: (j.get("meta") or {}).get("scene_index") or 0):
+        results.append(await process(job))
+    return results
+
+
+async def _music_stage(order: dict, plan: dict, run_id: str) -> None:
+    """One background track per video story. Optional by design: on a miss the
+    track row records why, and the video is assembled without music."""
+    if get_order_output_type(order) not in ("video", "both"):
+        return
+    try:
+        music_result = await _run_music_generation_stage(order, plan, run_id)
+        logger.info(f"[music_generation] order={order['id']} result={music_result}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[music_generation] unexpected crash (video continues without music): {e}")
+
+
+async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict], process,
+                           narration_task: asyncio.Task) -> None:
+    """Shot plans, overlapped instead of one stage after another:
+      * narration was voiced while the sheets were drawn; music (it needs the
+        narrated length) starts as soon as narration is done,
+      * the cover is drawn alongside the keyframes,
+      * keyframes go scene by scene (each shot sees the previous one), and a
+        finished scene's shots go to Kling at once instead of after all scenes.
+    Clip requests are saved before polling, so a restart still resumes them."""
+    order_id = order["id"]
+    # Draw a reference sheet for every cast member without one (e.g. the mother)
+    # so they look the same in every shot.
+    try:
+        sheets = await shot_pipeline.ensure_character_sheets(order, plan)
+        logger.info(f"[shots] order={order_id} character sheets: {sorted(sheets)}")
+    except Exception as e:  # noqa: BLE001 — keyframes still run (and fail loudly on a dead key)
+        logger.warning(f"[shots] order={order_id} character sheets failed: {e}")
+
+    async def narration_then_music() -> None:
+        await asyncio.gather(narration_task, return_exceptions=True)
+        await _music_stage(order, plan, run_id)
+
+    music_task = asyncio.create_task(narration_then_music())
+    cover_tasks = [asyncio.create_task(process(j)) for j in jobs if j["job_type"] == "cover_image"]
+    clip_sem = asyncio.Semaphore(shot_pipeline.CLIP_CONCURRENCY)
+    clip_tasks = []
+    for job in sorted((j for j in jobs if j["job_type"] == "scene_keyframes"),
+                      key=lambda j: (j.get("meta") or {}).get("scene_index") or 0):
+        if await process(job):
+            await asyncio.gather(narration_task, return_exceptions=True)  # long done by now
+            clip_tasks.append(asyncio.create_task(shot_pipeline.run_shot_clips(
+                order, plan, run_id, scene_index=(job.get("meta") or {}).get("scene_index"), sem=clip_sem,
+                summarize=False)))
+    await _run_jobs([j for j in jobs if j["job_type"] == "book_page_asset"], process)
+    await asyncio.gather(*cover_tasks, narration_task, return_exceptions=True)
+    for res in await asyncio.gather(*clip_tasks, return_exceptions=True):
+        if isinstance(res, Exception):
+            logger.error(f"[shots] order={order_id} clip batch crashed: {type(res).__name__}: {res}")
+    try:
+        # Anything not animated yet (e.g. after a resume), then the summary.
+        clips = await shot_pipeline.run_shot_clips(order, plan, run_id, sem=clip_sem)
+        logger.info(f"[shots] order={order_id} clips={clips}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[video_generation] unexpected crash (ignored): {e}")
+    await music_task
+
+
 # ---------------- Run (entrypoint) ----------------
 async def run_asset_generation(order_id: str, run_id: str):
     """Full pipeline — sequential dispatch of all jobs."""
@@ -985,6 +1065,12 @@ async def run_asset_generation(order_id: str, run_id: str):
                              reason="no jobs could be planned")
         return
     jobs = await _insert_jobs(order_id, run_id, job_descriptors)
+    # A resumed or retried order starts a new run; the previous run's unfinished
+    # jobs would otherwise sit in "queued" forever.
+    await db.generation_jobs.update_many(
+        {"order_id": order_id, "run_id": {"$ne": run_id}, "status": {"$in": ["queued", "processing"]}},
+        {"$set": {"status": "superseded", "updated_at": _now()}},
+    )
 
     await db.orders.update_one(
         {"id": order_id},
@@ -1003,12 +1089,30 @@ async def run_asset_generation(order_id: str, run_id: str):
     await _append_status(order_id, order.get("status"), OrderStatus.ASSETS_GENERATING.value, "system",
                          reason=f"start assets generation (run {run_id[:8]}, {len(jobs)} jobs)")
 
+    shot_mode = any(j["job_type"] == "scene_keyframes" for j in jobs)
+
+    async def process(job: dict) -> bool:
+        ok = await _process_job_with_retry(job, order, plan)
+        # $inc, not $set: shot runs process jobs concurrently.
+        await db.orders.update_one({"id": order_id}, {
+            "$inc": {f"asset_generation_summary.{'completed' if ok else 'failed'}": 1,
+                     "asset_generation_summary.queued": -1},
+            "$set": {"updated_at": _now()}})
+        return ok
+
+    # Shot plans: narration only needs the plan, so it's voiced while the
+    # character sheets are drawn — every clip's length comes from its line.
+    narration_task = asyncio.create_task(_run_jobs(
+        [j for j in jobs if j["job_type"] == "narration_audio"], process)) if shot_mode else None
+
     # --- child_character_i2i: the child's cartoon character ------------------
     # Runs BEFORE any scene image. When it ran (photo present, stage enabled)
     # and failed, stop here: drawing the scenes without the child's likeness
     # would deliver a generic book and still spend the whole image budget.
     cc_result = await run_child_character_stage(order, plan)
     if cc_result.get("ran") and cc_result.get("status") != "completed":
+        if narration_task:
+            await asyncio.gather(narration_task, return_exceptions=True)
         reason = f"child character failed: {cc_result.get('reason')}"
         logger.warning(f"[child_character_i2i] order={order_id} {reason}")
         # The jobs were planned before this stage; close them so they don't sit
@@ -1040,58 +1144,20 @@ async def run_asset_generation(order_id: str, run_id: str):
     except Exception as e:  # noqa: BLE001
         logger.exception(f"[extra_character_i2i] unexpected crash (ignored): {e}")
 
-    # Shot plans: draw a reference sheet for every cast member without one (e.g.
-    # the mother) so they look the same in every shot.
-    if any(j["job_type"] == "scene_keyframes" for j in jobs):
+    if shot_mode:
+        await _run_shot_assets(order, plan, run_id, jobs, process, narration_task)
+    else:
+        # Legacy scene-image plans: cover, scene images, narration, book assets.
+        priority = {"cover_image": 0, "scene_image": 1, "narration_audio": 2, "book_page_asset": 3}
+        jobs.sort(key=lambda j: (priority.get(j["job_type"], 9), j.get("meta", {}).get("scene_index", 0)))
+        for job in jobs:
+            await process(job)
+        await _music_stage(order, plan, run_id)
         try:
-            sheets = await shot_pipeline.ensure_character_sheets(order, plan)
-            logger.info(f"[shots] order={order_id} character sheets: {sorted(sheets)}")
-        except Exception as e:  # noqa: BLE001 — keyframes still run (and fail loudly on a dead key)
-            logger.warning(f"[shots] order={order_id} character sheets failed: {e}")
-
-    # Process in order: cover first, then scene_images, then narration, then book assets
-    priority = {"cover_image": 0, "scene_image": 1, "scene_keyframes": 1, "narration_audio": 2, "book_page_asset": 3}
-    jobs.sort(key=lambda j: (priority.get(j["job_type"], 9), j.get("meta", {}).get("scene_index", 0)))
-
-    completed = 0
-    failed = 0
-    for job in jobs:
-        ok = await _process_job_with_retry(job, order, plan)
-        if ok:
-            completed += 1
-        else:
-            failed += 1
-        await db.orders.update_one(
-            {"id": order_id},
-            {"$set": {"asset_generation_summary.completed": completed,
-                      "asset_generation_summary.failed": failed,
-                      "asset_generation_summary.queued": len(jobs) - completed - failed,
-                      "asset_generation_summary.processing": 0,
-                      "updated_at": _now()}},
-        )
-
-    # --- music_generation: one background track per story (video orders) ----
-    # Optional by design: on a miss the track row records why, and the video
-    # is assembled without music (visible in the storyboard).
-    if get_order_output_type(order) in ("video", "both"):
-        try:
-            music_result = await _run_music_generation_stage(order, plan, run_id)
-            logger.info(f"[music_generation] order={order_id} result={music_result}")
-        except Exception as e:  # noqa: BLE001
-            logger.exception(f"[music_generation] unexpected crash (video continues without music): {e}")
-
-    # --- Phase L: video_generation (OPTIONAL, real fal.ai Kling) -----------
-    # Runs ONLY when video output is requested AND the stage is enabled in
-    # pipeline_config AND fal.ai key resolves. Always safe — failures
-    # degrade silently to the slideshow assembly path.
-    try:
-        if any(j["job_type"] == "scene_keyframes" for j in jobs):
-            clips = await shot_pipeline.run_shot_clips(order, plan, run_id)
-            logger.info(f"[shots] order={order_id} clips={clips}")
-        else:
             await _run_video_generation_stage(order, plan, run_id)
-    except Exception as e:  # noqa: BLE001
-        logger.exception(f"[video_generation] unexpected crash (ignored): {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"[video_generation] unexpected crash (ignored): {e}")
+    completed = await db.generation_jobs.count_documents({"order_id": order_id, "run_id": run_id, "status": "completed"})
 
     # Decide terminal status
     # Mandatory job set depends on the requested deliverable:

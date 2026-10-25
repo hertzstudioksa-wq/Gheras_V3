@@ -214,6 +214,17 @@ async def test_elevenlabs_music() -> dict:
 
 
 # ---- fal.ai (legacy shared key) ------------------------------------------
+BALANCE_LOCKED_AR = "رصيد fal خلص — اشحن الحساب"
+
+
+async def _fal_balance_locked() -> bool:
+    """fal's status endpoints answer fine on a locked (zero-balance) account: a
+    few tokens of a real request are the only proof the balance works."""
+    from services.engine_health import probe
+
+    return bool((await probe()).get("locked"))
+
+
 async def _test_fal_key(env_key: str, label: str) -> dict:
     secret, source = await get_secret_with_source(env_key)
     if not secret:
@@ -226,6 +237,8 @@ async def _test_fal_key(env_key: str, label: str) -> dict:
                              headers={"Authorization": f"Key {secret}"})
         latency = int((time.monotonic() - started) * 1000)
         if r.status_code in (200, 204):
+            if await _fal_balance_locked():
+                return _result(label, False, True, True, latency, secret, source, BALANCE_LOCKED_AR)
             return _result(label, True, True, True, latency, secret, source,
                            model_reachable=True)
         if r.status_code in (401, 403):
@@ -237,6 +250,8 @@ async def _test_fal_key(env_key: str, label: str) -> dict:
                                   headers={"Authorization": f"Key {secret}"})
             latency = int((time.monotonic() - started) * 1000)
             ok = r2.status_code not in (401, 403)
+            if ok and await _fal_balance_locked():
+                return _result(label, False, True, True, latency, secret, source, BALANCE_LOCKED_AR)
             return _result(label, ok, ok, True, latency, secret, source,
                            model_reachable=r2.status_code in (200, 204, 404))
         return _result(label, False, True, True, latency, secret, source,

@@ -42,6 +42,7 @@ from routes.payment_routes import (  # noqa: E402
     wallet_router,
     webhook_router as moyasar_webhook_router,
 )
+from routes.share_routes import public_router as share_public_router, user_router as share_user_router  # noqa: E402
 
 app = FastAPI(title="Gheras API v2", description="Arabic AI storytelling platform")
 api_router = APIRouter(prefix="/api")
@@ -81,6 +82,8 @@ api_router.include_router(admin_payment_orders_router)
 api_router.include_router(order_payment_router)
 api_router.include_router(wallet_router)
 api_router.include_router(moyasar_webhook_router)
+api_router.include_router(share_user_router)
+api_router.include_router(share_public_router)
 
 app.include_router(api_router)
 
@@ -105,6 +108,10 @@ class _SkipMigration(Exception):
 
 @app.on_event("startup")
 async def on_startup():
+    from services.ai import fake_providers
+    fake_providers.assert_safe_to_start()
+    if fake_providers.enabled():
+        logger.warning(f"*** REHEARSAL MODE: every AI call is answered locally (speed x{fake_providers.speed()}) ***")
     await ensure_indexes()
     await seed_all()
     from db import db
@@ -560,6 +567,26 @@ async def on_startup():
         pass
     except Exception as e:  # noqa: BLE001
         logger.warning(f"character sheet style-vars migration skipped: {e}")
+    # A parent asking for "effort pays off" had to pick "other": the values
+    # category gets that topic (fresh databases get it from the seed).
+    try:
+        if await _already_applied("values_perseverance_topic"):
+            raise _SkipMigration
+        import uuid as _uuid
+        cat = await db.categories.find_one({"slug": "values"}, {"_id": 0, "id": 1})
+        if cat and not await db.subcategories.find_one({"category_id": cat["id"], "name_ar": "الاجتهاد والمثابرة"}):
+            last = await db.subcategories.find_one({"category_id": cat["id"]}, {"_id": 0, "sort_order": 1},
+                                                   sort=[("sort_order", -1)])
+            await db.subcategories.insert_one({
+                "id": str(_uuid.uuid4()), "category_id": cat["id"], "name_ar": "الاجتهاد والمثابرة",
+                "description": None, "sort_order": int((last or {}).get("sort_order") or 0) + 1, "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        await _mark_applied("values_perseverance_topic")
+    except _SkipMigration:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"perseverance topic migration skipped: {e}")
     try:
         init_storage()
     except Exception as e:

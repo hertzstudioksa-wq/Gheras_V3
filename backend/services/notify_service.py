@@ -127,6 +127,11 @@ def _compose(kind: str, order: dict) -> tuple[str, list[str], str | None]:
                 [f"تجهيز قصة {child} وقف في خطوة من الخطوات.",
                  "تقدر تعيد المحاولة من صفحة القصة، والطلب ظاهر لفريقنا في قائمة المتابعة."],
                 "صفحة القصة")
+    if kind == "paused":
+        return (f"تأخير بسيط في قصة {child} — هنكمّلها إحنا",
+                [f"تجهيز قصة {child} اتأخر شوية بسبب عطل مؤقت عندنا، مش بسبب طلبك.",
+                 "مش محتاج تعمل أي حاجة: هنكمّلها من نفس المكان اللي وقفت عنده، وهنبعتلك أول ما تخلص."],
+                "صفحة القصة")
     if kind == "ops_failed":
         return (f"طلب وقف: {child} ({order['id'][:8]})",
                 [f"طلب {order['id']} وصل لحالة {order.get('status')}.", "افتح الطلب من لوحة الإدارة وشوف المرحلة اللي وقعت."],
@@ -159,24 +164,30 @@ async def _handle(order_id: str, to_status: str) -> None:
     if not await smtp_config() or await _setting("notify.enabled", True) is False:
         return
     order = await db.orders.find_one({"id": order_id}, {"_id": 0, "id": 1, "user_id": 1, "status": 1, "data.child": 1,
-                                                        "safety_flag": 1, "safety_review": 1})
+                                                        "safety_flag": 1, "safety_review": 1, "engine_paused": 1})
     if not order:
         return
     user = await db.users.find_one({"id": order["user_id"]}, {"_id": 0, "email": 1, "deleted_at": 1})
     customer_kind = CUSTOMER_EVENTS.get(to_status)
+    # Stopped by an exhausted engine balance: our problem, and the team gets
+    # one balance alert instead of an email per order.
+    paused = bool(order.get("engine_paused")) and to_status in OPS_EVENTS
+    if paused:
+        customer_kind = "paused"
     flagged = to_status == "production_ready" and order.get("safety_flag") and not order.get("safety_review")
     if customer_kind and user and not user.get("deleted_at") and not flagged:
         await _send_once(order, customer_kind, user["email"])
     ops = await _setting("notify.ops_email")
     if ops:
-        if to_status in OPS_EVENTS:
+        if to_status in OPS_EVENTS and not paused:
             await _send_once(order, OPS_EVENTS[to_status], ops)
         if flagged:
             await _send_once(order, "ops_safety", ops)
 
 
 def on_status(order_id: str, to_status: str) -> None:
-    """Called on every status change; sends in the background, never raises."""
+    """Called on every status change; tags orders stopped by an exhausted engine
+    balance and sends emails, in the background, never raises."""
     if to_status not in CUSTOMER_EVENTS and to_status not in OPS_EVENTS:
         return
     try:
@@ -187,6 +198,8 @@ def on_status(order_id: str, to_status: str) -> None:
 
 async def _safe(order_id: str, to_status: str) -> None:
     try:
+        from services.engine_health import tag_if_paused
+        await tag_if_paused(order_id, to_status)
         await _handle(order_id, to_status)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[notify] skipped: {type(e).__name__}: {e}")

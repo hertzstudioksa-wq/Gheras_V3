@@ -188,7 +188,10 @@ async def get_asset(order_id: str) -> dict | None:
     return await db.child_character_assets.find_one({"order_id": order_id}, {"_id": 0})
 
 
-async def run_child_character_generation(order: dict, plan: dict | None) -> dict:
+async def run_child_character_generation(order: dict, plan: dict | None, force: bool = False) -> dict:
+    """Draw the child's character sheet. A sheet already drawn for this plan
+    from the same photo is reused (a resumed pipeline must not redraw the cast
+    under keyframes that already exist); `force` redraws (admin button)."""
     order_id = order["id"]
     try:
         cfg = await get_pipeline_config()
@@ -204,6 +207,13 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
     if not source_image_url:
         logger.info(f"[child_character_i2i] no child image_url — skipping for order={order_id}")
         return {"ran": False, "skipped": True, "status": "skipped", "reason": "no_source_image"}
+
+    existing = await get_asset(order_id)
+    if not force and existing and existing.get("status") == "completed" and existing.get("generated_image_url") \
+            and existing.get("source_image_url") == source_image_url \
+            and existing.get("production_plan_id") == (plan or {}).get("id"):
+        logger.info(f"[child_character_i2i] reusing the sheet drawn for this plan (order={order_id})")
+        return {"ran": True, "skipped": False, "status": "completed", "reused": True, "asset": existing}
 
     await _upsert_asset(order_id, {
         "source_image_url": source_image_url,
@@ -255,6 +265,7 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
                 "mock":                False,
                 "error_message":       None,
                 "meta":                real_meta,
+                "production_plan_id":  (plan or {}).get("id"),
             })
             logger.info(f"[child_character_i2i] completed ({provider}/{model_name}) for order={order_id}")
             return {"ran": True, "skipped": False, "status": "completed", "asset": asset}
@@ -276,9 +287,9 @@ async def run_child_character_generation(order: dict, plan: dict | None) -> dict
                 "reason": err, "asset": asset}
 
 
-async def safe_run(order: dict, plan: dict | None) -> dict:
+async def safe_run(order: dict, plan: dict | None, force: bool = False) -> dict:
     try:
-        return await run_child_character_generation(order, plan)
+        return await run_child_character_generation(order, plan, force)
     except Exception as e:  # noqa: BLE001
         logger.exception(f"[child_character_i2i] unexpected crash: {e}")
         return {"ran": True, "skipped": False, "status": "error", "reason": str(e)}

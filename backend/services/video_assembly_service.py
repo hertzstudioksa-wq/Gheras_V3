@@ -161,7 +161,13 @@ async def _clip_segment(work_dir: str, idx: int, clip_bytes: bytes, min_dur: flo
 # ---------------------------------------------------------------- shot engine
 _FRAME_16_9 = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=24,setsar=1,format=yuv420p"
 MUSIC_VOLUME = 0.2           # soft bed under the narration, like the reference videos
-QA_FREEZE_SECONDS = 1.0      # any frozen span this long fails the video
+# Assembly never holds frames (clips are cut to their lines, a short clip is
+# slowed, a missing one gets a moving push-in), so a still span can only come
+# from the video model itself. A child pausing in a "tired" shot can sit still
+# ~1 s and looks natural; a clip that's a still image for 2 s+ is the defect.
+# Shorter still spans are kept in the report for review.
+QA_FREEZE_SECONDS = 2.0
+QA_STILL_REPORT_SECONDS = 1.0
 QA_MAX_DURATION_DRIFT = 0.35  # vs the length the parent ordered
 # Clips are generated at least as long as their line; if one comes back short it
 # may be slowed this much (slow motion still moves) — beyond that the order fails.
@@ -172,13 +178,14 @@ async def _quality_gate(path: str, ordered_seconds: float | None, shots: int) ->
     """Measure the finished video the way the reference videos were measured.
     Raises when it would be delivered with frozen frames or the wrong length."""
     res = await asyncio.to_thread(subprocess.run, [
-        _ffmpeg_bin(), "-hide_banner", "-i", path, "-vf", f"freezedetect=n=0.003:d={QA_FREEZE_SECONDS}",
+        _ffmpeg_bin(), "-hide_banner", "-i", path, "-vf", f"freezedetect=n=0.003:d={QA_STILL_REPORT_SECONDS}",
         "-an", "-f", "null", "-"], capture_output=True, text=True, timeout=600)
-    frozen = [float(x) for x in re.findall(r"freeze_duration: ([0-9.]+)", res.stderr or "")]
+    still = [float(x) for x in re.findall(r"freeze_duration: ([0-9.]+)", res.stderr or "")]
+    frozen = [s for s in still if s >= QA_FREEZE_SECONDS]
     total = await _media_duration(path) or 0.0
     drift = abs(total - ordered_seconds) / ordered_seconds if ordered_seconds else 0.0
     report = {"duration_seconds": round(total, 2), "ordered_seconds": ordered_seconds,
-              "duration_drift": round(drift, 3), "frozen_spans": frozen, "shots": shots,
+              "duration_drift": round(drift, 3), "frozen_spans": frozen, "still_spans": still, "shots": shots,
               "mean_shot_seconds": round(total / shots, 2) if shots else None}
     if frozen:
         raise RuntimeError(f"quality gate: {len(frozen)} frozen span(s) ≥{QA_FREEZE_SECONDS}s in the video")

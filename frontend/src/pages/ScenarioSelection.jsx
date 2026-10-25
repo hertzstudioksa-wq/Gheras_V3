@@ -9,6 +9,17 @@ import {
   Lightbulb, ShieldAlert, Clock, History, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
+import { TimeChips, useTicker } from "../components/gheras/LiveProgress";
+
+// The ideas take ~50 s: a bar that fills with time, a counter and changing
+// lines, instead of a spinner that looks stuck.
+const IDEA_SECONDS = 50;
+const IDEA_MESSAGES = [
+  "الكاتب بيقرا الموقف اللي حكيته ✍️",
+  "بيفكّر في 3 زوايا مختلفة للقصة 💡",
+  "بيختار المكان والأبطال 🌳",
+  "بيراجع إن كل فكرة مناسبة لسن طفلك 💚",
+];
 
 const ANGLE_META = {
   emotional:   { label: "عاطفي", icon: Heart, bg: "bg-[#FCE6D4]", fg: "text-[#B8612F]", ring: "border-[#E07A5F]" },
@@ -119,6 +130,12 @@ export default function ScenarioSelection() {
   };
 
   const isLoading = state.status === "scenarios_generating" || (state.status === "pending");
+  const loadStartRef = useRef(null);
+  if (isLoading && loadStartRef.current == null) loadStartRef.current = Date.now();
+  if (!isLoading) loadStartRef.current = null;
+  useTicker(isLoading);
+  const ideaElapsed = loadStartRef.current ? (Date.now() - loadStartRef.current) / 1000 : 0;
+  const ideaShare = Math.min(ideaElapsed / IDEA_SECONDS, 0.95);
   const isReady = state.status === "scenarios_ready" || state.status === "scenario_selected" || state.status === "ready_for_ai";
   const isFailed = state.status === "failed";
   const isLocked = state.status === "generating" || state.status === "completed";
@@ -170,18 +187,17 @@ export default function ScenarioSelection() {
                 <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-[#87A96B]" />
-                    الكاتب يصمّم 3 زوايا مختلفة لقصة طفلك...
+                    {IDEA_MESSAGES[Math.floor(ideaElapsed / 12) % IDEA_MESSAGES.length]}
                   </span>
+                  <span className="font-bold text-[#2D3748] tabular-nums">{Math.round(5 + 90 * ideaShare)}%</span>
                 </div>
                 <div className="w-full bg-[#F2E8DA] rounded-full h-3 overflow-hidden relative">
                   <div
-                    className="absolute inset-y-0 bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full"
-                    style={{ width: "33%", animation: "gheras-indet 1.4s ease-in-out infinite" }}
+                    className="h-full bg-gradient-to-r from-[#87A96B] to-[#4F6B3B] rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.round(5 + 90 * ideaShare)}%` }}
                   />
                 </div>
-                <p className="mt-2 text-[11px] font-body text-[#8A9AB0] text-center">
-                  قد يستغرق ذلك بضع ثوانٍ...
-                </p>
+                <TimeChips elapsed={ideaElapsed} eta={Math.max(IDEA_SECONDS - ideaElapsed, 5)} />
               </div>
             )}
           </div>

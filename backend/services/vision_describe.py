@@ -6,19 +6,18 @@ correctly. One-shot, cached on the order document.
 
 Safe by design:
   * Never raises — returns None on any failure.
-  * Never logs the API key.
-  * Reads OPENAI_API_KEY from env only.
+  * Goes through fal (same balance and keys as every other stage). It used to
+    call OpenAI directly; with that account out of credit every order lost
+    ~20 s on two failed calls and got no descriptions.
 """
 import asyncio
-import base64
 import logging
-import os
 
 from db import db
 
 logger = logging.getLogger("vision_describe")
 
-VISION_MODEL = "gpt-4o-mini"  # cheapest vision-capable; quality is sufficient
+VISION_MODEL = "anthropic/claude-haiku-5.5"  # cheap vision model on fal's OpenRouter endpoint
 
 
 async def _fetch_bytes_from_internal_url(url: str) -> bytes | None:
@@ -41,20 +40,18 @@ async def _fetch_bytes_from_internal_url(url: str) -> bytes | None:
 async def describe_image(image_url: str, hint: str = "") -> str | None:
     """Generate a concise visual description (English, prompt-ready).
 
-    Returns None if the key is missing, the image cannot be fetched, or the
-    OpenAI call fails. Never raises.
+    Returns None if the image cannot be fetched or the call fails. Never raises.
     """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key or not image_url:
+    if not image_url:
         return None
     img_bytes = await _fetch_bytes_from_internal_url(image_url)
     if not img_bytes:
         return None
     try:
-        from openai import AsyncOpenAI
-        b64 = base64.b64encode(img_bytes).decode("ascii")
-        data_url = f"data:image/png;base64,{b64}"
-        client = AsyncOpenAI(api_key=api_key, timeout=40.0)
+        from services.ai import fal
+        from services.ai.text_client import generate_vision
+
+        url = await fal.upload(env_key="FAL_KEY_TEXT", data=img_bytes, content_type="image/png", file_name="describe.png")
         prompt = (
             "Describe this image in 2-3 concise English sentences, optimized for use "
             "as a reference inside a children's storybook illustration prompt. Focus "
@@ -65,18 +62,8 @@ async def describe_image(image_url: str, hint: str = "") -> str | None:
         )
         if hint:
             prompt += f" Context hint: {hint}."
-        resp = await client.chat.completions.create(
-            model=VISION_MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            }],
-            max_completion_tokens=250,
-        )
-        out = (resp.choices[0].message.content or "").strip() if resp and resp.choices else ""
+        out = (await generate_vision(stage="vision_describe", model=VISION_MODEL, system="", user=prompt,
+                                     image_urls=[url], max_tokens=250, timeout=60.0)).strip()
         if not out:
             return None
         logger.info(f"[vision_describe] ok ({len(out)} chars, hint={hint!r})")
