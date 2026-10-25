@@ -80,8 +80,8 @@ export default function AdminOverview() {
             <li className="flex items-center gap-2">
               {balanceLocked ? <AlertTriangle className="w-4 h-4 text-[#B8612F]" /> : <CheckCircle2 className="w-4 h-4 text-[#4F6B3B]" />}
               {balanceLocked
-                ? `رصيد fal خلص — التوليد واقف${engine.balance.paused_orders ? ` و${engine.balance.paused_orders} طلب موقوف` : ""}`
-                : "رصيد fal شغّال (حسب آخر طلب)"}
+                ? `رصيد ${engine.balance.provider_label || "fal"} خلص — التوليد واقف${engine.balance.paused_orders ? ` و${engine.balance.paused_orders} طلب موقوف` : ""}`
+                : "الرصيد شغّال (حسب آخر طلب)"}
             </li>
             <li className="flex items-center gap-2">
               {engine.missing_keys.length ? <KeyRound className="w-4 h-4 text-[#B8612F]" /> : <CheckCircle2 className="w-4 h-4 text-[#4F6B3B]" />}

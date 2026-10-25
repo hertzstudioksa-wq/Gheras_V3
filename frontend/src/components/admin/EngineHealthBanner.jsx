@@ -3,8 +3,8 @@ import { toast } from "sonner";
 import { AlertTriangle, Loader2, PlayCircle, RefreshCcw } from "lucide-react";
 import { api } from "../../lib/api";
 
-// Shown on every admin page while fal's balance is exhausted, or while orders
-// it stopped are still waiting to be resumed after a top-up.
+// Shown on every admin page while a provider's balance (fal or Comfy Cloud) is
+// exhausted, or while orders it stopped are still waiting to be resumed after a top-up.
 export default function EngineHealthBanner() {
   const [health, setHealth] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -60,7 +60,7 @@ export default function EngineHealthBanner() {
       <div className="flex-1 min-w-[220px] font-body text-sm text-[#2D3748]">
         {locked ? (
           <>
-            <b>رصيد fal خلص — التوليد واقف.</b> الطلبات الجديدة والدفع متوقفين لحد ما يتشحن.
+            <b>رصيد {health.provider_label || "fal"} خلص — التوليد واقف.</b> الطلبات الجديدة والدفع متوقفين لحد ما يتشحن.
             {health.locked_at && (
               <span className="text-[#5A677D]"> (من {new Date(health.locked_at).toLocaleString("ar-EG")})</span>
             )}

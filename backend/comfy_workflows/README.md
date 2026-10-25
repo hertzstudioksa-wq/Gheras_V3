@@ -27,6 +27,19 @@ A Comfy API deployment bills RTX PRO 6000 at $3.49/h (about half of plan credits
 All four calls were verified from the Comfy Cloud page session on 2026-10-25 (the keyframe JSON was run
 end to end through `/api/prompt`). Server-to-server calls use the API key header (paid plan).
 
+The app calls them through `services/ai/comfy.py` (`upload`, `submit`, `wait`, `download`, `run`). What the
+API actually answers, as seen with the key on 2026-10-25:
+- Job times (`create_time`, `execution_start_time`, `execution_end_time`) are in **ms**, not the seconds the
+  docs say. `comfy.gpu_seconds(job)` handles both.
+- A clip is listed under `outputs["108"].images` too, with `"animated": [true]`.
+- `/api/view` answers **302** to a signed Google Storage link; it is fetched without the API key.
+- Failed jobs carry `execution_error.exception_type`; `InsufficientFundsError` / `InactiveSubscriptionError`
+  mean no credit. At submit, **402** = insufficient credits and **429** = "User has not paid" (OpenAPI).
+  Both lock the engine like fal's balance; the raw answer is kept in `engine_health` (`last_error`).
+- Free balance read: `GET /api/billing/usage/timeseries?months=1` → `summary.balance.amount_cents` (cents,
+  despite the `_micros` twin field). Used by the key test and the engine probe.
+- One real keyframe through the adapter (1 reference, 40 steps): 26 s wall, 12.2 s GPU ≈ $0.023.
+
 ## Placeholders
 
 `clip_wan22_api.json`

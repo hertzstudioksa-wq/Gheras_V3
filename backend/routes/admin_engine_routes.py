@@ -543,7 +543,7 @@ async def reset_engine_stage(stage: str, admin: dict = Depends(require_admin)):
 
 # Key / connection checks (no generation, nothing billed).
 _DIRECT_TESTS = {"anthropic": "anthropic", "openai": "openai", "gemini": "gemini", "gemini_tts": "gemini",
-                 "elevenlabs": "elevenlabs"}
+                 "elevenlabs": "elevenlabs", "comfy_image": "comfy", "comfy_video": "comfy"}
 
 
 # ============================================================================
@@ -1013,8 +1013,9 @@ async def operations_overview():
 
 
 async def _engine_balance() -> dict:
-    """The fal balance as last seen by a real call (locked = top-up needed)."""
+    """The providers' balance as last seen by a real call (locked = top-up needed)."""
     from services import engine_health
 
     st = await engine_health.status()
-    return {"locked": st["locked"], "locked_at": st.get("locked_at"), "paused_orders": st.get("paused_orders", 0)}
+    return {"locked": st["locked"], "locked_at": st.get("locked_at"), "paused_orders": st.get("paused_orders", 0),
+            "provider_label": st.get("provider_label")}

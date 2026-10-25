@@ -207,6 +207,8 @@ PROVIDER_ENV_MAP = {
     "fal_music":  {"env_key": "FAL_KEY_MUSIC",      "label": "fal.ai — ElevenLabs Music"},
     "kling":      {"env_key": "FAL_KEY_VIDEO",      "label": "fal.ai — Kling Video"},
     "luma":       {"env_key": "FAL_KEY_VIDEO",      "label": "fal.ai — Luma Video"},
+    "comfy_image": {"env_key": "COMFY_API_KEY",    "label": "Comfy Cloud — Qwen Image 2.1 (shot keyframes)"},
+    "comfy_video": {"env_key": "COMFY_API_KEY",    "label": "Comfy Cloud — Wan 2.2 I2V (shot clips)"},
     "sora":       {"env_key": "EMERGENT_LLM_KEY",   "label": "Sora 2 (via Emergent)"},
     "ffmpeg":     {"env_key": None,                  "label": "ffmpeg (local binary)"},
     "reportlab":  {"env_key": None,                  "label": "reportlab (local)"},

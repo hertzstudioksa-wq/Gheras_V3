@@ -10,6 +10,8 @@ real models):
   narration   tones with a pause between lines (the per-shot split still works)
   music       a soft two-tone bed (ffmpeg)
   Kling clips a slow zoom over the shot's start frame (ffmpeg), as long as asked
+  Comfy jobs  the same picture / zoom, returned as a job shaped like Comfy's
+              (status, execution times in ms, outputs[node].images)
 
 The whole order flow — progress, ETA, previews, payment, delivery, restart
 recovery, an exhausted balance — can then be exercised from the UI at no cost.
@@ -41,13 +43,16 @@ from db import db
 CURRENT_ORDER: contextvars.ContextVar[str | None] = contextvars.ContextVar("fake_current_order", default=None)
 
 LOCK_MESSAGE = "User is locked. Exhausted balance. Top up your balance at fal.ai/dashboard/billing."
+# Comfy's real 402 body hasn't been seen yet; this follows its documented shape.
+COMFY_LOCK_BODY = '{"code": "PAYMENT_REQUIRED", "message": "Payment required - Insufficient credits"}'
 PREFIX = "fake://"
 
-# Real-world seconds per call, measured on the first full test order.
+# Real-world seconds per call, measured on the first full test order (Comfy: the
+# bake-off on an RTX PRO 6000).
 REAL_SECONDS = {
     "safety_check": 3, "engine_probe": 1, "scenario_generation": 50, "production_planning": 115,
     "book_tashkeel": 20, "clip_review": 5, "keyframe_review": 5, "vision_describe": 4, "image": 45, "tts": 10, "music": 60,
-    "video": 270,
+    "video": 270, "comfy_keyframe": 20, "comfy_clip": 80,
 }
 
 
@@ -96,6 +101,8 @@ async def simulation() -> dict:
 
 async def simulate(**flags) -> dict:
     """locked=True → every fal call answers "exhausted balance";
+    comfy_locked=True → Comfy answers 402 at submit, running jobs fail with
+    InsufficientFundsError and the balance reads $0;
     bad_clips=["2_2"] → the clip review flags those shots once (then passes)."""
     await db.fake_rehearsal.update_one({"id": "default"}, {"$set": {"id": "default", **flags}}, upsert=True)
     return await simulation()
@@ -411,3 +418,86 @@ async def fal_wait(stage: str, model: str, request_id: str) -> dict:
         result = {}
     await db.fake_requests.update_one({"id": request_id}, {"$set": {"result": result}})
     return result
+
+
+# ---------------------------------------------------------------- Comfy Cloud
+async def comfy_upload(data: bytes, name: str) -> str:
+    """Uploads are free on Comfy, so they work while the credit is out too."""
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else "png"
+    return _save(data, ext)[len(PREFIX):]
+
+
+async def comfy_submit(stage: str, workflow: str, prompt: dict) -> str:
+    """Records what the job would draw: the prompt text, and for a clip its start
+    image and length (read back from the filled workflow)."""
+    from services.ai.comfy import WORKFLOWS
+
+    if (await simulation()).get("comfy_locked"):
+        from services import engine_health
+        from services.ai import classify_http_error
+
+        message = "PAYMENT_REQUIRED — Payment required - Insufficient credits"
+        await engine_health.note_error(stage, message, provider="comfy", status=402, raw=COMFY_LOCK_BODY)
+        raise classify_http_error(stage, "Comfy", 402, message)
+    spec = WORKFLOWS[workflow]
+    node, field = spec["prompt_input"]
+    info = {"text": prompt[node]["inputs"][field]}
+    if "start_input" in spec:
+        node, field = spec["start_input"]
+        info["start_image"] = prompt[node]["inputs"][field]
+        node, field = spec["duration_input"]
+        info["seconds"] = prompt[node]["inputs"][field]
+    prompt_id = str(uuid.uuid4())
+    # Persisted, so a restart in the middle resumes like a real queued job.
+    await db.fake_requests.insert_one({"id": prompt_id, "kind": "comfy", "stage": stage, "workflow": workflow,
+                                       "info": info, "created_at": _now(), "t0": time.time()})
+    return prompt_id
+
+
+async def comfy_job(prompt_id: str) -> dict:
+    """The finished job (after the scaled wait), shaped like Comfy's GET /api/jobs/{id}."""
+    from services.ai.comfy import WORKFLOWS
+
+    req = await db.fake_requests.find_one({"id": prompt_id, "kind": "comfy"}, {"_id": 0})
+    if not req:
+        return {"id": prompt_id, "status": "failed", "execution_error": {
+            "exception_type": "ServiceError", "exception_message": "rehearsal job not found", "node_type": "",
+            "node_id": "", "traceback": [], "current_inputs": {}, "current_outputs": {}}}
+    if req.get("job"):
+        return req["job"]
+    clip = req["workflow"] == "clip_wan22"
+    kind = "comfy_clip" if clip else "comfy_keyframe"
+    remaining = REAL_SECONDS[kind] * speed() - (time.time() - float(req.get("t0") or time.time()))
+    if remaining > 0:
+        await asyncio.sleep(remaining)
+    start_ms = int(float(req.get("t0") or time.time()) * 1000)
+    if (await simulation()).get("comfy_locked"):
+        job = {"id": prompt_id, "status": "failed", "execution_start_time": start_ms,
+               "execution_end_time": start_ms + 1000, "execution_error": {
+                   "exception_type": "InsufficientFundsError", "exception_message": "Account balance too low",
+                   "node_type": "", "node_id": "", "traceback": [], "current_inputs": {}, "current_outputs": {}}}
+    else:
+        info = req.get("info") or {}
+        if clip:
+            data = await asyncio.to_thread(_clip, read(PREFIX + info["start_image"]), int(info.get("seconds") or 5))
+            name, mime = _save(data, "mp4")[len(PREFIX):], "video/mp4"
+        else:
+            name, mime = _save(picture(info.get("text") or "", "1536x864"), "png")[len(PREFIX):], "image/png"
+        out = {"images": [{"filename": name, "subfolder": "rehearsal", "type": "output", "mime_type": mime}]}
+        if clip:
+            out["animated"] = [True]
+        # GPU time as the real job would take, not the scaled wait: costs stay realistic.
+        job = {"id": prompt_id, "status": "completed", "execution_start_time": start_ms,
+               "execution_end_time": start_ms + REAL_SECONDS[kind] * 1000,
+               "outputs": {WORKFLOWS[req["workflow"]]["output_node"]: out}}
+    await db.fake_requests.update_one({"id": prompt_id}, {"$set": {"job": job}})
+    return job
+
+
+def comfy_download(filename: str) -> bytes:
+    return read(PREFIX + filename)
+
+
+async def comfy_balance() -> float:
+    sim = await simulation()
+    return 0.0 if sim.get("comfy_locked") else float(sim.get("comfy_balance_usd") or 20.0)
