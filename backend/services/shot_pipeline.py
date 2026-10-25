@@ -637,12 +637,14 @@ def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfi
     who = "Nobody is in the frame." if not people else (
         f"Exactly {people} {'person' if people == 1 else 'people'}, all already in the frame; nobody appears, leaves "
         "or is duplicated, bodies stay solid, and nobody turns to look at the camera.")
+    # Right after the action: Wan weighs the first sentences most, and the plush
+    # still cheered along when the line came after the stillness guards.
     return " ".join(p for p in [
         motion or "A small natural movement of the main character.",
+        lifeless(objects),
         CALM_NOTE if calm else "",
         OUTFIT_REDO_NOTE if outfit else "",
         WAN_STILL,
-        lifeless(objects),
         who,
         "2D storybook cartoon, no written words.",
     ] if p)
