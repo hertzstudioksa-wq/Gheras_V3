@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import clip_review, engine_config, house_style, toy_freeze
+from services import clip_review, engine_config, house_style, pronunciation, toy_freeze
 from services.ai import AIConfigError, AIError, AIPermanentError, comfy, fal
 from services.ai.image_client import WIDE, comfy_image, comfy_workflow
 from services.child_character_service import _fetch_source_bytes
@@ -230,8 +230,8 @@ OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, bad
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
 # How bad a flagged frame is, to keep the least broken of several takes.
 # A start frame with a held problem is never animated, so any take without one is the better take.
-FLAW_WEIGHT = {"noise": 30, "deformed": 8, "melting": 3, "duplicate": 8, "extra_person": 8, "wrong_look": 2,
-               "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2}
+FLAW_WEIGHT = {"noise": 30, "deformed": 8, "melting": 3, "duplicate": 8, "extra_person": 8, "role_swap": 8,
+               "wrong_look": 2, "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2}
 
 
 def flaw(review: dict) -> int:
@@ -245,12 +245,35 @@ def flaw(review: dict) -> int:
 SOFT_PROBLEMS = {"wrong_look"}
 # Start frames a clip would only animate the mistake of (reliably seen by the
 # review); the shot is held for a new picture instead.
-HOLD_PROBLEMS = {"noise", "duplicate", "extra_person", "deformed"}
+HOLD_PROBLEMS = {"noise", "duplicate", "extra_person", "role_swap", "deformed"}
 
 
 def held_problems(review: dict | None) -> list[str]:
     review = review or {}
     return [] if review.get("ok", True) else sorted(set(review.get("problems") or []) & HOLD_PROBLEMS)
+
+
+# Pictures whose cast came out wrong go to GPT Image (owner, 2026-10-26): Qwen drew the
+# same extra child on nine takes of one shot (the composition causes it), while a GPT
+# take costs about six Qwen takes. Soft flaws stay on Qwen.
+RESCUE_ENGINE = ("fal_image", "openai/gpt-image-2")
+# What GPT is for: the people came out wrong. Static is a random glitch: drawn again as is.
+CAST_PROBLEMS = HOLD_PROBLEMS - {"noise"}
+
+
+def next_take(review: dict, engine: str, attempt: int, last: int = 3) -> str | None:
+    """The engine of the next take of a Comfy keyframe after a failed one, or None to keep
+    the best take: a wrong cast (extra, repeated or swapped people, a broken body) is
+    redrawn with GPT, static is drawn again on the same engine, a soft flaw gets one more
+    Qwen take, and a GPT take with only soft flaws is kept."""
+    problems = set(held_problems(review))
+    if attempt >= last:
+        return None
+    if problems & CAST_PROBLEMS:
+        return "gpt"
+    if problems:
+        return engine
+    return "qwen" if engine == "qwen" and attempt < 2 else None
 
 
 def passes(review: dict | None) -> bool:
@@ -269,11 +292,16 @@ NO_TEXT = ("No written words, letters, numbers or signs anywhere in the picture:
 
 
 def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_name: str,
-                    notes: list[str], style: dict, objects: list[dict] | None = None) -> str:
+                    notes: list[str], style: dict, objects: list[dict] | None = None,
+                    sheet_types: list[str] | None = None) -> str:
+    """`sheet_types`: whose sheets come first among the reference images, in order (their
+    names in the scene then point at their picture)."""
     cast = "; ".join(_cast_line(profiles[t], child_name, bool((sheets.get(t) or {}).get("from_photo")))
                      for t in sh.get("characters") or [] if t in profiles)
     return " ".join(p for p in [
-        sh.get("keyframe_prompt") or scene.get("visual_description") or "",
+        tag_cast(sh.get("keyframe_prompt") or scene.get("visual_description") or "",
+                 [{"kind": "sheet", "type": t} for t in sheet_types or []], profiles, child_name,
+                 "reference image {n}"),
         f"Shot type: {sh.get('shot_type') or 'medium'}.",
         f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",
         f"Characters, matching their reference sheets exactly: {cast}." if cast else "",
@@ -607,16 +635,18 @@ def comfy_once(cast: list[str], profiles: dict, child_name: str) -> str:
             "or adults even in the background.")
 
 
-def tag_cast(text: str, refs: list[dict], profiles: dict, child_name: str) -> str:
+def tag_cast(text: str, refs: list[dict], profiles: dict, child_name: str, tag: str = "<image{n}>") -> str:
     """Each named character's first mention in the SCENE points at their reference
     (a name -> "<name> (<image1>)"): Qwen ties an action to a picture by its tag, not by a
-    name it only met in the IDENTITY line."""
+    name it only met in the IDENTITY line. GPT put a friend in the child's place the same
+    way when the references were only listed at the end of its prompt."""
     for n, r in enumerate(refs, 1):
         if r["kind"] != "sheet":
             continue
         name = _name(profiles.get(r["type"]) or {"type": r["type"]}, child_name)
         if name:
-            text = re.sub(rf"\b{re.escape(name)}\b(?!['’]s\b)", lambda m: f"{m.group(0)} (<image{n}>)", text, count=1)
+            text = re.sub(rf"\b{re.escape(name)}\b(?!['’]s\b)", lambda m: f"{m.group(0)} ({tag.format(n=n)})", text,
+                          count=1)
     return text
 
 
@@ -852,6 +882,26 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 sheet_bytes[t] = got
         return sheet_bytes.get(t)
 
+    async def gpt_inputs(sh: dict, in_shot: list[dict], extra: list[tuple]) -> tuple[list[dict], str, list[str]]:
+        """References, prompt and reference notes for a GPT Image draw of the shot; `extra`
+        = (picture, note) of the toy and story objects a rescued Comfy shot had."""
+        refs, notes, types = [], [], []
+        for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]:
+            if await sheet_data(t):
+                refs.append({"image_bytes": sheet_bytes[t][0], "mime_type": sheet_bytes[t][1]})
+                notes.append(f"{sheets[t]['label']}'s character sheet")
+                types.append(t)
+        for data, note in extra:
+            refs.append({"image_bytes": data[0], "mime_type": data[1]})
+            notes.append(note)
+        if prev:
+            refs.append({"image_bytes": prev[0], "mime_type": prev[1]})
+            notes.append(PREV_SHOT_NOTE)
+        elif previous_scene:
+            refs.append({"image_bytes": previous_scene[0], "mime_type": previous_scene[1]})
+            notes.append(PREV_SCENE_NOTE)
+        return refs, keyframe_prompt(scene, sh, profiles, sheets, child_name, notes, style, in_shot, types), notes
+
     for sh in scene["shots"]:
         row = await db.shot_assets.find_one(
             {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
@@ -862,7 +912,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             prev = await _fetch_source_bytes(row["keyframe_url"])
             hero_url = hero_url or row["keyframe_url"]
             continue
-        refs, notes, comfy_refs = [], [], []
+        refs, notes, comfy_refs, extra_refs = [], [], [], []
         in_shot = shot_objects(sh, objects, scene)
         if on_comfy:
             for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None,
@@ -881,31 +931,27 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 if data:
                     comfy_refs.append(r)
                     refs.append({"image_bytes": data[0], "mime_type": data[1]})
+                    if r["kind"] in ("toy", "object"):
+                        extra_refs.append((data, f"the child's {r['name']} (its look only)" if r["kind"] == "toy" else
+                                           f"{r['name']}'s reference picture (its look only, {OBJECTS_NOTE})"))
             prompt = keyframe_prompt_comfy(scene, sh, profiles, sheets, child_name, comfy_refs, in_shot)
         else:
-            for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]:
-                if await sheet_data(t):
-                    refs.append({"image_bytes": sheet_bytes[t][0], "mime_type": sheet_bytes[t][1]})
-                    notes.append(f"{sheets[t]['label']}'s character sheet")
-            if prev:
-                refs.append({"image_bytes": prev[0], "mime_type": prev[1]})
-                notes.append(PREV_SHOT_NOTE)
-            elif previous_scene:
-                refs.append({"image_bytes": previous_scene[0], "mime_type": previous_scene[1]})
-                notes.append(PREV_SCENE_NOTE)
-            prompt = keyframe_prompt(scene, sh, profiles, sheets, child_name, notes, style, in_shot)
+            refs, prompt, notes = await gpt_inputs(sh, in_shot, [])
         shot_key = f"{scene['scene_index']}_{sh['shot_index']}"
         cast = cast_labels(sh.get("characters") or [], sheets)
         # A Comfy job submitted before a restart is waited on, not paid for again.
         resume_id = row.get("keyframe_prompt_id") if on_comfy else None
         first = (row.get("keyframe_prompt_attempt") or 1) if resume_id else 1
-        # A Comfy draw costs ~3 cents, so a flagged frame gets one more try; then the
-        # least broken take is kept (Qwen once returned pure noise on a redraw).
-        best = None
+        # Qwen takes cost ~3 cents; a soft flaw gets one more, a wrong cast goes to GPT
+        # (see next_take). Then the least broken take is kept (Qwen once returned pure
+        # noise on a redraw).
+        best = chosen = rescue = None
+        engine = "qwen" if on_comfy else "stage"
         for attempt in range(first, (3 if on_comfy else 2) + 1):
-            text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
             resumed = False
-            if on_comfy:
+            if engine == "qwen":
+                text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
+
                 async def submitted(prompt_id: str, attempt: int = attempt) -> None:
                     await _set_shot(order, plan, scene, sh["shot_index"],
                                     {"keyframe_prompt_id": prompt_id, "keyframe_prompt_attempt": attempt})
@@ -923,23 +969,35 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                             {"$inc": {"comfy_gpu_seconds": e.gpu_seconds, "keyframe_gpu_seconds": e.gpu_seconds}})
                     raise
                 resumed, resume_id = bool(resume_id), None
+                used, used_refs = prompt, describe_refs(comfy_refs, sheets)
             else:
+                if engine == "gpt":
+                    rescue = rescue or await gpt_inputs(sh, in_shot, extra_refs)
+                    take_refs, used, used_notes = rescue
+                else:
+                    take_refs, used, used_notes = refs, prompt, notes
+                text = used if attempt == 1 else f"{used} {REDRAW_NOTE}"
                 img, mime, meta = await generate_image(
-                    scene_prompt=text, references=refs or None,
+                    scene_prompt=text, references=take_refs or None,
                     stage="scene_image_generation", size=WIDE, raw_prompt=True,
                     session_hint=f"shot-{shot_key}-{order['id'][:6]}-{attempt}",
+                    engine=RESCUE_ENGINE if engine == "gpt" else None,
                 )
+                used_refs = [f"{n}) {note}" for n, note in enumerate(used_notes, 1)] if engine == "gpt" else None
             # A start frame with a cloned person or written words would be
             # animated as is: redraw it once (an image is cheaper than a clip).
             paid = {"paid_keyframes": 1}
             if meta.get("gpu_seconds"):
                 paid.update(comfy_gpu_seconds=meta["gpu_seconds"], keyframe_gpu_seconds=meta["gpu_seconds"])
+            if engine == "gpt":
+                paid["paid_rescue_keyframes"] = 1
             # A job resumed after its review paused the order (empty balance) was counted then.
             if not (resumed and row.get("keyframe_counted_id") == meta.get("prompt_id")):
                 await db.shot_assets.update_one(
                     {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
                      "shot_index": sh["shot_index"]},
-                    {"$inc": paid, "$set": {"keyframe_counted_id": meta.get("prompt_id")},
+                    {"$inc": paid, "$set": {"keyframe_counted_id": meta.get("prompt_id"),
+                                            **({"rescue_model": RESCUE_ENGINE[1]} if engine == "gpt" else {})},
                      "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now()}},
                     upsert=True)
             review = await clip_review.review_keyframe(
@@ -947,13 +1005,19 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
                  [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes], [o["name"] for o in in_shot])
             review["redrawn"] = attempt >= 2
+            if engine == "gpt":
+                review["rescue"] = RESCUE_ENGINE[1]
+            take = (img, mime, meta, review, used, used_refs)
             if passes(review):
+                chosen = take
                 break
             if best is None or flaw(review) < flaw(best[3]):
-                best = (img, mime, meta, review)
-        else:
-            if best:
-                img, mime, meta, review = best
+                best = take
+            if on_comfy:
+                engine = next_take(review, engine, attempt)
+                if engine is None:
+                    break
+        img, mime, meta, review, used, used_refs = chosen or best
         if "noise" in (review.get("problems") or []):
             # Static on every take: a visible failure beats a broken frame in the story.
             await _set_shot(order, plan, scene, sh["shot_index"], {"keyframe_prompt_id": None,
@@ -962,12 +1026,13 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         url = await _store(order, "keyframe", img, mime, "png")
         model = meta.get("model")
         await _set_shot(order, plan, scene, sh["shot_index"], {
-            "keyframe_url": url, "keyframe_at": _now(), "keyframe_prompt_used": prompt, "image_model": model, "keyframe_review": review,
+            "keyframe_url": url, "keyframe_at": _now(), "keyframe_prompt_used": used, "image_model": model,
+            "keyframe_review": review,
             "narration_line": sh["narration_line"], "shot_type": sh.get("shot_type"),
             "characters": sh.get("characters") or [], "motion_prompt": sh.get("motion_prompt") or "",
             "style_key": style.get("key"), "style_version": style.get("version"),
             "keyframe_prompt_id": None, "keyframe_prompt_attempt": None,
-            "keyframe_refs": describe_refs(comfy_refs, sheets) if on_comfy else None,
+            "keyframe_refs": used_refs,
             "keyframe_seed": meta.get("seed"),
             "objects": [o["name"] for o in in_shot],
             "toys": [o["name"] for o in in_shot if o.get("toy")],
@@ -1084,6 +1149,10 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
 
     take_url = None
     meta: dict = {"provider": provider, "model": model, "dialect": dialect_key}
+    # The voice reads the lines with the words it could misread marked; everyone else sees them plain.
+    said = await pronunciation.spoken(lines, dialect.get("name_ar") or dialect_key)
+    if said != lines:
+        meta["spoken_lines"] = said
     if provider in ("gemini_tts", "fal_gemini_tts"):
         voice = dialect["voices"][await house_style.narrator_for_order(order)]
         via_fal = provider == "fal_gemini_tts"
@@ -1107,13 +1176,13 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
                 logger.warning(f"[shots] implausible narration ({secs:.1f}s for {words} words) from {gmeta.get('model')}")
             raise AIError(f"narration for {words} words came out implausibly long/short ({', '.join(tried)})")
 
-        wav, gmeta = await voice_text("\n".join(lines))
+        wav, gmeta = await voice_text("\n".join(said))
         meta.update(gmeta)
         take_url = await _store(order, "narration", wav, "audio/wav", "wav")
         pieces = await asyncio.to_thread(_split_take, wav, lines, wps)
         if pieces is None:
             logger.warning(f"[shots] scene {scene['scene_index']}: take didn't split cleanly; voicing line by line")
-            pieces = [(await voice_text(line))[0] for line in lines]
+            pieces = [(await voice_text(line))[0] for line in said]
             meta["split"] = "per_line"
         else:
             meta["split"] = "one_take"
@@ -1121,7 +1190,7 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
     else:
         voice = await narration_voice_for_order(order)
         segments = []
-        for line in lines:
+        for line in said:
             audio, mime, tmeta = await generate_tts(text=line, voice=voice, language="ar")
             meta.update({k: tmeta.get(k) for k in ("provider", "model") if tmeta.get(k)})
             segments.append((audio, mime, "mp3" if "mpeg" in (mime or "") else "wav"))

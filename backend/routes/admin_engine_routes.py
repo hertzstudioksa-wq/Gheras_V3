@@ -467,7 +467,9 @@ async def prompt_preview(order_id: str):
                         "narration_line": sh.get("narration_line"),
                         "keyframe_prompt": shot_pipeline.keyframe_prompt_comfy(sc, sh, profiles, sheets, child_name,
                                                                                comfy_refs, in_shot) if on_comfy else
-                        shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes, style, in_shot),
+                        shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes, style, in_shot,
+                                                      shot_pipeline.by_likeness(sh.get("characters") or [], sheets)
+                                                      [:shot_pipeline.MAX_KEYFRAME_SHEETS]),
                         "keyframe_references": shot_pipeline.describe_refs(comfy_refs, sheets) if on_comfy else
                         [f"<image{i + 1}> {n}" for i, n in enumerate(notes)],
                         "keyframe_prompt_used": row.get("keyframe_prompt_used"),

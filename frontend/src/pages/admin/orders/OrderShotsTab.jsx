@@ -9,7 +9,8 @@ import { ConfirmAction, PageState } from "../../../components/admin/AdminKit";
 // and clip) followed by a fresh video assembly.
 
 const PROBLEM_AR = {
-  duplicate: "شخصية متكررة", extra_person: "شخص زيادة", clipping: "جسم بيخترق حاجة",
+  duplicate: "شخصية متكررة", extra_person: "شخص زيادة", role_swap: "شخصية في مكان شخصية تانية",
+  clipping: "جسم بيخترق حاجة",
   vanishing: "شخصية بتختفي", text: "كتابة", deformed: "تشوّه",
   wrong_look: "شكل مش مطابق للشخصية", outfit_change: "اللبس أو الإكسسوار اتغيّر",
   melting: "حاجة بتسيح أو بتتمدد", action_missing: "الحدث المطلوب ما حصلش", mood_mismatch: "التعبير عكس السطر",
@@ -28,6 +29,7 @@ function ReviewBadge({ label, review, redoneKey }) {
       {review.ok ? <ShieldCheck className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
       {label}: {review.ok ? "سليم" : (review.problems || []).map((p) => PROBLEM_AR[p] || p).join("، ")}
       {redone ? " (اتعادت)" : ""}
+      {review.rescue ? " · اترسمت بـ GPT" : ""}
     </span>
   );
 }

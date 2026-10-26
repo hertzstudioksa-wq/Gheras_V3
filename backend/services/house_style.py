@@ -241,7 +241,8 @@ DIALECTS: dict[str, dict] = {
         "writing": (
             "اكتب كل narration_line باللهجة المصرية العامية الطبيعية الموجّهة للأطفال (مثل: بيجروا، أوي، سوا، "
             "بصّ، قرّب، الأوضة، ماما، بابا)، جمل قصيرة دافئة. لا تخلط بالفصحى. ضع الشدّة والتشكيل على أي كلمة "
-            "يمكن أن تُنطق خطأ (مثل: بصّت، قرّبت، طفّت)."
+            "يمكن أن تُنطق خطأ (مثل: بصّت، قرّبت، طفّت)، والسكون على كلمة قد تُقرأ بشدّة ليست فيها "
+            "(مثل: يِنْزِل، يِطْلَع)."
         ),
         "tts_direction": "Read aloud in a warm, gentle Egyptian Arabic storyteller voice for young children:",
         "voices": {"male": "Algieba", "female": "Sulafat"},

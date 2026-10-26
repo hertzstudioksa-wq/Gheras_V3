@@ -242,3 +242,31 @@ def test_plan_rules_film_around_physics_and_keep_the_camera_still():
 
     assert "الكاميرا ثابتة دائماً" in SYSTEM_MSG and "اللحظة بعده مباشرة" in SYSTEM_MSG
     assert "ممنوع تعبيرات أو مشاعر" in SYSTEM_MSG
+
+
+def test_gpt_names_point_at_their_reference_too():
+    sh = shot(["child", "father"], "Omar stands by the gate while Lina waves at him.")
+    notes = ["Lina's character sheet", "Omar (the child's father)'s character sheet"]
+    text = sp.keyframe_prompt(SCENE, sh, PROFILES, SHEETS, "Lina", notes, {"style_text": "s", "frame_rules": "f"},
+                              None, ["child", "father"])
+    assert text.startswith("Omar (reference image 2) stands by the gate while Lina (reference image 1) waves")
+    plain = sp.keyframe_prompt(SCENE, sh, PROFILES, SHEETS, "Lina", notes, {"style_text": "s", "frame_rules": "f"})
+    assert "(reference image" not in plain
+
+
+@pytest.mark.parametrize("problems,engine,attempt,expected", [
+    (["extra_person"], "qwen", 1, "gpt"),        # a wrong cast goes to GPT from the second take
+    (["role_swap"], "qwen", 1, "gpt"),
+    (["duplicate"], "gpt", 2, "gpt"),            # still wrong on GPT: one more GPT take
+    (["deformed"], "gpt", 3, None),              # out of takes: the least broken one
+    (["action_missing"], "qwen", 1, "qwen"),     # a soft flaw: one more Qwen take...
+    (["action_missing"], "qwen", 2, None),       # ...and no more
+    (["mood_mismatch"], "gpt", 2, None),         # a GPT take with a soft flaw is kept
+    (["action_missing"], "qwen", 2, None),
+    (["extra_person"], "qwen", 2, "gpt"),        # soft, then a wrong cast
+    (["noise"], "qwen", 1, "qwen"),              # static is a glitch: the same engine again
+    (["noise"], "qwen", 2, "qwen"),
+    (["noise", "extra_person"], "qwen", 1, "gpt"),
+])
+def test_the_next_take_after_a_flagged_keyframe(problems, engine, attempt, expected):
+    assert sp.next_take({"ok": False, "problems": problems}, engine, attempt) == expected

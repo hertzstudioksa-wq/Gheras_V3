@@ -241,3 +241,38 @@ def test_a_take_with_a_held_problem_loses_to_soft_ones():
 def test_the_head_count_is_off_in_the_rehearsal(monkeypatch):
     monkeypatch.setenv("GHERAS_FAKE_PROVIDERS", "1")
     assert asyncio.run(clip_review.people_in(cartoon_picture())) is None
+
+
+def test_a_cast_member_in_another_ones_place_is_a_held_flaw():
+    # GPT put the friend where the child should stand apart; the review called it a likeness flaw
+    for words in ("role_swap", "Roles swapped", "wrong person in the main role", "switched places"):
+        assert clip_review._problem(words) == "role_swap", words
+    assert clip_review._problem("wrong look") == "wrong_look"
+    assert "role_swap" in clip_review.SYSTEM and "role_swap" in sp.HOLD_PROBLEMS
+    assert sp.held_problems({"ok": False, "problems": ["role_swap", "wrong_look"]}) == ["role_swap"]
+
+
+def test_who_holds_a_toy_is_unknown_in_the_rehearsal(monkeypatch):
+    monkeypatch.setenv("GHERAS_FAKE_PROVIDERS", "1")
+    assert asyncio.run(clip_review.toys_held(cartoon_picture(), ["the teddy"])) is None
+
+
+def test_who_holds_a_toy_reads_each_name(monkeypatch):
+    from services.ai import fal, text_client
+
+    monkeypatch.delenv("GHERAS_FAKE_PROVIDERS", raising=False)
+
+    async def on():
+        return True
+
+    async def upload(**k):
+        return "https://x/u.jpg"
+
+    async def vision(**k):
+        return 'Sure: {"held": {"The Teddy": false, "the kite": true, "ball": "maybe"}}'
+
+    monkeypatch.setattr(clip_review, "enabled", on)
+    monkeypatch.setattr(fal, "upload", upload)
+    monkeypatch.setattr(text_client, "generate_vision", vision)
+    held = asyncio.run(clip_review.toys_held(cartoon_picture(), ["the teddy", "the kite", "ball"]))
+    assert held == {"the teddy": False, "the kite": True}  # an unclear answer stays unknown

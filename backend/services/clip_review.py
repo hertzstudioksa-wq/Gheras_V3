@@ -31,8 +31,11 @@ logger = logging.getLogger("clip_review")
 
 REVIEW_MODEL = "anthropic/claude-haiku-5.5"
 CLIP_FRAMES = 4
-PROBLEMS = ("duplicate", "extra_person", "clipping", "vanishing", "text", "deformed", "wrong_look", "outfit_change",
-            "melting", "action_missing", "mood_mismatch", "noise", "object_alive")
+PROBLEMS = ("duplicate", "extra_person", "role_swap", "clipping", "vanishing", "text", "deformed", "wrong_look",
+            "outfit_change", "melting", "action_missing", "mood_mismatch", "noise", "object_alive")
+# A model's words for one cast member standing in another's place (checked before the
+# "wrong_..." prefix would read them as wrong_look).
+ROLE_WORDS = ("swap", "switched", "wrong_person", "wrong_character", "wrong_role", "role")
 # Other words models use for the same problems.
 SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": "outfit_change",
             "accessor": "outfit_change", "hat": "outfit_change", "cap": "outfit_change",
@@ -70,6 +73,9 @@ SYSTEM = (
     "- text: written words or letters anywhere, except printing on someone's clothes that their reference sheet "
     "shows too (a shirt from the family's photo)\n"
     "- deformed: a badly broken face or body\n"
+    "- role_swap: a cast member is in another one's place: the person `action` puts somewhere or gives something "
+    "to do (apart from the others, in front, holding or riding something) is a different cast member — tell them "
+    "apart by their reference sheets (hair, hat or helmet color, clothes)\n"
     "- wrong_look: someone is clearly a different person from their reference sheet (another hair color or length, "
     "skin tone, age, beard or glasses), or two different characters look like the same person (the same face and "
     "clothes twice); a cartoon redrawing, another expression or pose, or slightly different curls is fine\n"
@@ -91,7 +97,7 @@ SYSTEM = (
     "expected people is not a problem by itself: someone can be hidden in a hug, behind another person or at the "
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
-    '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed, wrong_look, '
+    '"problems": [zero or more of: duplicate, extra_person, role_swap, clipping, vanishing, text, deformed, wrong_look, '
     'outfit_change, melting, action_missing, mood_mismatch, object_alive], '
     '"note": "<one short English sentence>"}'
 )
@@ -105,6 +111,8 @@ async def enabled() -> bool:
 def _problem(raw) -> str | None:
     """The known problem a model's wording names ("duplicate person", "Clipping through railing"...)."""
     text = re.sub(r"[\s\-]+", "_", str(raw or "").strip().lower())
+    if any(w in text for w in ROLE_WORDS):
+        return "role_swap"
     return next((p for p in PROBLEMS if p in text or text.startswith(p.split("_")[0])), None) or \
         next((p for k, p in SYNONYMS.items() if k in text), None)
 
@@ -267,6 +275,38 @@ async def people_in(image: bytes) -> list[str] | None:
         if engine_health.is_balance_message(e):
             raise
         logger.warning(f"[review] head count skipped: {type(e).__name__}: {str(e)[:160]}")
+        return None
+
+
+# A doll nobody held walked away down the path in its clip: a toy nobody touches in
+# the start picture is frozen however much the clip moves it.
+HELD_SYSTEM = ("You look at one storybook picture and a list of toys in it. For each toy, say whether a person is "
+               "holding, hugging, carrying, riding or touching it with any part of their body. A toy only near "
+               'someone, or alone on a seat, the floor or a shelf, is not held. Reply with JSON only: '
+               '{"held": {"<toy as written>": true or false, ...}}')
+
+
+async def toys_held(image: bytes, names: list[str]) -> dict[str, bool] | None:
+    """name → whether someone touches that toy in the picture. None when the check can't run."""
+    from services.ai import fake_providers, fal
+    from services.ai.text_client import generate_vision
+
+    if not names or fake_providers.enabled() or not await enabled():
+        return None
+    try:
+        data, mime = await asyncio.to_thread(_shrink, image, 1024)
+        url = await fal.upload(env_key="FAL_KEY_TEXT", data=data, content_type=mime, file_name="toys-held.jpg")
+        answer = await generate_vision(stage="toy_freeze", model=REVIEW_MODEL, system=HELD_SYSTEM,
+                                       user=json.dumps({"toys": names}, ensure_ascii=False), image_urls=[url],
+                                       max_tokens=200)
+        start = (answer or "").find("{")
+        held = json.JSONDecoder().raw_decode(answer[start:])[0].get("held") if start >= 0 else None
+        if not isinstance(held, dict):
+            return None
+        lowered = {str(k).strip().lower(): v for k, v in held.items()}
+        return {n: lowered[n.strip().lower()] for n in names if isinstance(lowered.get(n.strip().lower()), bool)}
+    except Exception as e:  # noqa: BLE001 — unknown: the toy is frozen only when it barely moves
+        logger.warning(f"[review] held-toy check skipped: {type(e).__name__}: {str(e)[:160]}")
         return None
 
 

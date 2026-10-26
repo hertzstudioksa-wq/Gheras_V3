@@ -185,21 +185,54 @@ def test_actual_cost_uses_gpu_time():
     run(go())
 
 
-def test_a_flagged_comfy_keyframe_gets_three_takes_and_the_least_broken_is_kept(monkeypatch):
+def _takes(monkeypatch, verdicts):
+    from services import clip_review
+
+    verdicts = iter(verdicts + [{"ok": True, "problems": []}] * 10)
+
+    async def review(*a, **k):
+        return dict(next(verdicts))
+
+    monkeypatch.setattr(clip_review, "review_keyframe", review)
+
+
+def test_a_wrong_cast_is_redrawn_with_gpt_and_the_least_broken_is_kept(monkeypatch):
+    # owner: a picture with extra, repeated or swapped people goes to GPT from the second take
     async def go():
-        from services import clip_review
+        from services.order_costs import actual_cost
 
-        verdicts = iter([{"ok": False, "problems": ["duplicate"]}, {"ok": False, "problems": ["deformed"]},
-                         {"ok": False, "problems": ["text"]}] + [{"ok": True, "problems": []}] * 10)
-
-        async def review(*a, **k):
-            return dict(next(verdicts))
-
-        monkeypatch.setattr(clip_review, "review_keyframe", review)
+        _takes(monkeypatch, [{"ok": False, "problems": ["duplicate"]}, {"ok": False, "problems": ["role_swap"]},
+                             {"ok": False, "problems": ["text"]}])
         await _story("t")
         r = await _row("t", 1, 1)
-        assert r["paid_keyframes"] == 3 and r["keyframe_gpu_seconds"] == 60
-        assert r["keyframe_review"]["problems"] == ["text"] and r["keyframe_review"]["redrawn"]
+        assert r["paid_keyframes"] == 3 and r["paid_rescue_keyframes"] == 2 and r["keyframe_gpu_seconds"] == 20
+        assert r["keyframe_review"]["problems"] == ["text"] and r["keyframe_review"]["rescue"] == sp.RESCUE_ENGINE[1]
+        assert r["image_model"] == r["rescue_model"] == sp.RESCUE_ENGINE[1]
+        assert "(reference image 1)" in r["keyframe_prompt_used"] and r["keyframe_refs"][0].startswith("1) ")
+        cost = await actual_cost(await db.orders.find_one({"id": "t"}, {"_id": 0}))
+        gpt = next(i for i in cost["items"] if i["key"] == "keyframes" and i["note"] == sp.RESCUE_ENGINE[1])
+        assert gpt["quantity"] == 2  # the two GPT takes at GPT's price, the Qwen take as GPU time
+    run(go())
+
+
+def test_a_soft_flaw_gets_one_more_qwen_take_only(monkeypatch):
+    async def go():
+        _takes(monkeypatch, [{"ok": False, "problems": ["action_missing"]},
+                             {"ok": False, "problems": ["mood_mismatch", "action_missing"]}])
+        await _story("s")
+        r = await _row("s", 1, 1)
+        assert r["paid_keyframes"] == 2 and not r.get("paid_rescue_keyframes") and r["keyframe_gpu_seconds"] == 40
+        assert r["keyframe_review"]["problems"] == ["action_missing"] and r["image_model"].startswith("comfy/")
+    run(go())
+
+
+def test_a_soft_flaw_then_a_wrong_cast_ends_on_gpt(monkeypatch):
+    async def go():
+        _takes(monkeypatch, [{"ok": False, "problems": ["action_missing"]}, {"ok": False, "problems": ["extra_person"]}])
+        await _story("g")
+        r = await _row("g", 1, 1)
+        assert r["paid_keyframes"] == 3 and r["paid_rescue_keyframes"] == 1 and r["keyframe_review"]["ok"]
+        assert r["image_model"] == sp.RESCUE_ENGINE[1]
     run(go())
 
 

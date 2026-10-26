@@ -103,17 +103,22 @@ async def actual_cost(order: dict) -> dict:
                                                                 "clip_calm_redo": 1, "paid_keyframes": 1,
                                                                 "paid_clip_seconds": 1, "comfy_clip_seconds": 1,
                                                                 "comfy_clip_model": 1, "keyframe_gpu_seconds": 1,
-                                                                "clip_gpu_seconds": 1}):
+                                                                "clip_gpu_seconds": 1, "paid_rescue_keyframes": 1,
+                                                                "rescue_model": 1}):
         # Every attempt sent is paid: the review's redos and the admin's
         # single-shot redos too. Shots made before the counters existed fall back
         # to what was kept (twice when the review sent it back).
         kr, cr = s.get("keyframe_review") or {}, s.get("clip_review") or {}
         if s.get("keyframe_url") or s.get("paid_keyframes"):
             drawn = s.get("paid_keyframes") or (2 if kr.get("redrawn") else 1)
-            if str(s.get("image_model") or "").startswith("comfy/") and s.get("keyframe_gpu_seconds"):
-                comfy_keyframes[0] += drawn
+            # A Comfy shot's GPT rescue takes are GPT's price; the rest is GPU time.
+            rescued = int(s.get("paid_rescue_keyframes") or 0)
+            if rescued:
+                keyframes[s.get("rescue_model")] = keyframes.get(s.get("rescue_model"), 0) + rescued
+            if s.get("keyframe_gpu_seconds"):
+                comfy_keyframes[0] += drawn - rescued
                 comfy_keyframes[1] += float(s["keyframe_gpu_seconds"])
-            else:
+            elif not rescued:
                 keyframes[s.get("image_model")] = keyframes.get(s.get("image_model"), 0) + drawn
         if s.get("paid_clip_seconds") or (s.get("clip_url") and s.get("clip_seconds")):
             paid = s.get("paid_clip_seconds") or float(s["clip_seconds"]) * (2 if s.get("clip_calm_redo") else 1)
