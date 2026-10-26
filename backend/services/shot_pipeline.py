@@ -363,8 +363,18 @@ def story_objects(plan: dict, toy: dict | None = None) -> dict[str, dict]:
             continue
         if toy and toy_named_in(f"{o['name_en']} {o['look']}", toy):
             continue
-        out[o["key"]] = {"key": o["key"], "name": o["name_en"], "look": o["look"], "sheet_view": o.get("sheet_view") or ""}
+        out[o["key"]] = {"key": o["key"], "name": o["name_en"], "look": o["look"], "sheet_view": o.get("sheet_view") or "",
+                         "toy": bool(o.get("toy"))}
     return out
+
+
+# A plush drawn from a famous cartoon came out as the character itself: standing on
+# its own, glossy eyes with eyelids, and in the clip it blinked and cheered along.
+# A toy with a face is drawn and animated as a toy.
+TOY_NOTE = ("It is a toy, not a living character, even if it is shaped like a known cartoon character: its own "
+            "material shows (soft fabric with stitched seams, or molded plastic), its eyes are flat and stitched or "
+            "painted with no eyelids and no shine, its mouth is stitched shut, its limbs are soft and limp")
+TOY_POSE = "it never stands or poses by itself: it sits slumped, lies, or is held"
 
 
 def shot_objects(sh: dict, objects: dict[str, dict]) -> list[dict]:
@@ -376,7 +386,8 @@ def objects_line(objects: list[dict]) -> str:
     if not objects:
         return ""
     return ("OBJECTS (they look exactly the same in every picture of this story): "
-            + "; ".join(f"{o['name']}: {o['look'].rstrip('.')}" for o in objects) + f" — {OBJECTS_NOTE}.")
+            + "; ".join(f"{o['name']}: {o['look'].rstrip('.')}" + (f" ({TOY_NOTE}; {TOY_POSE})" if o.get("toy") else "")
+                        for o in objects) + f" — {OBJECTS_NOTE}.")
 
 
 def object_sheet_prompt(obj: dict) -> str:
@@ -389,6 +400,7 @@ def object_sheet_prompt(obj: dict) -> str:
         f"SUBJECT, as a clear reference picture: {obj['sheet_view'].rstrip('.')}. Look: {obj['look'].rstrip('.')}."
         if obj.get("sheet_view") else
         f"SUBJECT: {obj['name']} alone, as a clear reference picture: {obj['look'].rstrip('.')}.",
+        f"{TOY_NOTE}. It sits slumped on the floor, lifeless." if obj.get("toy") else "",
         "Centered, whole and large in the frame on a plain soft cream background with a light shadow under it. "
         "No people, no hands, nothing else.",
         COMFY_STYLE,
@@ -478,7 +490,7 @@ def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, prev
     named = toy_named_in(sh.get("keyframe_prompt") or "", toy, scene.get("key_objects")) if toy else None
     if named:
         refs.append(_toy_ref(toy, named))
-    refs += [{"kind": "object", "key": o["key"], "name": o["name"]} for o in objects or []]
+    refs += [{"kind": "object", "key": o["key"], "name": o["name"], "toy": bool(o.get("toy"))} for o in objects or []]
     if previous and not sh.get("characters"):
         refs.append({"kind": f"prev_{previous}"})
     if not refs and sheets:
@@ -511,7 +523,8 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
         elif kind == "object":
             # A plush's red shoes ended up on the friend's feet: the object's look is its own.
             parts.append(f"{tag} shows only {r['name']}: copy its material, shape and colors exactly, {OBJECTS_NOTE}; "
-                         "its colors and parts belong to it alone, people keep their own clothes and shoes")
+                         "its colors and parts belong to it alone, people keep their own clothes and shoes"
+                         + (f"; it is a lifeless toy: {TOY_POSE}" if r.get("toy") else ""))
         elif kind == "prev_shot":
             parts.append(f"{tag} is the previous shot of this scene: keep the same place, furniture and lighting, "
                          "and take the people from their own references")
@@ -622,18 +635,22 @@ WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and o
 
 # A plush with a face is a character to a video model: a cartoon-hero plush raised its
 # arms and opened its mouth when the boys cheered.
-def lifeless(objects: list[str] | None) -> str:
+def lifeless(objects: list[str] | None, toys: list[str] | None = None) -> str:
+    toy_text = " ".join(f"{t[:1].upper()}{t[1:]} is a toy with flat stitched or painted eyes: it never blinks and its face never "
+                        "changes." for t in dict.fromkeys(toys or []))
     if not objects:
-        return ""
+        return toy_text
     names = list(dict.fromkeys(objects))
     text = " and ".join(names)
     one = len(names) == 1
-    return (f"{text[:1].upper()}{text[1:]} {'is a lifeless object' if one else 'are lifeless objects'}: never moving, "
-            f"waving, blinking or opening a mouth by {'itself' if one else 'themselves'}, only moved by a hand.")
+    return " ".join(p for p in [
+        f"{text[:1].upper()}{text[1:]} {'is a lifeless object' if one else 'are lifeless objects'}: never moving, "
+        f"waving, blinking or opening a mouth by {'itself' if one else 'themselves'}, only moved by a hand.",
+        toy_text] if p)
 
 
 def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfit: bool = False,
-                      objects: list[str] | None = None) -> str:
+                      objects: list[str] | None = None, toys: list[str] | None = None) -> str:
     who = "Nobody is in the frame." if not people else (
         f"Exactly {people} {'person' if people == 1 else 'people'}, all already in the frame; nobody appears, leaves "
         "or is duplicated, bodies stay solid, and nobody turns to look at the camera.")
@@ -641,7 +658,7 @@ def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfi
     # still cheered along when the line came after the stillness guards.
     return " ".join(p for p in [
         motion or "A small natural movement of the main character.",
-        lifeless(objects),
+        lifeless(objects, toys),
         CALM_NOTE if calm else "",
         OUTFIT_REDO_NOTE if outfit else "",
         WAN_STILL,
@@ -651,12 +668,12 @@ def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfi
 
 
 def motion_prompt(motion: str | None, mapping: list[str], style: dict, cast: list[str] | None = None,
-                  objects: list[str] | None = None) -> str:
+                  objects: list[str] | None = None, toys: list[str] | None = None) -> str:
     return " ".join(p for p in [
         motion or "Gentle natural character motion and a slow camera push-in.",
         ("Characters: " + "; ".join(mapping) + ".") if mapping else "",
         cast_lock(cast or []),
-        lifeless(objects),
+        lifeless(objects, toys),
         "Nobody turns to look at the camera." if cast else "",
         PHYSICS,
         style["motion_text"],
@@ -867,6 +884,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             "keyframe_refs": describe_refs(comfy_refs, sheets) if on_comfy else None,
             "keyframe_seed": meta.get("seed"),
             "objects": [o["name"] for o in in_shot],
+            "toys": [o["name"] for o in in_shot if o.get("toy")],
         })
         prev = (img, mime)
         hero_url = hero_url or url
@@ -1079,7 +1097,7 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
             elements.append({"frontal_image_url": sheet_urls[t], "reference_image_urls": [sheet_urls[t]]})
             mapping.append(f"{sheets[t]['label']} is @Element{len(elements)}")
     cast = cast_labels(row.get("characters") or [], sheets)
-    prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast, row.get("objects"))
+    prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast, row.get("objects"), row.get("toys"))
     if calm:
         prompt = f"{CALM_NOTE} {prompt}"
     if outfit:
@@ -1113,7 +1131,7 @@ async def _comfy_clip_fills(row: dict, model: str, sheets: dict, tail: float, st
         uploads[row["keyframe_url"]] = await comfy.upload(
             img[0], f"shot{row['scene_index']}-{row['shot_index']}.png", stage="video_generation")
     prompt = wan_motion_prompt(row.get("motion_prompt"), len(set(row.get("characters") or [])), calm, outfit,
-                               row.get("objects"))
+                               row.get("objects"), row.get("toys"))
     return {
         "start_image": uploads[row["keyframe_url"]],
         "motion_prompt": prompt[:2400],

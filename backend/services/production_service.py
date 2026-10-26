@@ -65,7 +65,8 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
       "key": "short_english_key (e.g. tower)",
       "name_en": "English name as the shots say it (e.g. the block tower)",
       "look": "English: what never changes — material, shape of its parts, exact colors, any special mark (e.g. smooth wooden cube blocks in red, blue, yellow and green, no studs, no arches). No size, no arrangement, no state.",
-      "sheet_view": "English: how its reference picture shows it alone; an object that changes in the story shows its parts loose and apart (e.g. four loose blocks lying apart on the floor, not stacked)"
+      "sheet_view": "English: how its reference picture shows it alone; an object that changes in the story shows its parts loose and apart (e.g. four loose blocks lying apart on the floor, not stacked)",
+      "toy": "true for a toy with a face or a body (plush, doll, action figure, toy animal), else false"
     }
   ],
   "scenes": [
@@ -141,6 +142,7 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - لا تطلب أي كلام مكتوب في keyframe_prompt أو motion_prompt (أسماء أماكن، كلمات على خريطة، لافتات، عناوين، أرقام): الموديلات بتكتبها غلط. الخريطة أو اللافتة تبان برسومات بس (جزيرة، بركان، شجر، علامة X).
 - keyframe_prompt: يصف أول إطار فقط، في لحظة narration_line نفسها، والمشاعر ظاهرة على الوجوه (دموع، دهشة، فرح): أول إطار هو اللي بيحدد شكل الشخصية طول اللقطة. كل شخصية تظهر فيه يجب أن تكون في characters للقطة. لا تصف ملابس الشخصيات التي clothing_style لها "same as in the photo" (ملابسها تأتي من صورتها المرجعية).
 - story_objects: الأغراض التي لها دور في القصة وتظهر في لقطتين أو أكثر (برج مكعبات، طائرة ورقية، كرة، كعكة، صندوق...) — 3 بحد أقصى. لعبة الطفل التي رفع الأهل صورتها ليست منها (لها صورتها)؛ أما اللعبة أو الشخصية المفضّلة بدون صورة فتدخل لو ظهرت في لقطتين أو أكثر. كل لقطة تُرسم وحدها، فالغرض الذي ليس له شكل ثابت مكتوب يتغيّر شكله من لقطة لأخرى. look: ما لا يتغيّر أبداً بتفاصيل محددة (الخامة، شكل الأجزاء، الألوان بالضبط، أي علامة مميزة)، بدون حجم ولا ترتيب ولا حالة. sheet_view: كيف يُرسم في صورته المرجعية وحده؛ لو الغرض يتغيّر في القصة (برج يُبنى ثم يقع، كعكة تُقطع) ارسم أجزاءه سائبة ومتفرقة فقط (بضع قطع على الأرض غير مركّبة)، لا أي شكل مركّب: الصورة تنسخ الترتيب الذي تراه في المرجع.
+- اللعبة التي لها وجه أو جسم (دبدوب، عروسة، فيجر، حيوان لعبة) toy = true، لأن موديل الفيديو يحرّك أي وجه كأنه حي (يرمش ويتفاعل): look يقول بوضوح إنها لعبة — خامتها ظاهرة (قماش بفرو وخياطة ظاهرة، أو بلاستيك مصبوب)، عيون مسطّحة مطرّزة أو مرسومة بلا جفون ولا لمعة، فم مطرّز ثابت، أطراف طرية مرتخية. حتى لو كانت على شكل شخصية كرتون مشهورة: هي دمية منها، لا الشخصية نفسها. في keyframe_prompt لا تقف وحدها أبداً ولا تتخذ وضعية: جالسة مرتخية أو نائمة أو في يد أو حضن أحد.
 - objects في كل لقطة: keys الأغراض من story_objects التي تظهر فيها.
 - الأحجام بالجسم: كلما ذكر keyframe_prompt غرضاً من story_objects اكتب حجمه بالنسبة لجسم شخصية في نفس اللقطة (حتى ركبة / وسط / كتف / ذقن / فوق رأس فلان وهو واقف أو جالس أو راكع)، لا "كبير" ولا "أطول منهم". لو القصة تقارن (أكبر، أطول، أكثر من الأول): الحجم الجديد أكبر بوضوح بنفس المقياس الذي كُتب به الأول، ورتّب اللقطة ليظهر الفرق (الشخصيات واقفة بجانبه لا جالسة).
 - النظرة: keyframe_prompt يحدد لكل شخصية إلى من أو إلى ماذا تنظر (إلى بعضهم، إلى الغرض، إلى الطفل). لا أحد ينظر إلى الكاميرا: الصور المرجعية مرسومة تنظر للأمام، ومن لم تُكتب نظرته ينظر للمشاهد.
@@ -601,7 +603,8 @@ def _normalise_objects(raw) -> list[dict]:
         key, name, look = _object_key(o.get("key") or o.get("name_en")), str(o.get("name_en") or "").strip(),             str(o.get("look") or "").strip()
         if key and name and look and key not in {x["key"] for x in objects}:
             objects.append({"key": key, "name_en": name[:80], "look": look[:400],
-                            "sheet_view": str(o.get("sheet_view") or "").strip()[:300]})
+                            "sheet_view": str(o.get("sheet_view") or "").strip()[:300],
+                            "toy": o.get("toy") is True or str(o.get("toy")).strip().lower() == "true"})
     return objects[:MAX_STORY_OBJECTS]
 
 

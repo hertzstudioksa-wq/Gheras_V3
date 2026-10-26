@@ -38,7 +38,7 @@ def test_the_plan_keeps_its_objects_and_each_shot_names_only_known_ones():
                    {"narration_line": "b", "characters": ["child"]}]}]}
     docs = ps.build_docs({"id": "o", "data": {}}, payload, "run", "ai")
     assert docs["plan"]["story_objects"] == [{"key": "red_kite", "name_en": "the red kite", "look": "red diamond kite",
-                                              "sheet_view": ""}]
+                                              "sheet_view": "", "toy": False}]
     assert [sh["objects"] for sh in docs["scenes"][0]["shots"]] == [["red_kite"], []]
 
 
@@ -145,3 +145,26 @@ def test_sheets_keep_the_clothes_and_colours_but_not_the_print():
         assert house_style.NO_PRINT in rule
     assert "same colors" in house_style.NO_PRINT and "logos" in house_style.NO_PRINT
     assert house_style.NO_PRINT in house_style.character_sheet_prompt("the person in the photo")
+
+
+TEDDY = {"key": "teddy", "name_en": "the brown teddy", "look": "a brown plush bear with a red bow", "toy": True}
+
+
+def test_a_toy_with_a_face_is_drawn_and_animated_as_a_toy():
+    # a plush shaped like a famous cartoon came out as the character: standing, glossy eyes, blinking
+    payload = {"production_plan": {}, "characters": [{"type": "child"}],
+               "story_objects": [{"key": "teddy", "name_en": "the teddy", "look": "brown plush", "toy": "true"},
+                                 {"key": "kite", "name_en": "the kite", "look": "red kite", "toy": False}],
+               "scenes": [{"scene_index": 1, "shots": [{"narration_line": "a", "objects": ["teddy", "kite"]}]}]}
+    assert [o["toy"] for o in ps.build_docs({"id": "o", "data": {}}, payload, "r", "ai")["plan"]["story_objects"]] == \
+        [True, False]
+    objects = sp.story_objects({"story_objects": [TEDDY, KITE]})
+    assert objects["teddy"]["toy"] and not objects["kite"]["toy"]
+    assert sp.TOY_NOTE in sp.objects_line([objects["teddy"]]) and sp.TOY_NOTE not in sp.objects_line([objects["kite"]])
+    assert sp.TOY_NOTE in sp.object_sheet_prompt(objects["teddy"]) and sp.TOY_NOTE not in sp.object_sheet_prompt(objects["kite"])
+    refs = sp.comfy_references(shot(["child"], ["teddy"]), SCENE, SHEETS, None, None, [objects["teddy"]])
+    assert sp.TOY_POSE in sp.comfy_identity(refs, PROFILES, SHEETS)
+    text = sp.wan_motion_prompt("Lina cheers.", 1, objects=["the brown teddy"], toys=["the brown teddy"])
+    assert "The brown teddy is a toy with flat stitched or painted eyes: it never blinks" in text
+    for words in ("toy = true", "لا تقف وحدها أبداً", "دمية منها، لا الشخصية نفسها"):
+        assert words in ps.SYSTEM_MSG

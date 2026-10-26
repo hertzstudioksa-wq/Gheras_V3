@@ -473,11 +473,11 @@ async def prompt_preview(order_id: str):
                         "keyframe_prompt_used": row.get("keyframe_prompt_used"),
                         "motion_prompt": shot_pipeline.wan_motion_prompt(
                             sh.get("motion_prompt"), len(set(sh.get("characters") or [])),
-                            objects=[o["name"] for o in in_shot])
+                            objects=[o["name"] for o in in_shot], toys=[o["name"] for o in in_shot if o.get("toy")])
                         if provider == "comfy_video" else shot_pipeline.motion_prompt(
                             sh.get("motion_prompt"), mapping, style,
                             shot_pipeline.cast_labels(sh.get("characters") or [], sheets),
-                            [o["name"] for o in in_shot]),
+                            [o["name"] for o in in_shot], [o["name"] for o in in_shot if o.get("toy")]),
                         "motion_prompt_used": row.get("clip_prompt_used"),
                         # Wan on Comfy runs at CFG 1: a negative prompt does nothing there.
                         "negative_prompt": None if provider == "comfy_video" else shot_pipeline.clip_negative(style),
