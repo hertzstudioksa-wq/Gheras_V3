@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import clip_review, engine_config, house_style
+from services import clip_review, engine_config, house_style, toy_freeze
 from services.ai import AIConfigError, AIError, AIPermanentError, comfy, fal
 from services.ai.image_client import WIDE, comfy_image, comfy_workflow
 from services.child_character_service import _fetch_source_bytes
@@ -1268,8 +1268,13 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 request_id = prompt_id = None  # used: a redo is a new request
                 made = True
                 refs, first = await review_refs(row)
+                # Wan makes a doll blink and nod whatever the prompt says: still toys
+                # keep their first-frame pixels (services/toy_freeze.py).
+                data, toy_info = await toy_freeze.freeze_toys(data, first[0] if first else None, row.get("toys"))
                 review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
                                                        row.get("motion_prompt") or "", refs, first, row.get("objects"))
+                if toy_info is not None:
+                    review = {**review, "toy_freeze": toy_info}
                 if not passes(review) and wan and not passes(row.get("keyframe_review")):
                     # The start frame itself was still flagged after its redraw: another
                     # Wan take animates the same picture, so none is paid for. The admin

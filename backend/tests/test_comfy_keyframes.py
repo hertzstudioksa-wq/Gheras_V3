@@ -147,7 +147,22 @@ def test_no_style_preset_or_face_words():
 
 # Words from earlier test stories must never be baked into the code.
 STORY_WORDS = ("horse", "saddle", "bridle", "sonic", "hedgehog", "police", "policeman", "yaman", "amr", "israa",
-               "costa rica", "beach", "sunset")
+               "costa rica", "beach", "sunset", "yazan", "esraa", "york")  # Lina and Bunbun are this file's own test data
+# Names from the test families and stories, in either language.
+STORY_NAMES = ("sonic", "سونيك", "yaman", "يمان", "yazan", "يزن", "israa", "esraa", "إسراء", "york", "lina", "لينا",
+               "bunbun", "بونبون", "costa", "كوستاريكا")
+
+
+def test_no_story_names_in_the_planning_rules_or_the_new_modules():
+    from services import clip_review, production_service, tashkeel_service, toy_freeze
+
+    texts = {"planning rules": production_service.SYSTEM_MSG, "review": clip_review.SYSTEM,
+             "tashkeel": tashkeel_service.SYSTEM, "toy_freeze": Path(toy_freeze.__file__).read_text(encoding="utf-8")}
+    for where, text in texts.items():
+        for w in STORY_NAMES:
+            assert not re.search(rf"(?<!\w){re.escape(w)}(?!\w)", text.lower()), (where, w)
+    # the format examples of story_objects aren't the test story's tower
+    assert "tower" not in production_service.SYSTEM_MSG.split('"story_objects": [')[1].split("]")[0].lower()
 
 
 def test_no_story_words_in_the_comfy_code_or_prompts():

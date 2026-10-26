@@ -62,10 +62,10 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
   ],
   "story_objects": [
     {
-      "key": "short_english_key (e.g. tower)",
-      "name_en": "English name as the shots say it (e.g. the block tower)",
-      "look": "English: what never changes — material, shape of its parts, exact colors, any special mark (e.g. smooth wooden cube blocks in red, blue, yellow and green, no studs, no arches). No size, no arrangement, no state.",
-      "sheet_view": "English: how its reference picture shows it alone; an object that changes in the story shows its parts loose and apart (e.g. four loose blocks lying apart on the floor, not stacked)",
+      "key": "short_english_key (e.g. kite)",
+      "name_en": "English name as the shots say it (e.g. the red kite)",
+      "look": "English: what never changes — material, shape of its parts, exact colors, any special mark (e.g. a red diamond-shaped paper kite on thin wooden sticks with a long yellow tail of ribbon bows). No size, no arrangement, no state.",
+      "sheet_view": "English: how its reference picture shows it alone (e.g. the kite lying flat on the floor, its tail curled beside it); an object that changes in the story shows its parts loose and apart, not assembled",
       "toy": "true for a toy with a face or a body (plush, doll, action figure, toy animal) — a famous character's toy keeps its famous design — else false"
     }
   ],
