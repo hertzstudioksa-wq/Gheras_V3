@@ -178,3 +178,15 @@ def test_a_verdict_reads_the_first_json_object_only():
     two = '{"ok": false, "problems": ["duplicate"], "note": "twice"}\n\n{"ok": true, "problems": []}'
     assert clip_review._verdict(two)["problems"] == ["duplicate"]
     assert clip_review._verdict('Sure: {"ok": true, "problems": [], "note": "a {brace} inside"}')["ok"]
+
+
+def test_a_thin_object_on_a_blank_page_is_not_static():
+    # a scooter reference: a few thin colourful parts on a cream page
+    img = Image.new("RGB", (1536, 864), (250, 243, 228))
+    d = ImageDraw.Draw(img)
+    d.rectangle((700, 150, 712, 650), fill=(240, 240, 240))
+    d.rectangle((640, 140, 780, 160), fill=(220, 40, 40))
+    d.rectangle((560, 640, 900, 660), fill=(70, 160, 230))
+    for x in (580, 620, 860):
+        d.ellipse((x - 20, 660, x + 20, 700), fill=(30, 30, 30))
+    assert clip_review.static_verdict([_png(img)]) is None

@@ -55,6 +55,9 @@ REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and co
 STATIC_SPREAD = 0.10
 STATIC_SATURATED = 0.70
 STATIC_CLUSTERED = 0.42
+# Static fills the page with colour (29-46% of the blocks); a thin object on a
+# blank reference page (a scooter: 4-5%) is not static, however scattered.
+STATIC_MIN_SATURATED = 0.2
 
 SYSTEM = (
     "You check frames of a 2D cartoon shot from a children's story before a family sees it. You get the people who "
@@ -153,7 +156,7 @@ def static_verdict(images: list[bytes]) -> dict | None:
             spread, saturated, clustered = static_measure(data)
         except Exception:  # noqa: BLE001 — an unreadable image is the model check's business
             continue
-        if spread > STATIC_SPREAD and saturated < STATIC_SATURATED and clustered < STATIC_CLUSTERED:
+        if spread > STATIC_SPREAD and STATIC_MIN_SATURATED <= saturated < STATIC_SATURATED and clustered < STATIC_CLUSTERED:
             logger.warning(f"[review] coloured static: spread {spread:.3f}, saturated {saturated:.2f}, "
                            f"clustered {clustered:.2f}")
             return {"ok": False, "problems": ["noise"], "people_seen": None,

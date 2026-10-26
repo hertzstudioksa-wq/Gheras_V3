@@ -19,6 +19,7 @@ video_assembly_service.assemble_shot_video.
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import os
 import re
@@ -393,11 +394,29 @@ def objects_line(objects: list[dict]) -> str:
                         for o in objects) + f" — {OBJECTS_NOTE}.")
 
 
+def story_order(scene: dict, shot: dict) -> str:
+    """Where a shot sits in the story, as a queue key that sorts in story order."""
+    return f"{int(scene.get('scene_index') or 0):03d}.{int(shot.get('shot_index') or 0):03d}"
+
+
+# The Qwen workflow needs an input picture. A cast sheet as the style sample put the
+# child on the scooter in three references running: a blank page carries no one.
+OBJECT_STYLE = ("STYLE: a 2D cartoon children's storybook illustration with clean confident outlines, soft painterly "
+                "shading, a gentle visible brush texture and warm saturated colors.")
+
+
+def blank_canvas() -> bytes:
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (1536, 864), (250, 243, 228)).save(out, "PNG")
+    return out.getvalue()
+
+
 def object_sheet_prompt(obj: dict) -> str:
-    """A story object alone, drawn once as its reference (<image1> = a cast sheet for the style)."""
+    """A story object alone, drawn once as its reference (<image1> = a blank page)."""
     return "\n".join(p for p in [
-        "Create a brand-new 16:9 children's storybook illustration (a new picture, not an edit of <image1>).",
-        "<image1> shows the art style only: the character in it is not in this picture.",
+        "Create a brand-new 16:9 children's storybook illustration on <image1>, which is an empty page.",
         # The name leads to the finished thing ("the block tower" got a tower drawn
         # over "loose cubes"), so the reference view, when given, comes alone.
         f"SUBJECT, as a clear reference picture: {obj['sheet_view'].rstrip('.')}. Look: {obj['look'].rstrip('.')}."
@@ -406,7 +425,7 @@ def object_sheet_prompt(obj: dict) -> str:
         f"{TOY_NOTE}. It sits upright on the floor like a stuffed toy, facing forward." if obj.get("toy") else "",
         "Centered, whole and large in the frame on a plain soft cream background with a light shadow under it. "
         "No people, no hands, nothing else.",
-        COMFY_STYLE,
+        OBJECT_STYLE,
         NO_TEXT,
     ] if p)
 
@@ -434,14 +453,12 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
     lock = _object_locks.setdefault(plan["id"], asyncio.Lock())
     async with lock:
         drawn = await load_object_sheets(order, plan)
-        todo = [objects[k] for k in sorted(used) if k in objects and k not in drawn]
+        failed = {s["key"] async for s in db.object_sheets.find(
+            {"order_id": order["id"], "production_plan_id": plan["id"], "failed": True}, {"_id": 0, "key": 1})}
+        todo = [objects[k] for k in sorted(used) if k in objects and k not in drawn and k not in failed]
         if not todo:
             return drawn
-        sheets = await load_character_sheets(order, plan)
-        style_type = by_likeness(sorted(sheets), sheets)[0] if sheets else None
-        style_ref = await _fetch_source_bytes(sheets[style_type]["url"]) if style_type else None
-        if not style_ref:
-            return drawn
+        canvas = blank_canvas()
         _provider, model = await keyframe_engine()
         from services.clip_review import shows_person, static_verdict
 
@@ -452,7 +469,7 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
                 # sample's child on the scooter: a person here would be drawn twice.
                 for _take in range(3):
                     img, mime, meta = await comfy_image(stage="scene_image_generation", model=model, prompt=prompt,
-                                                        references=[style_ref[0]])
+                                                        references=[canvas], queue_key="000")
                     gpu += meta.get("gpu_seconds") or 0
                     if not await asyncio.to_thread(static_verdict, [img]) and not await shows_person(img):
                         break
@@ -466,7 +483,7 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
                     await db.object_sheets.insert_one({
                         "id": str(uuid.uuid4()), "order_id": order["id"], "production_plan_id": plan["id"],
                         "key": obj["key"], "name": obj["name"], "image_url": None, "model": model,
-                        "gpu_seconds": gpu, "created_at": _now()})
+                        "gpu_seconds": gpu, "failed": True, "created_at": _now()})
                 return
             url = await _store(order, "object-sheet", img, mime, "png")
             await db.object_sheets.insert_one({
@@ -835,7 +852,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                     img, mime, meta = await comfy_image(
                         stage="scene_image_generation", model=comfy_model, prompt=text,
                         references=[r["image_bytes"] for r in refs], upload_cache=uploads,
-                        prompt_id=resume_id, on_submitted=submitted)
+                        prompt_id=resume_id, on_submitted=submitted, queue_key=story_order(scene, sh))
                 except Exception as e:
                     if getattr(e, "gpu_seconds", None):  # a failed job's GPU time is billed too
                         await db.shot_assets.update_one(
@@ -1248,7 +1265,8 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
 
                     data, _mime, job = await comfy.run(
                         stage="video_generation", workflow=comfy_workflow(engine_model), fills=fills,
-                        on_submitted=submitted, prompt_id=prompt_id, timeout=1200.0, poll_interval=5.0)
+                        on_submitted=submitted, prompt_id=prompt_id, timeout=1200.0, poll_interval=5.0,
+                        queue_key=story_order(row, row))
                     gpu = comfy.gpu_seconds(job)
                     # A job resumed after its review paused the order (empty balance) was counted then.
                     if gpu and not (prompt_id and row.get("clip_counted_id") == job.get("prompt_id")):

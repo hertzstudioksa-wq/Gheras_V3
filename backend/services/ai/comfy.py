@@ -463,7 +463,7 @@ async def download(filename: str, subfolder: str = "", *, kind: str = "output", 
 
 
 async def run(*, stage: str, workflow: str, fills: dict, refs: list[str] | None = None,
-              on_submitted=None, prompt_id: str | None = None,
+              on_submitted=None, prompt_id: str | None = None, queue_key: str = "",
               timeout: float = 900.0, poll_interval: float = 3.0) -> tuple[bytes, str, dict]:
     """Submit (or resume `prompt_id`), wait and download the first output file.
     `on_submitted(prompt_id)` runs before the wait, so the caller can save the id
@@ -472,8 +472,10 @@ async def run(*, stage: str, workflow: str, fills: dict, refs: list[str] | None 
     # Within an order, keyframes go before clips: a keyframe takes ~20 s against a
     # clip's ~110 s, and the scene pictures (the parent's previews, every clip's
     # start frame) waited behind clips for half an hour in the first real story.
+    # `queue_key` (scene.shot) then serves them in story order: the parent watched
+    # scene 4's picture arrive before scene 1's.
     rank = "1" if workflow.startswith("clip") else "0"
-    async with _gate.slot(f"{await order_priority(fake_providers.CURRENT_ORDER.get())}|{rank}"):
+    async with _gate.slot(f"{await order_priority(fake_providers.CURRENT_ORDER.get())}|{rank}|{queue_key}"):
         if not prompt_id:
             prompt_id = await submit(stage=stage, workflow=workflow, fills=fills, refs=refs)
             if on_submitted:

@@ -91,7 +91,7 @@ def test_the_object_reference_is_the_object_alone():
     assert ("SUBJECT, as a clear reference picture: flat on the ground with its tail curled beside it. Look: a red "
             "diamond kite") in prompt and "the red kite" not in prompt
     assert "SUBJECT: the red kite alone" in sp.object_sheet_prompt({**sp.story_objects(PLAN)["kite"], "sheet_view": ""})
-    assert "No people, no hands" in prompt and "<image1> shows the art style only" in prompt and sp.NO_TEXT in prompt
+    assert "No people, no hands" in prompt and "<image1>, which is an empty page" in prompt and sp.NO_TEXT in prompt
 
 
 def test_clips_keep_everyone_off_the_camera():
@@ -199,3 +199,15 @@ def test_a_worn_thing_named_only_in_the_features_goes_on_the_sheet():
 
     rule = house_style.outfit_rule(ps.worn_in_outfit("same as in the photo", ["yellow kids' bike helmet"]))
     assert "yellow kids' bike helmet" in rule
+
+
+def test_shots_queue_in_story_order_and_references_start_from_a_blank_page():
+    # scene 4's picture arrived before scene 1's; a cast sheet as the style sample put the child on the scooter
+    keys = [sp.story_order({"scene_index": s}, {"shot_index": i}) for s, i in ((4, 1), (1, 2), (1, 1), (10, 1))]
+    assert sorted(keys) == ["001.001", "001.002", "004.001", "010.001"]
+    from PIL import Image
+    import io as _io
+
+    page = Image.open(_io.BytesIO(sp.blank_canvas()))
+    assert page.size == (1536, 864) and len(set(page.getdata())) == 1
+    assert "sheet" not in sp.object_sheet_prompt(sp.story_objects(PLAN)["kite"]).lower()

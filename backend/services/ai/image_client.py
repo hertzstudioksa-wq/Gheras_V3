@@ -187,7 +187,7 @@ def comfy_workflow(model: str) -> str:
 
 async def comfy_image(*, stage: str, model: str, prompt: str, references: Optional[list[bytes]] = None,
                       size: str = WIDE, upload_cache: Optional[dict] = None, prompt_id: Optional[str] = None,
-                      on_submitted=None, seed: Optional[int] = None) -> tuple[bytes, str, dict]:
+                      on_submitted=None, seed: Optional[int] = None, queue_key: str = "") -> tuple[bytes, str, dict]:
     """A keyframe on Comfy Cloud. Each reference is its own <imageN>, in order.
     `upload_cache` (sha1 -> uploaded name) saves re-sending the same sheet for
     every shot; `prompt_id` resumes a job submitted before a restart."""
@@ -209,7 +209,7 @@ async def comfy_image(*, stage: str, model: str, prompt: str, references: Option
     data, mime, job = await comfy.run(stage=stage, workflow=comfy_workflow(model),
                                       fills={"scene_prompt": prompt, "seed": seed, "output_prefix": f"gheras/{stage}"},
                                       refs=names, on_submitted=on_submitted, prompt_id=prompt_id,
-                                      timeout=600.0, poll_interval=3.0)
+                                      queue_key=queue_key, timeout=600.0, poll_interval=3.0)
     gpu = comfy.gpu_seconds(job)
     logger.info(f"[ai.image] stage={stage} model={model} refs={len(names)} bytes={len(data)} gpu_s={gpu} "
                 f"prompt_id={job['prompt_id']}")
