@@ -117,10 +117,24 @@ def test_template_order_and_numbering():
     assert "<image4> shows only the child's Bunbun" in lines[1]
     assert "previous shot" not in lines[1]
     assert numbering(text) == list(range(1, len(refs) + 1)) == [1, 2, 3, 4]
-    assert lines[2] == sp.COMFY_COPY and lines[3] == sp.COMFY_ONCE
-    assert lines[4].startswith("SCENE: a medium shot, with the characters large in the frame. Lina hugs Bunbun")
+    assert lines[2] == sp.COMFY_COPY
+    assert lines[3].startswith("The picture shows exactly 3 characters (Lina, Omar and the child's dog): each appears "
+                               "exactly once and nobody else is in it")
+    assert lines[4].startswith("SCENE: a medium shot, with the characters large in the frame. Lina (<image1>) hugs Bunbun")
     assert "Setting: a small garden behind the house." in lines[4]
     assert lines[-3:] == [sp.COMFY_STYLE, sp.COMFY_FRAME, sp.NO_TEXT]
+
+
+def test_scene_names_point_at_their_reference():
+    # One character apart from the others got a new, fourth child: the tag ties them to their sheet.
+    text, _ = build(["child", "father"], "Omar's hat is on the bench. Lina plays with the ball while Omar stands "
+                                         "alone by the gate, and Lina laughs.", toy=None, previous=None)
+    scene = next(line for line in text.splitlines() if line.startswith("SCENE"))
+    assert "Omar's hat" in scene and "Omar (<image2>) stands alone" in scene  # the owner's 's stays as written
+    assert "Lina (<image1>) plays" in scene and scene.count("<image1>") == 1  # first mention only
+    assert "exactly 2 characters (Lina and Omar)" in text
+    solo, _ = build(["dog"], "The dog sleeps.", toy=None, previous=None)
+    assert "exactly one character (the child's dog)" in solo and "(<image" not in solo.split("SCENE")[1]
 
 
 def test_cast_without_a_sheet_is_described():
@@ -132,7 +146,7 @@ def test_cast_without_a_sheet_is_described():
 
 def test_nobody_in_the_shot():
     text, refs = build([], "Wide view of the empty garden at dawn.", toy=None, previous=None)
-    assert sp.COMFY_NOBODY in text and sp.COMFY_ONCE not in text and sp.COMFY_COPY not in text
+    assert sp.COMFY_NOBODY in text and "exactly" not in text.split("SCENE")[0] and sp.COMFY_COPY not in text
     assert "with the main subject large in the frame" in text
     assert "<image1> shows the art style only" in text
 

@@ -566,6 +566,37 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
     return "IDENTITY (most important): " + ", ".join(parts) + "." if parts else ""
 
 
+def _name(profile: dict, child_name: str) -> str | None:
+    """A cast member's own name as the plan's English prompts write it (None for "the dog")."""
+    if house_style.base_type(profile.get("type") or "") == "child":
+        return profile.get("name_en") or child_name or None
+    return profile.get("name_en") or profile.get("name") or None
+
+
+def comfy_once(cast: list[str], profiles: dict, child_name: str) -> str:
+    """The head count in words. With one friend standing apart, the sheets were lined up
+    side by side and a fourth child was drawn for the one apart (twice in a row)."""
+    names = [_name(profiles.get(t) or {"type": t}, child_name) or f"the child's {house_style.base_type(t)}"
+             for t in cast]
+    who = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    count = f"exactly one character ({who})" if len(names) == 1 else f"exactly {len(names)} characters ({who})"
+    return (f"The picture shows {count}: each appears exactly once and nobody else is in it, no extra children "
+            "or adults even in the background.")
+
+
+def tag_cast(text: str, refs: list[dict], profiles: dict, child_name: str) -> str:
+    """Each named character's first mention in the SCENE points at their reference
+    (a name -> "<name> (<image1>)"): Qwen ties an action to a picture by its tag, not by a
+    name it only met in the IDENTITY line."""
+    for n, r in enumerate(refs, 1):
+        if r["kind"] != "sheet":
+            continue
+        name = _name(profiles.get(r["type"]) or {"type": r["type"]}, child_name)
+        if name:
+            text = re.sub(rf"\b{re.escape(name)}\b(?!['’]s\b)", lambda m: f"{m.group(0)} (<image{n}>)", text, count=1)
+    return text
+
+
 def keyframe_prompt_comfy(scene: dict, sh: dict, profiles: dict, sheets: dict, child_name: str,
                           refs: list[dict], objects: list[dict] | None = None) -> str:
     """The README template, filled from the plan, the profiles and the sheets;
@@ -580,11 +611,11 @@ def keyframe_prompt_comfy(scene: dict, sh: dict, profiles: dict, sheets: dict, c
         comfy_identity(refs, profiles, sheets),
         COMFY_COPY if with_ref else "",
         f"Also in the picture, without a reference image: {'; '.join(without)}." if without else "",
-        COMFY_ONCE if cast else COMFY_NOBODY,
+        comfy_once(cast, profiles, child_name) if cast else COMFY_NOBODY,
         " ".join(p for p in [
             f"SCENE: {article} {shot_type} shot, with the {'characters' if cast else 'main subject'} "
             "large in the frame.",
-            sh.get("keyframe_prompt") or scene.get("visual_description") or "",
+            tag_cast(sh.get("keyframe_prompt") or scene.get("visual_description") or "", refs, profiles, child_name),
             f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",
         ] if p),
         objects_line(objects or []),
