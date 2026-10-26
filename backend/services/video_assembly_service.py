@@ -174,6 +174,25 @@ QA_MAX_DURATION_DRIFT = 0.35  # vs the length the parent ordered
 MAX_SLOWDOWN = 1.6
 
 
+# A clip that comes back nearly still (a shot with nobody in it, or a toy frozen in
+# place) gets a slow digital push-in: a uniform zoom of the finished picture, so it
+# never stretches anything the way a camera move inside the video model does.
+STILL_CLIP_SECONDS = 1.5
+_PUSH_IN = ("scale=2560:1440,zoompan=z='min(1+0.0009*on,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+            ":d=1:s=1280x720:fps=24,setsar=1,format=yuv420p")
+
+
+async def _still_seconds(path: str) -> float:
+    """The longest span in which the clip doesn't move (0 when it always moves)."""
+    res = await asyncio.to_thread(subprocess.run, [
+        _ffmpeg_bin(), "-hide_banner", "-i", path, "-vf", f"freezedetect=n=0.003:d={STILL_CLIP_SECONDS}",
+        "-an", "-f", "null", "-"], capture_output=True, text=True, timeout=300)
+    spans = [float(x) for x in re.findall(r"freeze_duration: ([0-9.]+)", res.stderr or "")]
+    if not spans and "freeze_start" in (res.stderr or ""):
+        return await _media_duration(path) or STILL_CLIP_SECONDS  # still until the end
+    return max(spans, default=0.0)
+
+
 async def _quality_gate(path: str, ordered_seconds: float | None, shots: int) -> dict:
     """Measure the finished video the way the reference videos were measured.
     Raises when it would be delivered with frozen frames or the wrong length."""
@@ -253,6 +272,9 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
                         raise RuntimeError(f"shot {tag}: clip is {clip_len:.1f}s for a {dur:.1f}s line")
                     vf = f"setpts={factor:.4f}*PTS,{vf}"
                     slowed += 1
+                if await _still_seconds(raw) >= STILL_CLIP_SECONDS:
+                    vf = f"{vf},{_PUSH_IN}"
+                    still_motion += 1
                 res = await _ffmpeg(["-i", raw, "-vf", vf, "-t", f"{dur:.3f}", "-an",
                                      "-c:v", "libx264", "-preset", "medium", "-crf", "20", seg], timeout=180)
             else:
