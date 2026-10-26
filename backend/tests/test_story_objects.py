@@ -134,3 +134,14 @@ def test_a_likeness_only_flag_is_soft():
     assert sp.passes({"ok": False, "problems": ["wrong_look"]}) and sp.passes(None) and sp.passes({"ok": True})
     assert not sp.passes({"ok": False, "problems": ["wrong_look", "duplicate"]})
     assert not sp.passes({"ok": False, "problems": ["noise"]})
+
+
+def test_sheets_keep_the_clothes_and_colours_but_not_the_print():
+    # a word printed on a shirt came out scrambled in every frame of the clips
+    from services import house_style
+
+    for outfit in ("", "same as in the photo", "same as in the photo, plus a blue police cap", "pajamas with stars"):
+        rule = house_style.outfit_rule(outfit)
+        assert house_style.NO_PRINT in rule
+    assert "same colors" in house_style.NO_PRINT and "logos" in house_style.NO_PRINT
+    assert house_style.NO_PRINT in house_style.character_sheet_prompt("the person in the photo")

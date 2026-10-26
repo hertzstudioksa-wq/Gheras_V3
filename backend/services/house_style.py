@@ -84,6 +84,13 @@ def _costume_extras(outfit: str) -> str:
     return rest
 
 
+# A word printed on a shirt in the photo came out scrambled differently in every
+# frame of the clips (and the review retook them for it): the sheet keeps the
+# clothes and their colors, not the print.
+NO_PRINT = ("Leave out printed words, letters, numbers and logos on the clothes: the same garments in the same "
+            "colors, plain where the print was")
+
+
 def outfit_rule(outfit: str | None) -> str:
     """Keep the photo's outfit (what makes a child recognisable to their parents)
     unless the story needs specific clothes. A costume worn through the story
@@ -96,15 +103,15 @@ def outfit_rule(outfit: str | None) -> str:
         if extras:
             return ("dress the character in the person's own everyday clothes from the photo, with the same colors "
                     "and details (casual instead of formal wear, no tie, no safety or sports gear), and add what they "
-                    f"wear through the whole story: {extras}. If the feet are bare, add simple shoes")
+                    f"wear through the whole story: {extras}. If the feet are bare, add simple shoes. {NO_PRINT}")
         # Parents upload holiday and sports photos: the person's own clothes carry
         # over, the gear of the moment (life jacket, harness, helmet) doesn't.
         return ("dress the character in the person's own everyday clothes from the photo, with the same colors and "
                 "details. If the photo shows formal or office wear (a suit, a blazer or a tie), draw simple casual "
                 "clothes in similar colors instead, with no tie. Leave out activity and safety gear such as life "
                 "jackets, harnesses, straps, helmets, goggles or ski wear, and anything the person is holding. If the "
-                "feet are bare, add simple shoes that match the outfit")
-    return f"dress the character in {o}"
+                f"feet are bare, add simple shoes that match the outfit. {NO_PRINT}")
+    return f"dress the character in {o}. {NO_PRINT}"
 
 
 # Photo → character rules for every sheet drawn from a real photo (parents upload
