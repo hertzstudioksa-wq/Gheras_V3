@@ -261,6 +261,22 @@ RESCUE_ENGINE = ("fal_image", "openai/gpt-image-2")
 CAST_PROBLEMS = HOLD_PROBLEMS - {"noise"}
 
 
+def content_refused(e: Exception) -> bool:
+    text = str(e).lower()
+    return "flagged" in text or "content checker" in text or "content_policy" in text or "safety system" in text
+
+
+def without_toy_names(text: str, objects: list[dict]) -> str:
+    """The prompt with each toy's own name words as "toy" ("the big toy doll"): OpenAI's
+    content checker refused a shot naming a famous character; its look and reference
+    picture still say what it is."""
+    words = set().union(*[_toy_words(o) for o in objects if o.get("toy")]) if objects else set()
+    if not words:
+        return text
+    one = "(?:" + "|".join(map(re.escape, sorted(words))) + ")(?:['’]s)?"
+    return re.sub(rf"\b{one}(?:\s+{one})*\b", "toy", text, flags=re.I)
+
+
 def next_take(review: dict, engine: str, attempt: int, last: int = 3) -> str | None:
     """The engine of the next take of a Comfy keyframe after a failed one, or None to keep
     the best take: a wrong cast (extra, repeated or swapped people, a broken body) is
@@ -961,18 +977,27 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             if engine == "gpt":
                 rescue = rescue or await gpt_inputs(sh, in_shot, extra_refs)
                 take_refs, used, used_notes = rescue
-                try:
-                    img, mime, meta = await generate_image(
-                        scene_prompt=used if attempt == 1 else f"{used} {REDRAW_NOTE}", references=take_refs or None,
-                        stage="scene_image_generation", size=WIDE, raw_prompt=True,
-                        session_hint=f"shot-{shot_key}-{order['id'][:6]}-{attempt}", engine=RESCUE_ENGINE)
-                    used_refs = [f"{n}) {note}" for n, note in enumerate(used_notes, 1)]
-                except Exception as e:  # noqa: BLE001 — this take goes back to Qwen...
-                    if engine_health.is_balance_message(e):
-                        raise  # ...unless the balance ran out: the order pauses
-                    logger.warning(f"[shots] {shot_key}: GPT take failed, drawing on Qwen: "
-                                   f"{type(e).__name__}: {str(e)[:160]}")
-                    gpt_ok, engine = False, "qwen"
+                for scrubbed in (False, True):
+                    try:
+                        img, mime, meta = await generate_image(
+                            scene_prompt=used if attempt == 1 else f"{used} {REDRAW_NOTE}",
+                            references=take_refs or None, stage="scene_image_generation", size=WIDE,
+                            raw_prompt=True, session_hint=f"shot-{shot_key}-{order['id'][:6]}-{attempt}",
+                            engine=RESCUE_ENGINE)
+                        used_refs = [f"{n}) {note}" for n, note in enumerate(used_notes, 1)]
+                        break
+                    except Exception as e:  # noqa: BLE001 — this take goes back to Qwen...
+                        if engine_health.is_balance_message(e):
+                            raise  # ...unless the balance ran out: the order pauses
+                        # A famous toy's name got the prompt refused: once more without the names.
+                        if not scrubbed and content_refused(e) and without_toy_names(used, in_shot) != used:
+                            used = without_toy_names(used, in_shot)
+                            rescue = (take_refs, used, used_notes)
+                            continue
+                        logger.warning(f"[shots] {shot_key}: GPT take failed, drawing on Qwen: "
+                                       f"{type(e).__name__}: {str(e)[:160]}")
+                        gpt_ok, engine = False, "qwen"
+                        break
             if engine == "qwen":
                 text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
 

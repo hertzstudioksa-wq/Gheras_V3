@@ -243,3 +243,19 @@ def test_a_toy_only_named_in_the_words_stays_small_and_gets_no_reference_picture
     refs = sp.comfy_references(shot(["child"], ["kite"]), far, SHEETS, None, None,
                                [o for o in got if not o.get("background")])
     assert [r.get("key") for r in refs if r["kind"] == "object"] == ["kite"]
+
+
+def test_a_refused_prompt_is_retried_without_the_toys_own_names():
+    # OpenAI's content checker refused a shot naming a famous character's doll
+    hero = {"key": "hero_doll", "name": "the big Captain Comet doll", "look": "an official plush Captain Comet doll",
+            "toy": True}
+    text = ("Lina waves at Captain Comet's cape. Setting: the park, Comet visible far away. OBJECTS: the big "
+            "Captain Comet doll: an official plush Captain Comet doll. Lina's kite flies.")
+    out = sp.without_toy_names(text, [hero, {"key": "kite", "name": "Lina's kite", "look": "red"}])
+    assert "captain" not in out.lower() and "comet" not in out.lower()
+    assert "waves at toy cape" in out and "the big toy doll: an official plush toy doll" in out
+    assert "Lina waves" in out and "Lina's kite" in out  # people and other objects untouched
+    assert sp.without_toy_names(text, [{"key": "kite", "name": "the kite", "look": "red"}]) == text
+    from services.ai import AIPermanentError
+    assert sp.content_refused(AIPermanentError("HTTP 422: material flagged by a content checker"))
+    assert not sp.content_refused(AIPermanentError("HTTP 500: internal error"))
