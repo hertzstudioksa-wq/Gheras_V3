@@ -258,6 +258,8 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
             narr_parts.append((nar_path, dur))
 
             seg = os.path.join(work, f"shot_{tag}.mp4")
+            if r.get("clip_state") == "held" and not r.get("clip_url"):
+                raise RuntimeError(f"shot {tag} is held: its start picture needs a new drawing")
             clip_fid = _file_id_from_url(r.get("clip_url"))
             clip_bytes = await _fetch_file_bytes(clip_fid) if clip_fid else None
             if clip_bytes:

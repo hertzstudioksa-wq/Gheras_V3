@@ -360,3 +360,23 @@ def test_an_object_reference_with_a_person_is_drawn_again(monkeypatch):
         drawn = await db.object_sheets.find({"order_id": "op"}, {"_id": 0}).to_list(10)
         assert len(drawn) == 1 and drawn[0]["gpu_seconds"] == 40 and drawn[0]["image_url"]  # two takes paid
     run(go())
+
+
+def test_a_start_frame_with_an_extra_person_is_held_not_animated(monkeypatch):
+    # owner: a picture with an extra child was animated; draw, check, then animate the good ones only
+    async def go():
+        from services import clip_review
+
+        async def review(shot_key, *a, **k):
+            return {"ok": False, "problems": ["extra_person"]} if shot_key == "1_1" else {"ok": True, "problems": []}
+
+        monkeypatch.setattr(clip_review, "review_keyframe", review)
+        order, plan = await _story("h")
+        await fake_providers.simulate(flag_times={}, flag_counts={}, comfy_fail_clips=[])
+        await sp.run_shot_clips(order, plan, "run-h")
+        r11, r12 = await _row("h", 1, 1), await _row("h", 1, 2)
+        assert r11["clip_state"] == "held" and not r11.get("clip_url") and "extra_person" in r11["clip_error"]
+        assert r11.get("comfy_clip_seconds") in (None, 0)  # nothing paid for it
+        assert r12["clip_url"] and r12["clip_state"] == "completed"
+        assert sp.held_problems({"ok": False, "problems": ["action_missing", "clipping"]}) == []
+    run(go())

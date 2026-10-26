@@ -1034,8 +1034,10 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
       * narration was voiced while the sheets were drawn; music (it needs the
         narrated length) starts as soon as narration is done,
       * the cover is drawn alongside the keyframes,
-      * keyframes go scene by scene (each shot sees the previous one), and a
-        finished scene's shots go to Kling at once instead of after all scenes.
+      * every picture is drawn and checked before any shot is animated (owner:
+        clips started while pictures were still being drawn, and a picture with
+        an extra child was animated); a start frame still broken after its takes
+        is held, never animated.
     Clip requests are saved before polling, so a restart still resumes them."""
     order_id = order["id"]
     # Draw a reference sheet for every cast member without one (e.g. the mother)
@@ -1053,14 +1055,9 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
     music_task = asyncio.create_task(narration_then_music())
     cover_tasks = [asyncio.create_task(process(j)) for j in jobs if j["job_type"] == "cover_image"]
     clip_sem = asyncio.Semaphore(shot_pipeline.CLIP_CONCURRENCY)
-    clip_tasks = []
 
     async def scene(job: dict) -> None:
-        if await process(job):
-            await asyncio.gather(narration_task, return_exceptions=True)  # long done by now
-            clip_tasks.append(asyncio.create_task(shot_pipeline.run_shot_clips(
-                order, plan, run_id, scene_index=(job.get("meta") or {}).get("scene_index"), sem=clip_sem,
-                summarize=False)))
+        await process(job)
 
     scene_jobs = sorted((j for j in jobs if j["job_type"] == "scene_keyframes"),
                         key=lambda j: (j.get("meta") or {}).get("scene_index") or 0)
@@ -1074,11 +1071,8 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
             await scene(job)
     await _run_jobs([j for j in jobs if j["job_type"] == "book_page_asset"], process)
     await asyncio.gather(*cover_tasks, narration_task, return_exceptions=True)
-    for res in await asyncio.gather(*clip_tasks, return_exceptions=True):
-        if isinstance(res, Exception):
-            logger.error(f"[shots] order={order_id} clip batch crashed: {type(res).__name__}: {res}")
     try:
-        # Anything not animated yet (e.g. after a resume), then the summary.
+        # All pictures are in and checked: now every shot is animated, in story order.
         clips = await shot_pipeline.run_shot_clips(order, plan, run_id, sem=clip_sem)
         logger.info(f"[shots] order={order_id} clips={clips}")
     except Exception as e:  # noqa: BLE001
@@ -1237,7 +1231,14 @@ async def _run_asset_generation(order_id: str, run_id: str):
         {"id": order_id},
         {"$set": {"asset_generation_completed_at": _now()}},
     )
-    if failed_mandatory == 0:
+    held = await db.shot_assets.count_documents({"order_id": order_id, "production_plan_id": plan.get("id"),
+                                                 "clip_state": "held"}) if shot_mode else 0
+    if held:
+        # A start frame with an extra or repeated person (or static) was not animated:
+        # the admin redraws it from the shots tab, then the story is assembled.
+        await _append_status(order_id, OrderStatus.ASSETS_GENERATING.value, OrderStatus.MEDIA_FAILED.value, "system",
+                             reason=f"{held} shots held: their start picture needs a new drawing")
+    elif failed_mandatory == 0:
         await _append_status(order_id, OrderStatus.ASSETS_GENERATING.value, OrderStatus.ASSETS_READY.value, "system",
                              reason=f"all assets ready ({completed}/{len(jobs)})")
     else:

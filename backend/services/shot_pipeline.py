@@ -242,6 +242,14 @@ def flaw(review: dict) -> int:
 # sheet every time), and a flagged start frame turned off the clip retakes for
 # real problems. A likeness-only flag stays on the shot for the admin, nothing more.
 SOFT_PROBLEMS = {"wrong_look"}
+# Start frames a clip would only animate the mistake of (reliably seen by the
+# review); the shot is held for a new picture instead.
+HOLD_PROBLEMS = {"noise", "duplicate", "extra_person", "deformed"}
+
+
+def held_problems(review: dict | None) -> list[str]:
+    review = review or {}
+    return [] if review.get("ok", True) else sorted(set(review.get("problems") or []) & HOLD_PROBLEMS)
 
 
 def passes(review: dict | None) -> bool:
@@ -1360,6 +1368,10 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
             return False  # already tried and retried in this run
         if not row.get("keyframe_url") or not row.get("narration_seconds"):
             await _save(row, {"clip_state": "skipped", "clip_error": "missing keyframe or narration"})
+            return False
+        bad = held_problems(row.get("keyframe_review"))
+        if bad:
+            await _save(row, {"clip_state": "held", "clip_error": "start frame: " + ", ".join(bad)})
             return False
         async with sem:
             if on_comfy and row.get("clip_rescue"):
