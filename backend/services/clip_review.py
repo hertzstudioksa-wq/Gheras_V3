@@ -162,8 +162,10 @@ def static_verdict(images: list[bytes]) -> dict | None:
 
 
 def _verdict(answer: str) -> dict:
-    m = re.search(r"\{.*\}", answer or "", re.S)
-    data = json.loads(m.group(0)) if m else {}
+    # The first JSON object only: an answer once carried a second one after it, and
+    # the greedy match made the whole review count as skipped.
+    start = (answer or "").find("{")
+    data = json.JSONDecoder().raw_decode(answer[start:])[0] if start >= 0 else {}
     problems = sorted({p for p in map(_problem, data.get("problems") or []) if p})
     return {"ok": not problems, "problems": problems, "people_seen": data.get("people_seen"),
             "note": str(data.get("note") or "")[:200]}

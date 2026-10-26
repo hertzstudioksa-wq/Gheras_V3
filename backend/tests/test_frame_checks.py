@@ -172,3 +172,9 @@ def test_the_review_is_told_the_story_objects(monkeypatch):
     assert verdict["ok"] and json.loads(seen["user"])["story_objects"] == ["the red kite"]
     assert "never people" in seen["system"] and "object_alive" in seen["system"]
     assert clip_review._problem("toy moving by itself (alive)") == "object_alive"
+
+
+def test_a_verdict_reads_the_first_json_object_only():
+    two = '{"ok": false, "problems": ["duplicate"], "note": "twice"}\n\n{"ok": true, "problems": []}'
+    assert clip_review._verdict(two)["problems"] == ["duplicate"]
+    assert clip_review._verdict('Sure: {"ok": true, "problems": [], "note": "a {brace} inside"}')["ok"]
