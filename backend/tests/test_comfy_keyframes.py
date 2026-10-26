@@ -161,10 +161,10 @@ def test_no_style_preset_or_face_words():
 
 # Words from earlier test stories must never be baked into the code.
 STORY_WORDS = ("horse", "saddle", "bridle", "sonic", "hedgehog", "police", "policeman", "yaman", "amr", "israa",
-               "costa rica", "beach", "sunset", "yazan", "esraa", "york")  # Lina and Bunbun are this file's own test data
+               "costa rica", "beach", "sunset", "yazan", "esraa", "york", "mickey", "baraa", "scooter")  # Lina and Bunbun are this file's own test data
 # Names from the test families and stories, in either language.
 STORY_NAMES = ("sonic", "سونيك", "yaman", "يمان", "yazan", "يزن", "israa", "esraa", "إسراء", "york", "lina", "لينا",
-               "bunbun", "بونبون", "costa", "كوستاريكا")
+               "bunbun", "بونبون", "costa", "كوستاريكا", "mickey", "ميكي", "baraa", "براء")
 
 
 def test_no_story_names_in_the_planning_rules_or_the_new_modules():

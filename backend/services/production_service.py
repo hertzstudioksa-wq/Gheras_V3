@@ -591,7 +591,7 @@ def _normalise_shots(raw) -> list[dict]:
 MAX_STORY_OBJECTS = 3
 
 # Things worn. The sheet is drawn from clothing_style, so a helmet the plan put in
-# key_features only (scooter story) was on no sheet while the shots asked for it —
+# key_features only (a ride-on story) was on no sheet while the shots asked for it —
 # the way a cap missing from the sheet came off mid-shot.
 WEARABLES = ("helmet", "cap", "hat", "glasses", "sunglasses", "goggles", "backpack", "bag", "cape", "crown",
              "tiara", "mask", "scarf", "headband", "apron", "badge", "vest", "jacket", "gloves", "costume",

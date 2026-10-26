@@ -396,7 +396,7 @@ _PLAIN_WORDS = {"doll", "toy", "toys", "plush", "plushie", "stuffed", "soft", "f
 
 
 def _toy_words(obj: dict) -> set[str]:
-    """What names a toy in a prompt ("mickey", "mouse" for "the big Mickey Mouse doll"): its
+    """What names a toy in a prompt ("captain", "comet" for "the big Captain Comet doll"): its
     name only (a key can carry the owner, "x_teddy"), not its owner ("X's"), not a word any
     toy or size shares."""
     words = re.findall(r"[a-z]+(?:['’]s)?", obj["name"].lower())
@@ -406,7 +406,7 @@ def _toy_words(obj: dict) -> set[str]:
 def shot_objects(sh: dict, objects: dict[str, dict], scene: dict | None = None) -> list[dict]:
     """The shot's story objects: the plan's list, plus a toy its words or its scene's setting
     name. The setting put a doll "visible in the distance" in a shot that didn't list it:
-    drawn with none of the toy rules, it rode a scooter. Toys come first under the cap."""
+    drawn with none of the toy rules, it rode a toy vehicle. Toys come first under the cap."""
     keys = [k for k in dict.fromkeys(sh.get("objects") or []) if k in objects]
     said = set(re.findall(r"[a-z]+", f"{sh.get('keyframe_prompt') or ''} "
                                      f"{(scene or {}).get('background_setting') or ''}".lower()))
@@ -430,7 +430,7 @@ def story_order(scene: dict, shot: dict) -> str:
 
 
 # The Qwen workflow needs an input picture. A cast sheet as the style sample put the
-# child on the scooter in three references running: a blank page carries no one.
+# child on the object in three references running: a blank page carries no one.
 OBJECT_STYLE = ("STYLE: a 2D cartoon children's storybook illustration with clean confident outlines, soft painterly "
                 "shading, a gentle visible brush texture and warm saturated colors.")
 
@@ -497,7 +497,7 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
             prompt, gpu = object_sheet_prompt(obj), 0.0
             try:
                 # Qwen sometimes returns coloured static, and once drew the style
-                # sample's child on the scooter: a person here would be drawn twice.
+                # sample's child on the object: a person here would be drawn twice.
                 for _take in range(3):
                     img, mime, meta = await comfy_image(stage="scene_image_generation", model=model, prompt=prompt,
                                                         references=[canvas], queue_key="000")

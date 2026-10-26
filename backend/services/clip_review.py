@@ -56,7 +56,7 @@ STATIC_SPREAD = 0.10
 STATIC_SATURATED = 0.70
 STATIC_CLUSTERED = 0.42
 # Static fills the page with colour (29-46% of the blocks); a thin object on a
-# blank reference page (a scooter: 4-5%) is not static, however scattered.
+# blank reference page (a thin ride-on toy: 4-5%) is not static, however scattered.
 STATIC_MIN_SATURATED = 0.2
 
 SYSTEM = (
@@ -211,7 +211,7 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
 
 
 # A story object's reference is drawn with a cast sheet as the style sample, and
-# the scooter's reference came out with the child standing on it: in the shots that
+# a ride-on toy's reference came out with the child standing on it: in the shots that
 # would have put him in twice. Asked before the reference is used.
 PERSON_SYSTEM = ('You look at one picture. Answer with JSON only: {"person": true or false} — true when a human '
                  "(a child or an adult) is drawn anywhere in it; a toy, a doll or a cartoon animal is not a person.")
