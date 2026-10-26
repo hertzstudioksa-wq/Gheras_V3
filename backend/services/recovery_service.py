@@ -2,8 +2,8 @@
 
 Generation runs as in-process background tasks, so a restart (a deploy, a
 crash) drops whatever was running and the order would sit at "generating"
-forever. At boot, each order caught mid-run is resumed once, from the step it
-was on: the shot engine skips keyframes and clips that already exist and polls
+forever. After boot (rechecked until the old process's heartbeats have gone
+stale), each order caught mid-run is resumed once, from the step it was on: the shot engine skips keyframes and clips that already exist and polls
 Kling requests it already paid for, so resuming doesn't pay twice. An order
 interrupted more than `RESUME_WITHIN_HOURS` ago, or already resumed once, is
 marked failed instead and shows up in the admin's attention list.
@@ -111,10 +111,28 @@ async def recover_interrupted(booted_at: str | None = None) -> dict:
     return {"resumed": resumed, "failed": failed}
 
 
+def recheck_delays() -> list[float]:
+    """Seconds after boot to look for interrupted orders. A quick restart (a
+    deploy) leaves the old run's heartbeat fresh for up to STALE_AFTER, so one
+    look at boot + 15 s skipped those orders and left them stuck until the next
+    restart. Looking again until every pre-boot heartbeat must be stale fixes it;
+    an order resumed by an earlier look beats again, so it isn't taken twice."""
+    from services.order_heartbeat import HEARTBEAT_SECONDS, STALE_AFTER
+
+    last = STALE_AFTER.total_seconds() + HEARTBEAT_SECONDS
+    delays, t = [], float(BOOT_DELAY_SECONDS)
+    while t < last:
+        delays.append(t)
+        t += HEARTBEAT_SECONDS
+    return delays + [last]
+
+
 async def recover_after_boot() -> None:
     booted_at = _now()
-    await asyncio.sleep(BOOT_DELAY_SECONDS)  # let startup (seeding, migrations) finish first
-    try:
-        await recover_interrupted(booted_at)
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[recovery] skipped: {type(e).__name__}: {e}")
+    started = asyncio.get_running_loop().time()
+    for delay in recheck_delays():  # the first lets startup (seeding, migrations) finish
+        await asyncio.sleep(max(0.0, delay - (asyncio.get_running_loop().time() - started)))
+        try:
+            await recover_interrupted(booted_at)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[recovery] skipped: {type(e).__name__}: {e}")

@@ -17,7 +17,7 @@ const SECTIONS = {
   showcase: "عينة الصفحة الرئيسية (فيديو وصور — القسم مخفي لحد ما ترفع حاجة)",
 };
 const ORDER = ["business", "showcase", "hero", "how", "values", "footer"];
-const mediaKind = (key) => (/\.video_url$/.test(key) ? "video" : /\.(poster_url|step\d_image)$/.test(key) ? "image" : null);
+const mediaKind = (key) => (/\.video_url$/.test(key) ? "video" : /\.(poster_url|image_url|step\d_image)$/.test(key) ? "image" : null);
 // Business details read in the order a registration certificate lists them.
 const BUSINESS_ORDER = ["business.legal_name", "business.cr_number", "business.vat_number", "business.address",
   "business.phone"];
@@ -38,7 +38,7 @@ function fieldLabel(key) {
     contact_email: "إيميل التواصل", instagram: "رابط إنستغرام", x: "رابط X (تويتر)",
     legal_name: "الاسم التجاري المسجّل", cr_number: "رقم السجل التجاري", vat_number: "الرقم الضريبي",
     address: "العنوان الوطني", phone: "رقم التواصل / واتساب",
-    caption: "سطر تحت الفيديو", video_url: "فيديو العينة (MP4، حد أقصى 40 ميجا)", poster_url: "صورة الغلاف قبل التشغيل",
+    caption: "سطر تحت الفيديو", image_url: "صورة الواجهة (غلاف قصة حقيقية)", image_caption: "اسم القصة تحت الصورة", video_url: "فيديو العينة (MP4، حد أقصى 40 ميجا)", poster_url: "صورة الغلاف قبل التشغيل",
     step1_image: "الشريط — 1) صورة الطفل", step2_image: "الشريط — 2) شخصيته الكرتون", step3_image: "الشريط — 3) مشهد من القصة",
   }[tail] || tail;
 }
