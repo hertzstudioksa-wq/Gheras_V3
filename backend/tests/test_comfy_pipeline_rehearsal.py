@@ -413,3 +413,28 @@ def test_a_start_frame_with_an_extra_person_is_held_not_animated(monkeypatch):
         assert r12["clip_url"] and r12["clip_state"] == "completed"
         assert sp.held_problems({"ok": False, "problems": ["action_missing", "clipping"]}) == []
     run(go())
+
+
+def test_a_rerun_never_pays_for_music_again(monkeypatch):
+    # owner: six music tracks for one plan, one per rerun (fal stops, restarts, a retry)
+    async def go():
+        from services import generation_orchestrator as go_
+
+        calls = []
+
+        async def music(order, plan, run_id):
+            calls.append(run_id)
+            await db.music_tracks.insert_one({"id": f"m{len(calls)}", "order_id": order["id"],
+                                              "production_plan_id": plan["id"], "real_call": True,
+                                              "audio_url": "/api/uploads/file/m", "created_at": f"t{len(calls)}"})
+            return {"ok": True}
+
+        monkeypatch.setattr(go_, "_run_music_generation_stage", music)
+        order = {"id": "mu", "data": {"output_type": "video"}}
+        plan = {"id": "mu-plan"}
+        for run in ("r1", "r2", "r3"):
+            await go_._music_stage(order, plan, run)
+        assert calls == ["r1"]
+        await go_._music_stage(order, {"id": "mu-plan-2"}, "r4")  # a new plan (the story changed) gets its own
+        assert calls == ["r1", "r4"]
+    run(go())
