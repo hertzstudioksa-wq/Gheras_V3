@@ -190,3 +190,13 @@ def test_a_thin_object_on_a_blank_page_is_not_static():
     for x in (580, 620, 860):
         d.ellipse((x - 20, 660, x + 20, 700), fill=(30, 30, 30))
     assert clip_review.static_verdict([_png(img)]) is None
+
+
+def test_a_keyframe_is_never_flagged_for_a_toy_moving(monkeypatch):
+    # a still picture can't show anything moving by itself; the flag cost three takes per shot
+    async def ask(*a, **k):
+        return {"ok": False, "problems": ["object_alive"], "note": "x"}
+
+    monkeypatch.setattr(clip_review, "_ask", ask)
+    verdict = asyncio.run(clip_review.review_keyframe("1_1", cartoon_picture(), "image/png", ["Lina"], "x"))
+    assert verdict["ok"] and verdict["problems"] == []

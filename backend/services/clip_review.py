@@ -243,8 +243,14 @@ async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list
     static = await asyncio.to_thread(static_verdict, [image])
     if static:
         return static
-    return await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets,
-                      objects=objects)
+    verdict = await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets,
+                         objects=objects)
+    # Nothing moves in one picture: the reviewer still flagged "object_alive" on
+    # keyframes (three takes each, some without the toy in them at all).
+    if "object_alive" in (verdict.get("problems") or []):
+        problems = [p for p in verdict["problems"] if p != "object_alive"]
+        verdict = {**verdict, "problems": problems, "ok": not problems}
+    return verdict
 
 
 def _clip_frames(data: bytes, count: int = CLIP_FRAMES) -> list[bytes]:
