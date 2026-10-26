@@ -227,3 +227,19 @@ def test_a_toy_the_words_name_joins_the_shot_with_the_toy_rules():
     assert keys(shot(["child"], [], "Lina hugs her big doll and rides her green bike."), SCENE) == []
     assert sp._toy_words(objects["hero_doll"]) == {"captain", "comet"}
     assert sp._toy_words({"key": "lina_teddy", "name": "Lina's teddy bear"}) == {"teddy", "bear"}
+
+
+def test_a_toy_only_named_in_the_words_stays_small_and_gets_no_reference_picture():
+    # with its reference picture in, Qwen drew the far-away doll big in front, wearing the child's helmet
+    hero = {"key": "hero_doll", "name_en": "the big Captain Comet doll", "look": "a plush hero", "toy": True}
+    objects = sp.story_objects({"story_objects": [KITE, hero]})
+    far = {"scene_index": 3, "background_setting": "the park path, Comet visible far away on the bench"}
+    got = sp.shot_objects(shot(["child"], ["kite"], "Lina runs."), objects, far)
+    assert [(o["key"], bool(o.get("background"))) for o in got] == [("hero_doll", True), ("kite", False)]
+    listed = sp.shot_objects(shot(["child"], ["hero_doll"], "Lina hugs Captain Comet."), objects, far)
+    assert not listed[0].get("background")  # the plan put it in the shot: it gets its picture
+    line = sp.objects_line(got)
+    assert sp.BACKGROUND_NOTE in line and line.count(sp.BACKGROUND_NOTE) == 1
+    refs = sp.comfy_references(shot(["child"], ["kite"]), far, SHEETS, None, None,
+                               [o for o in got if not o.get("background")])
+    assert [r.get("key") for r in refs if r["kind"] == "object"] == ["kite"]

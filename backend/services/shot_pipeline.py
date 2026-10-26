@@ -434,13 +434,18 @@ def _toy_words(obj: dict) -> set[str]:
 def shot_objects(sh: dict, objects: dict[str, dict], scene: dict | None = None) -> list[dict]:
     """The shot's story objects: the plan's list, plus a toy its words or its scene's setting
     name. The setting put a doll "visible in the distance" in a shot that didn't list it:
-    drawn with none of the toy rules, it rode a toy vehicle. Toys come first under the cap."""
-    keys = [k for k in dict.fromkeys(sh.get("objects") or []) if k in objects]
+    drawn with none of the toy rules, it rode a toy vehicle. Such a toy is `background`: its
+    rules, freeze and review apply, but its reference picture doesn't go in (Qwen drew the
+    doll big in the foreground, wearing the child's helmet). Toys come first under the cap."""
+    listed = [k for k in dict.fromkeys(sh.get("objects") or []) if k in objects]
     said = set(re.findall(r"[a-z]+", f"{sh.get('keyframe_prompt') or ''} "
                                      f"{(scene or {}).get('background_setting') or ''}".lower()))
-    keys += [k for k, o in objects.items() if o.get("toy") and k not in keys and _toy_words(o) & said]
-    keys.sort(key=lambda k: not objects[k].get("toy"))
-    return [objects[k] for k in keys][:MAX_SHOT_OBJECTS]
+    named = [k for k, o in objects.items() if o.get("toy") and k not in listed and _toy_words(o) & said]
+    keys = sorted(listed + named, key=lambda k: not objects[k].get("toy"))
+    return [{**objects[k], "background": True} if k in named else objects[k] for k in keys][:MAX_SHOT_OBJECTS]
+
+
+BACKGROUND_NOTE = "only small and far in the background, sitting still, never in front of anyone"
 
 
 def objects_line(objects: list[dict]) -> str:
@@ -449,7 +454,8 @@ def objects_line(objects: list[dict]) -> str:
         return ""
     return ("OBJECTS (they look exactly the same in every picture of this story): "
             + "; ".join(f"{o['name']}: {o['look'].rstrip('.')}" + (f" ({TOY_NOTE}; {TOY_POSE})" if o.get("toy") else "")
-                        for o in objects) + f" — {OBJECTS_NOTE}.")
+                        + (f" ({BACKGROUND_NOTE})" if o.get("background") else "") for o in objects)
+            + f" — {OBJECTS_NOTE}.")
 
 
 def story_order(scene: dict, shot: dict) -> str:
@@ -508,7 +514,7 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
         return {}
     objects = story_objects(plan, favourite_toy(order))
     used = {o["key"] for s in await _scenes(order, plan) for sh in s.get("shots") or []
-            for o in shot_objects(sh, objects, s)}
+            for o in shot_objects(sh, objects, s) if not o.get("background")}
     lock = _object_locks.setdefault(plan["id"], asyncio.Lock())
     async with lock:
         drawn = await load_object_sheets(order, plan)
@@ -916,7 +922,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         in_shot = shot_objects(sh, objects, scene)
         if on_comfy:
             for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None,
-                                      [o for o in in_shot if o["key"] in object_refs]):
+                                      [o for o in in_shot if o["key"] in object_refs and not o.get("background")]):
                 if r["kind"] in ("sheet", "style"):
                     data = await sheet_data(r["type"])
                 elif r["kind"] == "toy":
