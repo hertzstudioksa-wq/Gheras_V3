@@ -161,6 +161,8 @@ def test_the_review_is_told_the_story_objects(monkeypatch):
         return "https://x/u.png"
 
     async def vision(**k):
+        if k["system"] == clip_review.PEOPLE_SYSTEM:  # the head count runs beside the review
+            return '{"people": ["a girl waving"]}'
         seen.update(k)
         return '{"ok": true, "problems": []}'
 
@@ -197,6 +199,45 @@ def test_a_keyframe_is_never_flagged_for_a_toy_moving(monkeypatch):
     async def ask(*a, **k):
         return {"ok": False, "problems": ["object_alive"], "note": "x"}
 
+    async def count(image):
+        return ["a girl with braids"]
+
     monkeypatch.setattr(clip_review, "_ask", ask)
+    monkeypatch.setattr(clip_review, "people_in", count)
     verdict = asyncio.run(clip_review.review_keyframe("1_1", cartoon_picture(), "image/png", ["Lina"], "x"))
     assert verdict["ok"] and verdict["problems"] == []
+
+
+def test_a_head_count_over_the_cast_holds_the_picture(monkeypatch):
+    # the full review said four people on a frame with five: the shot was animated
+    async def ask(*a, **k):
+        return {"ok": False, "problems": ["wrong_look"], "people_seen": 2, "note": "the hair differs"}
+
+    async def five(image):
+        return ["girl, braids", "man, beard", "boy, green cap", "boy, green cap, red shirt", "old woman"]
+
+    monkeypatch.setattr(clip_review, "_ask", ask)
+    monkeypatch.setattr(clip_review, "people_in", five)
+    cast = ["Lina", "Omar (the child's father)", "the child's friend", "the child's grandmother"]
+    verdict = asyncio.run(clip_review.review_keyframe("5_1", cartoon_picture(), "image/png", cast, "x"))
+    assert not verdict["ok"] and verdict["problems"] == ["wrong_look", "extra_person"]
+    assert verdict["people_seen"] == 5 and verdict["note"].startswith("head count: 5 people for 4 — girl, braids")
+    assert "the hair differs" in verdict["note"]
+    assert sp.held_problems(verdict) == ["extra_person"]
+
+
+def test_a_head_count_at_or_under_the_cast_changes_nothing():
+    passed = {"ok": True, "problems": [], "people_seen": 2}
+    assert clip_review.counted_extra(passed, ["a", "b"], ["Lina", "Omar"]) is passed
+    assert clip_review.counted_extra(passed, ["a"], ["Lina", "the child's dog"]) is passed  # animals aren't listed
+    assert clip_review.counted_extra(passed, None, ["Lina"]) is passed  # the count couldn't run
+    assert clip_review.counted_extra(passed, ["a", "b"], ["Lina"])["problems"] == ["extra_person"]
+
+
+def test_a_take_with_a_held_problem_loses_to_soft_ones():
+    assert sp.flaw({"problems": ["extra_person"]}) > sp.flaw({"problems": ["wrong_look", "action_missing", "mood_mismatch"]})
+
+
+def test_the_head_count_is_off_in_the_rehearsal(monkeypatch):
+    monkeypatch.setenv("GHERAS_FAKE_PROVIDERS", "1")
+    assert asyncio.run(clip_review.people_in(cartoon_picture())) is None

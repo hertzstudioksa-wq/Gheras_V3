@@ -229,7 +229,8 @@ OUTFIT_REDO_NOTE = ("Nothing comes off or changes on anyone: every hat, cap, bad
                     "exactly as in the first frame until the last frame.")
 CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks or jumps, the camera holds still."
 # How bad a flagged frame is, to keep the least broken of several takes.
-FLAW_WEIGHT = {"noise": 10, "deformed": 3, "melting": 3, "duplicate": 2, "extra_person": 2, "wrong_look": 2,
+# A start frame with a held problem is never animated, so any take without one is the better take.
+FLAW_WEIGHT = {"noise": 30, "deformed": 8, "melting": 3, "duplicate": 8, "extra_person": 8, "wrong_look": 2,
                "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2}
 
 

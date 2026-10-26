@@ -238,13 +238,59 @@ async def shows_person(image: bytes) -> bool | None:
         return None
 
 
+# The full review saw "4 people" on a frame with a second child in a green helmet (five
+# in all), and that shot was animated. A question with only this job, listing each person,
+# counted all six test pictures right (three with an extra child, three without).
+PEOPLE_SYSTEM = ("You count the people drawn in one storybook picture. List every human figure you can see, left "
+                 "to right, including small ones in the background and anyone partly hidden or cut off by the frame "
+                 "edge, with a few words each (age, hair, hat or helmet color, top color). Dolls, plush toys, mascots, "
+                 "statues and figures printed on things are not people. Two figures that look alike are still two "
+                 'entries. Reply with JSON only: {"people": ["...", "..."]}')
+
+
+async def people_in(image: bytes) -> list[str] | None:
+    """Every human figure in the picture, a few words each. None when the check can't run."""
+    from services.ai import fake_providers, fal
+    from services.ai.text_client import generate_vision
+
+    if fake_providers.enabled() or not await enabled():
+        return None
+    try:
+        data, mime = await asyncio.to_thread(_shrink, image, 1024)
+        url = await fal.upload(env_key="FAL_KEY_TEXT", data=data, content_type=mime, file_name="head-count.jpg")
+        answer = await generate_vision(stage="keyframe_review", model=REVIEW_MODEL, system=PEOPLE_SYSTEM,
+                                       user="List the people in this picture.", image_urls=[url], max_tokens=400)
+        start = (answer or "").find("{")
+        people = json.JSONDecoder().raw_decode(answer[start:])[0].get("people") if start >= 0 else None
+        return [str(p) for p in people] if isinstance(people, list) else None
+    except Exception as e:  # noqa: BLE001
+        if engine_health.is_balance_message(e):
+            raise
+        logger.warning(f"[review] head count skipped: {type(e).__name__}: {str(e)[:160]}")
+        return None
+
+
+def counted_extra(verdict: dict, people: list[str] | None, expected: list[str]) -> dict:
+    """More people listed than the shot's cast: an extra person, whatever the full review said.
+    Fewer is left alone (a cast member can be off the edge, and an animal isn't listed)."""
+    if people is None or len(people) <= len(expected):
+        return verdict
+    problems = list(dict.fromkeys([*(verdict.get("problems") or []), "extra_person"]))
+    note = f"head count: {len(people)} people for {len(expected)} — " + "; ".join(people)
+    logger.warning(f"[review] keyframe {note[:300]}")
+    return {**verdict, "ok": False, "problems": problems, "people_seen": len(people),
+            "note": (note + (" | " + verdict["note"] if verdict.get("note") else ""))[:600]}
+
+
 async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list[str], action: str,
                           sheets: list[tuple[str, bytes, str]] | None = None, objects: list[str] | None = None) -> dict:
     static = await asyncio.to_thread(static_verdict, [image])
     if static:
         return static
-    verdict = await _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets,
-                         objects=objects)
+    verdict, people = await asyncio.gather(
+        _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets, objects=objects),
+        people_in(image) if expected else asyncio.sleep(0))
+    verdict = counted_extra(verdict, people, expected)
     # Nothing moves in one picture: the reviewer still flagged "object_alive" on
     # keyframes (three takes each, some without the toy in them at all).
     if "object_alive" in (verdict.get("problems") or []):
