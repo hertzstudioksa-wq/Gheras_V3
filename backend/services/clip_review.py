@@ -195,7 +195,7 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
                            "first_frame_given": bool(first), "action": (action or "")[:400],
                            "story_objects": objects or []}, ensure_ascii=False)
         answer = await generate_vision(stage=stage, model=REVIEW_MODEL, system=SYSTEM, user=user, image_urls=urls,
-                                       max_tokens=300)
+                                       max_tokens=600)  # 300 cut a long note mid-string: no verdict
         verdict = _verdict(answer)
     except Exception as e:  # noqa: BLE001 — a review that can't run never blocks the story...
         if engine_health.is_balance_message(e):

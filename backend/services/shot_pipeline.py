@@ -636,7 +636,9 @@ WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and o
 # A plush with a face is a character to a video model: a cartoon-hero plush raised its
 # arms and opened its mouth when the boys cheered.
 def lifeless(objects: list[str] | None, toys: list[str] | None = None) -> str:
-    toy_text = " ".join(f"{t[:1].upper()}{t[1:]} is a toy: its eyes never blink and its face never changes."
+    # Said positively: "never blinks" still let a doll sitting alone close its eyes.
+    toy_text = " ".join(f"{t[:1].upper()}{t[1:]} is a toy frozen like a statue: its eyes stay wide open and fixed, the "
+                        "same face in every frame."
                         for t in dict.fromkeys(toys or []))
     if not objects:
         return toy_text
