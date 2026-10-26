@@ -211,3 +211,19 @@ def test_shots_queue_in_story_order_and_references_start_from_a_blank_page():
     page = Image.open(_io.BytesIO(sp.blank_canvas()))
     assert page.size == (1536, 864) and len(set(page.getdata())) == 1
     assert "sheet" not in sp.object_sheet_prompt(sp.story_objects(PLAN)["kite"]).lower()
+
+
+def test_a_toy_the_words_name_joins_the_shot_with_the_toy_rules():
+    # the setting had the doll "visible in the distance" in a shot that didn't list it: it rode a scooter
+    hero = {"key": "hero_doll", "name_en": "the big Captain Comet doll", "look": "a plush hero", "toy": True}
+    bike = {"key": "bike", "name_en": "Lina's green bike", "look": "a green bike"}
+    objects = sp.story_objects({"story_objects": [KITE, bike, hero]})
+    far = {"scene_index": 3, "background_setting": "the park path, Comet visible far away on the bench"}
+    keys = lambda sh, sc=None: [o["key"] for o in sp.shot_objects(sh, objects, sc)]  # noqa: E731
+    assert keys(shot(["child"], ["kite"], "Lina runs."), far) == ["hero_doll", "kite"]  # the toy first
+    assert keys(shot(["child"], ["kite", "bike"], "Lina looks at the captain's ship."), far) == ["hero_doll", "kite"]
+    assert keys(shot(["child"], [], "Lina runs toward Captain Comet.")) == ["hero_doll"]
+    # its owner's name, a word every toy shares, or a non-toy mentioned don't add anything
+    assert keys(shot(["child"], [], "Lina hugs her big doll and rides her green bike."), SCENE) == []
+    assert sp._toy_words(objects["hero_doll"]) == {"captain", "comet"}
+    assert sp._toy_words({"key": "lina_teddy", "name": "Lina's teddy bear"}) == {"teddy", "bear"}

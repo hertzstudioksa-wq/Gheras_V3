@@ -454,7 +454,7 @@ async def prompt_preview(order_id: str):
                         notes.append(shot_pipeline.PREV_SHOT_NOTE)
                     elif previous == "scene":
                         notes.append(shot_pipeline.PREV_SCENE_NOTE)
-                    in_shot = shot_pipeline.shot_objects(sh, objects)
+                    in_shot = shot_pipeline.shot_objects(sh, objects, sc)
                     # On Comfy every story object gets its reference before the keyframes.
                     comfy_refs = shot_pipeline.comfy_references(sh, sc, sheets, toy, previous, in_shot) \
                         if on_comfy else []

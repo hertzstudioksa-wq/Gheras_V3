@@ -390,8 +390,29 @@ TOY_NOTE = ("It is a toy, not alive: if it is a known character, it has that cha
 TOY_POSE = "it sits upright like a stuffed toy or is held; it never stands, walks or poses by itself"
 
 
-def shot_objects(sh: dict, objects: dict[str, dict]) -> list[dict]:
-    return [objects[k] for k in dict.fromkeys(sh.get("objects") or []) if k in objects][:MAX_SHOT_OBJECTS]
+# Words that don't single a toy out: what every toy or size shares.
+_PLAIN_WORDS = {"doll", "toy", "toys", "plush", "plushie", "stuffed", "soft", "figure", "figurine", "big", "small",
+                "little", "tiny", "large", "official", "classic", "famous", "with", "the"}
+
+
+def _toy_words(obj: dict) -> set[str]:
+    """What names a toy in a prompt ("mickey", "mouse" for "the big Mickey Mouse doll"): its
+    name only (a key can carry the owner, "x_teddy"), not its owner ("X's"), not a word any
+    toy or size shares."""
+    words = re.findall(r"[a-z]+(?:['’]s)?", obj["name"].lower())
+    return {w for w in words if len(w) >= 4 and not w.endswith(("'s", "’s")) and w not in _PLAIN_WORDS}
+
+
+def shot_objects(sh: dict, objects: dict[str, dict], scene: dict | None = None) -> list[dict]:
+    """The shot's story objects: the plan's list, plus a toy its words or its scene's setting
+    name. The setting put a doll "visible in the distance" in a shot that didn't list it:
+    drawn with none of the toy rules, it rode a scooter. Toys come first under the cap."""
+    keys = [k for k in dict.fromkeys(sh.get("objects") or []) if k in objects]
+    said = set(re.findall(r"[a-z]+", f"{sh.get('keyframe_prompt') or ''} "
+                                     f"{(scene or {}).get('background_setting') or ''}".lower()))
+    keys += [k for k, o in objects.items() if o.get("toy") and k not in keys and _toy_words(o) & said]
+    keys.sort(key=lambda k: not objects[k].get("toy"))
+    return [objects[k] for k in keys][:MAX_SHOT_OBJECTS]
 
 
 def objects_line(objects: list[dict]) -> str:
@@ -458,7 +479,8 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
     if (await keyframe_engine())[0] != "comfy_image":
         return {}
     objects = story_objects(plan, favourite_toy(order))
-    used = {k for s in await _scenes(order, plan) for sh in s.get("shots") or [] for k in sh.get("objects") or []}
+    used = {o["key"] for s in await _scenes(order, plan) for sh in s.get("shots") or []
+            for o in shot_objects(sh, objects, s)}
     lock = _object_locks.setdefault(plan["id"], asyncio.Lock())
     async with lock:
         drawn = await load_object_sheets(order, plan)
@@ -841,7 +863,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             hero_url = hero_url or row["keyframe_url"]
             continue
         refs, notes, comfy_refs = [], [], []
-        in_shot = shot_objects(sh, objects)
+        in_shot = shot_objects(sh, objects, scene)
         if on_comfy:
             for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None,
                                       [o for o in in_shot if o["key"] in object_refs]):
