@@ -248,7 +248,8 @@ def test_a_cast_member_in_another_ones_place_is_a_held_flaw():
     for words in ("role_swap", "Roles swapped", "wrong person in the main role", "switched places"):
         assert clip_review._problem(words) == "role_swap", words
     assert clip_review._problem("wrong look") == "wrong_look"
-    assert "role_swap" in clip_review.SYSTEM and "role_swap" in sp.HOLD_PROBLEMS
+    assert "role_swap" not in clip_review.SYSTEM  # asked there, it called correct pictures swapped
+    assert "done_by" in clip_review.PARTS_SYSTEM and "role_swap" in sp.HOLD_PROBLEMS
     assert sp.held_problems({"ok": False, "problems": ["role_swap", "wrong_look"]}) == ["role_swap"]
 
 
@@ -276,3 +277,40 @@ def test_who_holds_a_toy_reads_each_name(monkeypatch):
     monkeypatch.setattr(text_client, "generate_vision", vision)
     held = asyncio.run(clip_review.toys_held(cartoon_picture(), ["the teddy", "the kite", "ball"]))
     assert held == {"the teddy": False, "the kite": True}  # an unclear answer stays unknown
+
+
+SHEETS3 = [("Lina", b"a", "image/png"), ("Sami (the child's friend)", b"b", "image/png"),
+           ("the child's dog", b"c", "image/png")]
+
+
+def test_a_part_done_by_another_cast_member_is_a_swap():
+    parts = [{"character": "Lina", "part": "stands apart", "done_by": "Sami"},
+             {"character": "Sami", "part": "rides the bike", "done_by": "none"},
+             {"character": "Sami's", "part": "holds the kite", "done_by": "the kite"}]
+    assert [p["part"] for p in clip_review.swapped_parts(parts, [s[0] for s in SHEETS3])] == ["stands apart"]
+    right = [{"character": "Lina", "part": "stands apart", "done_by": "Lina"},
+             {"character": "the child's dog", "part": "sleeps", "done_by": "the child's dog"}]
+    assert clip_review.swapped_parts(right, [s[0] for s in SHEETS3]) == []
+    assert clip_review.swapped_parts("garbage", ["Lina"]) == []
+
+
+def test_the_review_holds_a_swapped_picture(monkeypatch):
+    async def ask(*a, **k):
+        return {"ok": True, "problems": [], "note": ""}
+
+    async def count(image):
+        return ["a", "b"]
+
+    async def parts(image, sheets, action):
+        assert [s[0] for s in sheets] == ["Lina", "Sami (the child's friend)"]
+        return [{"character": "Lina", "part": "stands apart", "done_by": "Sami"}]
+
+    monkeypatch.setattr(clip_review, "_ask", ask)
+    monkeypatch.setattr(clip_review, "people_in", count)
+    monkeypatch.setattr(clip_review, "who_does_what", parts)
+    verdict = asyncio.run(clip_review.review_keyframe("2_2", cartoon_picture(), "image/png", ["Lina", "Sami"],
+                                                      "Lina stands apart.", SHEETS3[:2]))
+    assert not verdict["ok"] and verdict["problems"] == ["role_swap"]
+    assert verdict["note"].startswith("swapped: Lina's part (stands apart) is done by Sami")
+    one = asyncio.run(clip_review.review_keyframe("2_1", cartoon_picture(), "image/png", ["Lina"], "x", SHEETS3[:1]))
+    assert "role_swap" not in one["problems"]  # one person can't swap with anyone: not asked

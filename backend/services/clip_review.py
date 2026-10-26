@@ -73,9 +73,6 @@ SYSTEM = (
     "- text: written words or letters anywhere, except printing on someone's clothes that their reference sheet "
     "shows too (a shirt from the family's photo)\n"
     "- deformed: a badly broken face or body\n"
-    "- role_swap: a cast member is in another one's place: the person `action` puts somewhere or gives something "
-    "to do (apart from the others, in front, holding or riding something) is a different cast member — tell them "
-    "apart by their reference sheets (hair, hat or helmet color, clothes)\n"
     "- wrong_look: someone is clearly a different person from their reference sheet (another hair color or length, "
     "skin tone, age, beard or glasses), or two different characters look like the same person (the same face and "
     "clothes twice); a cartoon redrawing, another expression or pose, or slightly different curls is fine\n"
@@ -97,7 +94,7 @@ SYSTEM = (
     "expected people is not a problem by itself: someone can be hidden in a hug, behind another person or at the "
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
-    '"problems": [zero or more of: duplicate, extra_person, role_swap, clipping, vanishing, text, deformed, wrong_look, '
+    '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed, wrong_look, '
     'outfit_change, melting, action_missing, mood_mismatch, object_alive], '
     '"note": "<one short English sentence>"}'
 )
@@ -322,15 +319,97 @@ def counted_extra(verdict: dict, people: list[str] | None, expected: list[str]) 
             "note": (note + (" | " + verdict["note"] if verdict.get("note") else ""))[:600]}
 
 
+# GPT stood the friend where the child should be apart. Asked inside the full review,
+# the model also called correct pictures "swapped" (its own note said the right child
+# was in place). Listing everyone with their sheet first and then naming who does each
+# part, with the comparison left to the code, got 11 of 12 test pictures right and never
+# called a correct one swapped.
+PARTS_SYSTEM = ("You check who does what in one storybook picture. The images are one reference sheet per name in "
+                "`sheets` (in that order), then the picture. First list every person in the picture, left to right: "
+                "what they look like (hair, hat or helmet color, top color), which sheet they match, and what they "
+                "are doing and where. Then, for each character the `action` gives a part of their own (standing "
+                "apart from the others, holding, hugging or riding a certain thing, being in a named place), say who "
+                "in your list does that part. Reply with JSON only: "
+                '{"people": [{"looks": "...", "sheet": "<name from sheets, or none>", "doing": "..."}], '
+                '"parts": [{"character": "<name from the action>", "part": "<a few words>", '
+                '"done_by": "<the sheet name of the person doing it, or none>"}]}')
+
+
+def _sheet_name(label: str) -> str:
+    return re.sub(r"\s*\(.*\)\s*$", "", label or "").strip().lower()
+
+
+def swapped_parts(parts: list | None, names: list[str]) -> list[dict]:
+    """The parts done by another cast member than the one the action gives them to (both
+    must be cast members by name: "none", a toy or a vague answer is never a swap)."""
+    known = {_sheet_name(n) for n in names if _sheet_name(n)}
+
+    def who(value) -> str | None:
+        """A cast member's sheet name, or None: an exact name, or a first name ("Sami's" → "sami")."""
+        v = _sheet_name(str(value or ""))
+        if v in known:
+            return v
+        first = re.sub(r"['’]s$", "", v.split(" ")[0]) if v else ""
+        return first if first in known else None
+
+    out = []
+    for p in parts if isinstance(parts, list) else []:
+        if isinstance(p, dict):
+            owner, doer = who(p.get("character")), who(p.get("done_by"))
+            if owner and doer and owner != doer:
+                out.append(p)
+    return out
+
+
+async def who_does_what(image: bytes, sheets: list[tuple[str, bytes, str]], action: str) -> list | None:
+    """The action's parts and whose sheet the person doing each one matches. None when the
+    check can't run."""
+    from services.ai import fake_providers, fal
+    from services.ai.text_client import generate_vision
+
+    if fake_providers.enabled() or len(sheets) < 2 or not await enabled():
+        return None
+    try:
+        urls = []
+        for i, (_label, data, _mime) in enumerate(sheets):
+            small, mime = await asyncio.to_thread(_shrink, data)
+            urls.append(await fal.upload(env_key="FAL_KEY_TEXT", data=small, content_type=mime, file_name=f"sheet-{i}.jpg"))
+        small, mime = await asyncio.to_thread(_shrink, image, 1024)
+        urls.append(await fal.upload(env_key="FAL_KEY_TEXT", data=small, content_type=mime, file_name="parts.jpg"))
+        answer = await generate_vision(stage="keyframe_review", model=REVIEW_MODEL, system=PARTS_SYSTEM, image_urls=urls,
+                                       user=json.dumps({"sheets": [_sheet_name(lb) for lb, _, _ in sheets],
+                                                        "action": (action or "")[:600]}, ensure_ascii=False),
+                                       max_tokens=900)
+        start = (answer or "").find("{")
+        return json.JSONDecoder().raw_decode(answer[start:])[0].get("parts") if start >= 0 else None
+    except Exception as e:  # noqa: BLE001
+        if engine_health.is_balance_message(e):
+            raise
+        logger.warning(f"[review] who-does-what check skipped: {type(e).__name__}: {str(e)[:160]}")
+        return None
+
+
+def with_swaps(verdict: dict, parts: list | None, sheets: list[tuple[str, bytes, str]] | None) -> dict:
+    swaps = swapped_parts(parts, [label for label, _, _ in sheets or []])
+    if not swaps:
+        return verdict
+    note = "swapped: " + "; ".join(f"{p.get('character')}'s part ({p.get('part')}) is done by {p.get('done_by')}"
+                                   for p in swaps)
+    logger.warning(f"[review] keyframe {note[:300]}")
+    return {**verdict, "ok": False, "problems": list(dict.fromkeys([*(verdict.get("problems") or []), "role_swap"])),
+            "note": (note + (" | " + verdict["note"] if verdict.get("note") else ""))[:600]}
+
+
 async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list[str], action: str,
                           sheets: list[tuple[str, bytes, str]] | None = None, objects: list[str] | None = None) -> dict:
     static = await asyncio.to_thread(static_verdict, [image])
     if static:
         return static
-    verdict, people = await asyncio.gather(
+    verdict, people, parts = await asyncio.gather(
         _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets, objects=objects),
-        people_in(image) if expected else asyncio.sleep(0))
-    verdict = counted_extra(verdict, people, expected)
+        people_in(image) if expected else asyncio.sleep(0),
+        who_does_what(image, sheets or [], action) if len(sheets or []) >= 2 else asyncio.sleep(0))
+    verdict = with_swaps(counted_extra(verdict, people, expected), parts, sheets)
     # Nothing moves in one picture: the reviewer still flagged "object_alive" on
     # keyframes (three takes each, some without the toy in them at all).
     if "object_alive" in (verdict.get("problems") or []):
