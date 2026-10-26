@@ -443,19 +443,21 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
         if not style_ref:
             return drawn
         _provider, model = await keyframe_engine()
-        from services.clip_review import static_verdict
+        from services.clip_review import shows_person, static_verdict
 
         async def draw(obj: dict) -> None:
             prompt, gpu = object_sheet_prompt(obj), 0.0
             try:
-                for _take in range(3):  # Qwen sometimes returns coloured static
+                # Qwen sometimes returns coloured static, and once drew the style
+                # sample's child on the scooter: a person here would be drawn twice.
+                for _take in range(3):
                     img, mime, meta = await comfy_image(stage="scene_image_generation", model=model, prompt=prompt,
                                                         references=[style_ref[0]])
                     gpu += meta.get("gpu_seconds") or 0
-                    if not await asyncio.to_thread(static_verdict, [img]):
+                    if not await asyncio.to_thread(static_verdict, [img]) and not await shows_person(img):
                         break
                 else:
-                    raise AIError(f"the reference of {obj['name']} came out as coloured static three times")
+                    raise AIError(f"the reference of {obj['name']} came out as static or with a person three times")
             except AIPermanentError:
                 raise
             except Exception as e:  # noqa: BLE001 — the shots still get the look in words

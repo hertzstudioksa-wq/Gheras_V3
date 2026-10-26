@@ -343,3 +343,20 @@ def test_two_friends_keep_two_sheets():
         assert sheets["friend"]["url"] == "/u/sam" and sheets["friend"]["label"] == "Sam (the child's friend)"
         assert sheets["friend_2"]["url"] == "/u/ali" and sheets["friend_2"]["label"] == "Ali (the child's friend)"
     run(go())
+
+
+def test_an_object_reference_with_a_person_is_drawn_again(monkeypatch):
+    # the scooter's reference came out with the style sample's child standing on it
+    async def go():
+        from services import clip_review
+
+        answers = iter([True, False])
+
+        async def person(image):
+            return next(answers)
+
+        monkeypatch.setattr(clip_review, "shows_person", person)
+        await _story("op", objects=True)
+        drawn = await db.object_sheets.find({"order_id": "op"}, {"_id": 0}).to_list(10)
+        assert len(drawn) == 1 and drawn[0]["gpu_seconds"] == 40 and drawn[0]["image_url"]  # two takes paid
+    run(go())

@@ -207,6 +207,34 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
     return verdict
 
 
+# A story object's reference is drawn with a cast sheet as the style sample, and
+# the scooter's reference came out with the child standing on it: in the shots that
+# would have put him in twice. Asked before the reference is used.
+PERSON_SYSTEM = ('You look at one picture. Answer with JSON only: {"person": true or false} — true when a human '
+                 "(a child or an adult) is drawn anywhere in it; a toy, a doll or a cartoon animal is not a person.")
+
+
+async def shows_person(image: bytes) -> bool | None:
+    """Is a human drawn in the picture? None when the check can't run."""
+    from services.ai import fake_providers, fal
+    from services.ai.text_client import generate_vision
+
+    if fake_providers.enabled() or not await enabled():
+        return None
+    try:
+        data, mime = await asyncio.to_thread(_shrink, image, 768)
+        url = await fal.upload(env_key="FAL_KEY_TEXT", data=data, content_type=mime, file_name="object-reference.jpg")
+        answer = await generate_vision(stage="object_reference_review", model=REVIEW_MODEL, system=PERSON_SYSTEM,
+                                       user="Is there a person in this picture?", image_urls=[url], max_tokens=60)
+        start = (answer or "").find("{")
+        return bool(json.JSONDecoder().raw_decode(answer[start:])[0].get("person")) if start >= 0 else None
+    except Exception as e:  # noqa: BLE001
+        if engine_health.is_balance_message(e):
+            raise
+        logger.warning(f"[review] object reference check skipped: {type(e).__name__}: {str(e)[:160]}")
+        return None
+
+
 async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list[str], action: str,
                           sheets: list[tuple[str, bytes, str]] | None = None, objects: list[str] | None = None) -> dict:
     static = await asyncio.to_thread(static_verdict, [image])
