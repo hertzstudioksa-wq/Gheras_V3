@@ -51,7 +51,7 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
   },
   "characters": [
     {
-      "type": "child|mother|father|sibling|friend|teacher|grandparent|other",
+      "type": "child, or the character's key exactly as in the list of characters (mother, father, friend, friend_2...)",
       "name": "Arabic name if any",
       "name_en": "Transliterated name",
       "visual_description": "English detailed appearance (face, hair, body type, eyes, skin tone)",
@@ -167,7 +167,7 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - عدد scenes = target_scene_count بالضبط.
 - عدد book_pages = عدد scenes (1 لكل مشهد).
 - characters: الطفل إلزامي (type=child). أضف أي شخصية بارزة ذُكرت في بيانات الطلب.
-- characters_in_scene: استخدم type (child/mother/...) وليس name — سيتم ربطها داخلياً.
+- characters_in_scene و characters في كل لقطة: استخدم مفتاح الشخصية كما في قائمة الشخصيات (child, mother, friend, friend_2...) وليس name — سيتم ربطها داخلياً. شخصيتان من نفس النوع (صديقان، أخوان) لكل منهما مفتاحه، وكل من يظهر في اللقطة يُذكر بمفتاحه.
 - الشخصيات ذات role = mentioned تُذكر بالاسم في السرد فقط ولا تظهر بصرياً: لا تضعها في characters_in_scene ولا في characters أي لقطة، ولا تصفها في keyframe_prompt.
 - الطفل وأي شخصية لها reference_image_url (صورة حقيقية): اكتب clothing_style = "same as in the photo" — ملابس الصورة هي ما يجعل الأهل يتعرّفون على الشخصية. غيّرها فقط إذا احتاجت القصة ملابس معيّنة (بيجامة وقت النوم، ملابس سباحة، زي تنكري...) واكتب حينها الملابس الجديدة صراحةً.
 - أي زي أو إكسسوار تلبسه الشخصية في معظم القصة (كاب شرطة، عباءة بطل، بالطو دكتور، تاج، نظارة غطس...) يُكتب في clothing_style نفسه، مش في key_features بس: مثلاً "same as in the photo, plus a blue police cap with a gold badge and a silver whistle on a cord". الشيت المرجعي يُرسم منه، وموديل الفيديو يرجّع الشخصية لشكل الشيت — فالإكسسوار اللي مش في الشيت يختفي في نص اللقطة.
@@ -288,11 +288,12 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 
     arc = ARC_TEMPLATES.get(target_scenes) or ARC_TEMPLATES[6]
 
+    keys = house_style.cast_keys(chars)
     chars_brief = "\n".join(
-        f"- {c.get('type')}{' (' + (c.get('name') or '') + ')' if c.get('name') else ''} — {c.get('role','mentioned')}"
+        f"- {key}{' (' + (c.get('name') or '') + ')' if c.get('name') else ''} — {c.get('role','mentioned')}"
         + (f"\n  reference_image_url: {c.get('image_url')}" if c.get("role") == "visible" and c.get("image_url") else "")
         + (f"\n  auto_visual_description: {c.get('visual_description_auto')}" if c.get("visual_description_auto") else "")
-        for c in chars
+        for key, c in zip(keys, chars)
     ) or "لا يوجد"
 
     fav_brief = "، ".join(
@@ -386,7 +387,7 @@ def _build_production_context(order: dict, scenario: dict, target_scenes: int) -
     arc = ARC_TEMPLATES.get(target_scenes) or ARC_TEMPLATES[6]
 
     chars_brief = "، ".join(
-        f"{c.get('type','')}: {c.get('name','')}" for c in chars if c.get("name")
+        f"{key}: {c.get('name','')}" for key, c in zip(house_style.cast_keys(chars), chars) if c.get("name")
     ) or "لا يوجد"
 
     fav_brief = "، ".join(

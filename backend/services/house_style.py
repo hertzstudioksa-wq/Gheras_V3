@@ -91,6 +91,26 @@ NO_PRINT = ("Leave out printed words, letters, numbers and logos on the clothes:
             "colors, plain where the print was")
 
 
+def cast_keys(characters: list[dict]) -> list[str]:
+    """One key per character of the order, in its order: the type, and type_2,
+    type_3 for a second and third of the same type. Two friends were both
+    "friend": the plan, the shots and the sheets kept only one of them, so the
+    second boy had no photo reference."""
+    seen: dict[str, int] = {}
+    keys = []
+    for c in characters or []:
+        t = str(c.get("type") or "other").strip() or "other"
+        seen[t] = seen.get(t, 0) + 1
+        keys.append(t if seen[t] == 1 else f"{t}_{seen[t]}")
+    return keys
+
+
+def base_type(key: str) -> str:
+    """friend_2 → friend (what a label says)."""
+    head, _, tail = (key or "").rpartition("_")
+    return head if head and tail.isdigit() else key
+
+
 def outfit_rule(outfit: str | None) -> str:
     """Keep the photo's outfit (what makes a child recognisable to their parents)
     unless the story needs specific clothes. A costume worn through the story

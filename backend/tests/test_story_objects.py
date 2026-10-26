@@ -170,3 +170,19 @@ def test_a_toy_with_a_face_is_drawn_and_animated_as_a_toy():
     assert "famous design exactly" in sp.TOY_NOTE and "official plush" in sp.TOY_NOTE
     for words in ("toy = true", "بشكلها المشهور", "تتحرك وتتكلم عادي، وليست من story_objects", "لا تقف ولا تمشي وحدها"):
         assert words in ps.SYSTEM_MSG
+
+
+def test_two_characters_of_the_same_type_get_their_own_keys():
+    # two friends were both "friend": the second boy had no sheet and no place in the shots
+    from services import house_style
+
+    chars = [{"type": "friend", "name": "A"}, {"type": "friend", "name": "B"}, {"type": "father"},
+             {"type": "mother", "role": "mentioned"}, {"type": "friend", "name": "C"}]
+    assert house_style.cast_keys(chars) == ["friend", "friend_2", "father", "mother", "friend_3"]
+    assert house_style.base_type("friend_2") == "friend" and house_style.base_type("grand_parent") == "grand_parent"
+    assert sp._label({"type": "friend_2", "name_en": "Baraa"}, "Yaman") == "Baraa (the child's friend)"
+    order = {"data": {"child": {"name": "x"}, "goal": {}, "personalization": {}, "characters": chars},
+             "duration": {"seconds": 60}}
+    text = ps._build_user_prompt(order, {}, 5)
+    assert "- friend (A)" in text and "- friend_2 (B)" in text and "- friend_3 (C)" in text
+    assert "friend_2" in ps.SYSTEM_MSG

@@ -106,7 +106,7 @@ async def shot_rows(order_id: str, plan_id: str) -> list[dict]:
 
 # ---------------------------------------------------------------- cast & sheets
 def _label(profile: dict, child_name: str) -> str:
-    t = profile.get("type") or "character"
+    t = house_style.base_type(profile.get("type") or "character")
     if t == "child":
         return profile.get("name_en") or child_name or "the child"
     name = profile.get("name_en") or profile.get("name")
@@ -150,10 +150,12 @@ async def load_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
     if child:
         sheets["child"] = {"url": child["generated_image_url"], "from_photo": True,
                            "label": _label(profiles.get("child") or {"type": "child"}, child_name)}
+    keys = house_style.cast_keys((order.get("data") or {}).get("characters") or [])
     async for a in db.extra_character_assets.find(
         {"order_id": order["id"], "status": "completed", "generated_image_url": {"$ne": None}}, {"_id": 0},
     ):
-        t = a.get("character_type")
+        i = a.get("character_index")
+        t = keys[i] if isinstance(i, int) and 0 <= i < len(keys) else a.get("character_type")
         if t and t not in sheets:
             sheets[t] = {"url": a["generated_image_url"], "from_photo": True,
                          "label": _label(profiles.get(t) or {"type": t}, child_name)}
@@ -176,7 +178,8 @@ async def ensure_character_sheets(order: dict, plan: dict, photo_free_only: bool
     profiles = await _profiles(plan)
     sheets = await load_character_sheets(order, plan)
     style = await engine_config.style_for_order(order)
-    with_photo = {c.get("type") for c in ((order.get("data") or {}).get("characters") or [])
+    chars = (order.get("data") or {}).get("characters") or []
+    with_photo = {k for k, c in zip(house_style.cast_keys(chars), chars)
                   if c.get("role") == "visible" and c.get("image_url")}
     todo = [t for t in sorted(needed - set(sheets)) if profiles.get(t) and t != "child"
             and not (photo_free_only and t in with_photo)]

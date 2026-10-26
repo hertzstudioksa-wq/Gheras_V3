@@ -111,9 +111,10 @@ async def _run_one(order: dict, character_index: int, character: dict,
     # with the outfit the story plan gives this relative ("same as in the photo" by default).
     outfit = None
     if order.get("production_plan_id"):
+        keys = house_style.cast_keys((order.get("data") or {}).get("characters") or [])
+        key = keys[character_index] if 0 <= character_index < len(keys) else character.get("type")
         profile = await db.character_profiles.find_one(
-            {"production_plan_id": order["production_plan_id"], "type": character.get("type")},
-            {"_id": 0, "clothing_style": 1})
+            {"production_plan_id": order["production_plan_id"], "type": key}, {"_id": 0, "clothing_style": 1})
         outfit = (profile or {}).get("clothing_style")
     who = (f"{character.get('name')}, the child's {character.get('type')}" if character.get("name")
            else f"the child's {character.get('type') or 'relative'}")

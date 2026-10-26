@@ -322,3 +322,24 @@ def test_a_story_object_is_drawn_once_and_rides_along_its_shots():
         item = next(i for i in cost["items"] if i["key"] == "object_sheets")
         assert item["quantity"] == 20 and item["unit"] == "ثانية GPU"
     run(go())
+
+
+def test_two_friends_keep_two_sheets():
+    async def go():
+        oid = "ff"
+        order = {"id": oid, "user_id": "u", "data": {"child": {"name": "Lina"}, "characters": [
+            {"type": "friend", "name": "Sam", "role": "visible", "image_url": "/a"},
+            {"type": "friend", "name": "Ali", "role": "visible", "image_url": "/b"}]}}
+        plan = {"id": "p-ff"}
+        await db.character_profiles.insert_many([
+            {"production_plan_id": "p-ff", "type": "friend", "name_en": "Sam"},
+            {"production_plan_id": "p-ff", "type": "friend_2", "name_en": "Ali"}])
+        await db.extra_character_assets.insert_many([
+            {"order_id": oid, "character_index": 1, "character_type": "friend", "status": "completed",
+             "generated_image_url": "/u/ali"},
+            {"order_id": oid, "character_index": 0, "character_type": "friend", "status": "completed",
+             "generated_image_url": "/u/sam"}])
+        sheets = await sp.load_character_sheets(order, plan)
+        assert sheets["friend"]["url"] == "/u/sam" and sheets["friend"]["label"] == "Sam (the child's friend)"
+        assert sheets["friend_2"]["url"] == "/u/ali" and sheets["friend_2"]["label"] == "Ali (the child's friend)"
+    run(go())
