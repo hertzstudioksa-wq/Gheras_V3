@@ -186,3 +186,16 @@ def test_two_characters_of_the_same_type_get_their_own_keys():
     text = ps._build_user_prompt(order, {}, 5)
     assert "- friend (A)" in text and "- friend_2 (B)" in text and "- friend_3 (C)" in text
     assert "friend_2" in ps.SYSTEM_MSG
+
+
+def test_a_worn_thing_named_only_in_the_features_goes_on_the_sheet():
+    # the plan put each boy's bike helmet in key_features: no sheet had it, the shots did
+    assert ps.worn_in_outfit("same as in the photo", "light-brown hair; orange kids' bike helmet") == \
+        "same as in the photo, plus orange kids' bike helmet"
+    assert ps.worn_in_outfit("same as in the photo, plus a blue police cap", "curly hair; blue police cap") == \
+        "same as in the photo, plus a blue police cap"
+    assert ps.worn_in_outfit("same as in the photo", "short dark hair; full beard") == "same as in the photo"
+    from services import house_style
+
+    rule = house_style.outfit_rule(ps.worn_in_outfit("same as in the photo", ["yellow kids' bike helmet"]))
+    assert "yellow kids' bike helmet" in rule

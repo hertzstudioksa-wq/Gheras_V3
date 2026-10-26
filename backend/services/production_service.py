@@ -590,6 +590,25 @@ def _normalise_shots(raw) -> list[dict]:
 
 MAX_STORY_OBJECTS = 3
 
+# Things worn. The sheet is drawn from clothing_style, so a helmet the plan put in
+# key_features only (scooter story) was on no sheet while the shots asked for it —
+# the way a cap missing from the sheet came off mid-shot.
+WEARABLES = ("helmet", "cap", "hat", "glasses", "sunglasses", "goggles", "backpack", "bag", "cape", "crown",
+             "tiara", "mask", "scarf", "headband", "apron", "badge", "vest", "jacket", "gloves", "costume",
+             "uniform", "bow tie", "whistle")
+_WORN = re.compile(r"\b(" + "|".join(re.escape(w) for w in WEARABLES) + r")s?\b", re.I)
+
+
+def worn_in_outfit(clothing: str, features) -> str:
+    """clothing_style plus every worn thing key_features names that it doesn't."""
+    clothing = str(clothing or "").strip()
+    text = ", ".join(map(str, features)) if isinstance(features, list) else str(features or "")
+    worn = [p.strip() for p in re.split(r"[;,]", text) if p.strip() and _WORN.search(p)]
+    missing = [w for w in worn if w.lower() not in clothing.lower()]
+    if not clothing or not missing:
+        return clothing
+    return f"{clothing.rstrip(' .')}, plus {' and '.join(missing)}"
+
 
 def _object_key(raw) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(raw or "").strip().lower()).strip("_")[:40]
@@ -634,7 +653,7 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             "name": c.get("name"),
             "name_en": c.get("name_en"),
             "visual_description": c.get("visual_description", ""),
-            "clothing_style": c.get("clothing_style", ""),
+            "clothing_style": worn_in_outfit(c.get("clothing_style", ""), c.get("key_features", "")),
             "key_features": c.get("key_features", ""),
             "reference_image_url": c.get("reference_image_url"),
             "is_archived": False,
