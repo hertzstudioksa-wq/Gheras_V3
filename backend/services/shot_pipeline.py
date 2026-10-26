@@ -368,13 +368,13 @@ def story_objects(plan: dict, toy: dict | None = None) -> dict[str, dict]:
     return out
 
 
-# A plush drawn from a famous cartoon came out as the character itself: standing on
-# its own, glossy eyes with eyelids, and in the clip it blinked and cheered along.
-# A toy with a face is drawn and animated as a toy.
-TOY_NOTE = ("It is a toy, not a living character, even if it is shaped like a known cartoon character: its own "
-            "material shows (soft fabric with stitched seams, or molded plastic), its eyes are flat and stitched or "
-            "painted with no eyelids and no shine, its mouth is stitched shut, its limbs are soft and limp")
-TOY_POSE = "it never stands or poses by itself: it sits slumped, lies, or is held"
+# A plush of a famous cartoon came out as the character itself (standing on its own,
+# blinking in the clip); "flat stitched eyes, limp" then made a cheap plush nobody
+# recognised. The owner: the famous design exactly, made as its plush, still a toy.
+TOY_NOTE = ("It is a toy, not alive: if it is a known character, it has that character's famous design exactly "
+            "(the same face, eye shape and colors, hair or quills, outfit and colors) made as its official plush or "
+            "figure from a toy shop, in its toy material (soft plush fabric with seams, or molded plastic)")
+TOY_POSE = "it sits upright like a stuffed toy or is held; it never stands, walks or poses by itself"
 
 
 def shot_objects(sh: dict, objects: dict[str, dict]) -> list[dict]:
@@ -400,7 +400,7 @@ def object_sheet_prompt(obj: dict) -> str:
         f"SUBJECT, as a clear reference picture: {obj['sheet_view'].rstrip('.')}. Look: {obj['look'].rstrip('.')}."
         if obj.get("sheet_view") else
         f"SUBJECT: {obj['name']} alone, as a clear reference picture: {obj['look'].rstrip('.')}.",
-        f"{TOY_NOTE}. It sits slumped on the floor, lifeless." if obj.get("toy") else "",
+        f"{TOY_NOTE}. It sits upright on the floor like a stuffed toy, facing forward." if obj.get("toy") else "",
         "Centered, whole and large in the frame on a plain soft cream background with a light shadow under it. "
         "No people, no hands, nothing else.",
         COMFY_STYLE,
@@ -636,8 +636,8 @@ WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and o
 # A plush with a face is a character to a video model: a cartoon-hero plush raised its
 # arms and opened its mouth when the boys cheered.
 def lifeless(objects: list[str] | None, toys: list[str] | None = None) -> str:
-    toy_text = " ".join(f"{t[:1].upper()}{t[1:]} is a toy with flat stitched or painted eyes: it never blinks and its face never "
-                        "changes." for t in dict.fromkeys(toys or []))
+    toy_text = " ".join(f"{t[:1].upper()}{t[1:]} is a toy: its eyes never blink and its face never changes."
+                        for t in dict.fromkeys(toys or []))
     if not objects:
         return toy_text
     names = list(dict.fromkeys(objects))

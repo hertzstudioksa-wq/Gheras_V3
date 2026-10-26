@@ -165,6 +165,8 @@ def test_a_toy_with_a_face_is_drawn_and_animated_as_a_toy():
     refs = sp.comfy_references(shot(["child"], ["teddy"]), SCENE, SHEETS, None, None, [objects["teddy"]])
     assert sp.TOY_POSE in sp.comfy_identity(refs, PROFILES, SHEETS)
     text = sp.wan_motion_prompt("Lina cheers.", 1, objects=["the brown teddy"], toys=["the brown teddy"])
-    assert "The brown teddy is a toy with flat stitched or painted eyes: it never blinks" in text
-    for words in ("toy = true", "لا تقف وحدها أبداً", "دمية منها، لا الشخصية نفسها"):
+    assert "The brown teddy is a toy: its eyes never blink and its face never changes." in text
+    # the owner: a famous character's doll keeps its famous design; a hero moves and talks
+    assert "famous design exactly" in sp.TOY_NOTE and "official plush" in sp.TOY_NOTE
+    for words in ("toy = true", "بشكلها المشهور", "تتحرك وتتكلم عادي، وليست من story_objects", "لا تقف ولا تمشي وحدها"):
         assert words in ps.SYSTEM_MSG
