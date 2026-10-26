@@ -438,3 +438,29 @@ def test_a_rerun_never_pays_for_music_again(monkeypatch):
         await go_._music_stage(order, {"id": "mu-plan-2"}, "r4")  # a new plan (the story changed) gets its own
         assert calls == ["r1", "r4"]
     run(go())
+
+
+def test_a_refused_gpt_take_is_drawn_on_qwen_and_gpt_isnt_asked_again(monkeypatch):
+    # GPT's content checker refused a shot naming a famous toy, and the whole shot failed
+    async def go():
+        from services.ai import AIPermanentError
+
+        calls = []
+        real = sp.generate_image
+
+        async def refusing(*a, **k):
+            if k.get("engine"):
+                calls.append(k["engine"])
+                raise AIPermanentError("fal call failed (scene_image_generation): HTTP 422: content flagged")
+            return await real(*a, **k)
+
+        monkeypatch.setattr(sp, "generate_image", refusing)
+        _takes(monkeypatch, [{"ok": False, "problems": ["extra_person"]}, {"ok": False, "problems": ["duplicate"]},
+                             {"ok": False, "problems": ["text"]}])
+        await _story("rf")
+        r = await _row("rf", 1, 1)
+        assert calls == [sp.RESCUE_ENGINE]  # asked once, never again for this shot
+        assert r["keyframe_url"] and r["paid_keyframes"] == 3 and not r.get("paid_rescue_keyframes")
+        assert r["keyframe_gpu_seconds"] == 60 and r["image_model"].startswith("comfy/")
+        assert r["keyframe_review"]["problems"] == ["text"]
+    run(go())

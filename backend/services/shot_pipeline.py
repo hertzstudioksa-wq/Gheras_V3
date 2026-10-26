@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import clip_review, engine_config, house_style, pronunciation, toy_freeze
+from services import clip_review, engine_config, engine_health, house_style, pronunciation, toy_freeze
 from services.ai import AIConfigError, AIError, AIPermanentError, comfy, fal
 from services.ai.image_client import WIDE, comfy_image, comfy_workflow
 from services.child_character_service import _fetch_source_bytes
@@ -947,8 +947,26 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         # noise on a redraw).
         best = chosen = rescue = None
         engine = "qwen" if on_comfy else "stage"
+        # GPT refused a shot naming a famous toy ("content flagged") and the whole shot
+        # failed: a refused or failed GPT take is drawn on Qwen instead, and GPT isn't asked again.
+        gpt_ok = True
         for attempt in range(first, (3 if on_comfy else 2) + 1):
             resumed = False
+            if engine == "gpt":
+                rescue = rescue or await gpt_inputs(sh, in_shot, extra_refs)
+                take_refs, used, used_notes = rescue
+                try:
+                    img, mime, meta = await generate_image(
+                        scene_prompt=used if attempt == 1 else f"{used} {REDRAW_NOTE}", references=take_refs or None,
+                        stage="scene_image_generation", size=WIDE, raw_prompt=True,
+                        session_hint=f"shot-{shot_key}-{order['id'][:6]}-{attempt}", engine=RESCUE_ENGINE)
+                    used_refs = [f"{n}) {note}" for n, note in enumerate(used_notes, 1)]
+                except Exception as e:  # noqa: BLE001 — this take goes back to Qwen...
+                    if engine_health.is_balance_message(e):
+                        raise  # ...unless the balance ran out: the order pauses
+                    logger.warning(f"[shots] {shot_key}: GPT take failed, drawing on Qwen: "
+                                   f"{type(e).__name__}: {str(e)[:160]}")
+                    gpt_ok, engine = False, "qwen"
             if engine == "qwen":
                 text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
 
@@ -970,20 +988,13 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                     raise
                 resumed, resume_id = bool(resume_id), None
                 used, used_refs = prompt, describe_refs(comfy_refs, sheets)
-            else:
-                if engine == "gpt":
-                    rescue = rescue or await gpt_inputs(sh, in_shot, extra_refs)
-                    take_refs, used, used_notes = rescue
-                else:
-                    take_refs, used, used_notes = refs, prompt, notes
-                text = used if attempt == 1 else f"{used} {REDRAW_NOTE}"
+            elif engine == "stage":
                 img, mime, meta = await generate_image(
-                    scene_prompt=text, references=take_refs or None,
+                    scene_prompt=prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}", references=refs or None,
                     stage="scene_image_generation", size=WIDE, raw_prompt=True,
                     session_hint=f"shot-{shot_key}-{order['id'][:6]}-{attempt}",
-                    engine=RESCUE_ENGINE if engine == "gpt" else None,
                 )
-                used_refs = [f"{n}) {note}" for n, note in enumerate(used_notes, 1)] if engine == "gpt" else None
+                used, used_refs = prompt, None
             # A start frame with a cloned person or written words would be
             # animated as is: redraw it once (an image is cheaper than a clip).
             paid = {"paid_keyframes": 1}
@@ -1017,6 +1028,8 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 engine = next_take(review, engine, attempt)
                 if engine is None:
                     break
+                if engine == "gpt" and not gpt_ok:
+                    engine = "qwen"
         img, mime, meta, review, used, used_refs = chosen or best
         if "noise" in (review.get("problems") or []):
             # Static on every take: a visible failure beats a broken frame in the story.
