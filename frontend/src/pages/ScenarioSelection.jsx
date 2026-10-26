@@ -17,6 +17,9 @@ import { scenesLabel } from "../lib/arabic";
 // The ideas take ~50 s: a bar that fills with time, a counter and changing
 // lines, instead of a spinner that looks stuck.
 const IDEA_SECONDS = 50;
+// Order statuses after a scenario was chosen: the plan page takes over.
+const PAST_CHOICE = ["ready_for_ai", "production_planning", "production_ready", "production_approved",
+  "assets_generating", "assets_ready", "assembling", "delivered", "media_failed"];
 const IDEA_MESSAGES = [
   "نقرأ الموقف الذي حكيته ✍️",
   "نفكّر في 3 زوايا مختلفة للقصة 💡",
@@ -53,6 +56,13 @@ export default function ScenarioSelection() {
     const { silent = false } = opts;
     try {
       const { data } = await api.get(`/orders/${id}/scenarios`);
+      // Past the choice (the plan is being written, or the story is already in
+      // production) the page has nothing to show: opening it again left a parent
+      // on an empty page. The plan page follows the order from here.
+      if (data.selected_scenario_id && PAST_CHOICE.includes(data.status)) {
+        navigate(`/orders/${id}/production-ready`, { replace: true });
+        return;
+      }
       setState(data);
       errorShownRef.current = false;
       const terminal = ["scenarios_ready", "scenario_selected", "awaiting_payment", "ready_for_ai", "generating", "completed", "failed"];
