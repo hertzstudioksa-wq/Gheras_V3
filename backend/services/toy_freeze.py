@@ -51,6 +51,15 @@ TRACK_SCALE = 4
 FOLLOW_PX, COARSE_PX = 24, 4
 
 
+def detect_words(name: str) -> str:
+    """What the detector looks for: the thing, without its owner. Asked for "<child>'s little
+    brown teddy bear", Florence boxed the child, and the whole child was frozen while the
+    teddy moved between his still hands."""
+    words = re.sub(r"^the\s+", "", name.strip(), flags=re.I)
+    words = re.sub(r"^(?:[^\s'’]+\s){0,3}?[^\s'’]+['’]s\s+", "", words)
+    return words.strip() or name
+
+
 async def toy_masks(keyframe: bytes, names: list[str]) -> dict[str, dict]:
     """name → {"mask": PNG of that toy in the start picture, "box": (x0, y0, x1, y1),
     "size": (w, h) of the picture}; toys that can't be found are left out."""
@@ -66,7 +75,7 @@ async def toy_masks(keyframe: bytes, names: list[str]) -> dict[str, dict]:
     for name in dict.fromkeys(names):
         try:
             found = await fal.run(stage="toy_freeze", env_key="FAL_KEY_TEXT", model=DETECT_MODEL,
-                                  arguments={"image_url": url, "text_input": re.sub(r"^the\s+", "", name, flags=re.I)},
+                                  arguments={"image_url": url, "text_input": detect_words(name)},
                                   timeout=180)
             boxes = (found.get("results") or {}).get("bboxes") or []
             if not boxes:

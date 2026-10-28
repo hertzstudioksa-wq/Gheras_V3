@@ -183,3 +183,33 @@ def test_the_held_check_and_the_tracks_reach_the_freeze(monkeypatch):
     out, info = asyncio.run(toy_freeze.freeze_toys(clip, b"png", ["the toy", "the kite"]))
     assert out == clip and seen["size"] == (W, H) and seen["masks"] == ["the kite", "the toy"]
     assert seen["untouched"] == {"the toy"} and seen["tracks"] == {"the toy": b"track"}
+
+
+def test_the_detector_looks_for_the_toy_not_its_owner():
+    # asked for "<child>'s little brown teddy bear", the detector boxed the child holding it
+    assert toy_freeze.detect_words("Yaman's little brown teddy bear") == "little brown teddy bear"
+    assert toy_freeze.detect_words("the child's blue knitted rabbit") == "blue knitted rabbit"
+    assert toy_freeze.detect_words("Baba Amr's red kite") == "red kite"
+    assert toy_freeze.detect_words("Lina’s doll") == "doll"
+    assert toy_freeze.detect_words("the Mickey Mouse plush") == "Mickey Mouse plush"
+
+
+def test_the_detector_gets_the_words_without_the_owner(monkeypatch):
+    from services.ai import fal
+
+    asked = []
+
+    async def upload(**k):
+        return "url"
+
+    async def run(**k):
+        asked.append(k["arguments"].get("text_input"))
+        return {}
+
+    monkeypatch.delenv("GHERAS_FAKE_PROVIDERS", raising=False)
+    monkeypatch.setattr(fal, "upload", upload)
+    monkeypatch.setattr(fal, "run", run)
+    png = io.BytesIO()
+    Image.new("RGB", (W, H)).save(png, "PNG")
+    assert asyncio.run(toy_freeze.toy_masks(png.getvalue(), ["Yaman's little brown teddy bear"])) == {}
+    assert asked == ["little brown teddy bear"]
