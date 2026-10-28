@@ -23,14 +23,18 @@ logger = logging.getLogger("pronunciation")
 MODEL = "anthropic/claude-sonnet-5.5"
 # A line with marks on most of its words was vowelled in full (formal endings): voiced as written.
 MAX_MARKED_SHARE = 0.5
+# More marked words than this in one line: it was vowelled, not disambiguated (a line
+# came back with three marked words, two of them with one reading and an MSA vowel).
+MAX_MARKED_WORDS = 2
 _MARKED = re.compile(r"[ً-ْ]")
 
 SYSTEM = """أنت مدقّق نطق لراوٍ صوتي آلي يقرأ قصص أطفال (اللهجة: {dialect}). موديل الصوت يخمّن الحركات من
 الحروف، فيخطئ في الكلمات التي لحروفها أكثر من نطق: شدّة ليست في الكلمة (يِنْزِل تُقرأ يِنَزِّل، يِطْلَع تُقرأ
 يِطَلَّع)، أو شدّة ناقصة، أو حركة تغيّر المعنى أو الصيغة.
-في كل سطر: شكّل فقط الكلمات التي يمكن أن تُقرأ بنطق غير المقصود في سياق الجملة، وضع عليها الحركات التي تحسم
-نطقها الصحيح بهذه اللهجة (سكون أو فتحة أو كسرة أو ضمة أو شدّة). باقي الكلمات تبقى بلا أي تشكيل. لا تضع تنويناً ولا
-حركات إعراب الفصحى. لا تغيّر أي حرف ولا كلمة ولا ترتيباً ولا علامة ترقيم، ولا تضف ولا تحذف شيئاً.
+في كل سطر: شكّل فقط الكلمة التي لها قراءة ثانية حقيقية في سياق الجملة وسيخطئ فيها موديل الصوت غالباً — كلمتان
+بالأكثر في السطر، ومعظم الأسطر لا تحتاج شيئاً. ضع عليها الحركات التي تحسم نطقها بهذه اللهجة (سكون أو فتحة أو كسرة أو
+ضمة أو شدّة). الكلمة التي لها نطق طبيعي واحد تبقى بلا تشكيل حتى لو كانت صعبة. لا تضع تنويناً ولا حركات إعراب
+الفصحى ولا حركات فصحى على كلمة عامية. لا تغيّر أي حرف ولا كلمة ولا ترتيباً ولا علامة ترقيم، ولا تضف ولا تحذف شيئاً.
 السطر الذي لا يحتاج شيئاً يعود كما هو.
 أعد JSON فقط: {{"lines": ["السطر الأول", "السطر الثاني", ...]}} بنفس عدد الأسطر وترتيبها."""
 
@@ -42,7 +46,8 @@ def _same_letters(original: str, marked: str) -> bool:
 
 def _too_marked(line: str) -> bool:
     words = line.split()
-    return bool(words) and sum(1 for w in words if _MARKED.search(w)) > max(2, MAX_MARKED_SHARE * len(words))
+    marked = sum(1 for w in words if _MARKED.search(w))
+    return bool(words) and (marked > MAX_MARKED_WORDS or marked > max(2, MAX_MARKED_SHARE * len(words)))
 
 
 def checked(lines: list[str], answer: list) -> list[str]:

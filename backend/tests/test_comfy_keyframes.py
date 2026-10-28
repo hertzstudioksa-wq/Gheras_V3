@@ -296,7 +296,7 @@ def test_the_video_model_is_told_who_is_who_and_to_keep_feet_and_colors():
     text = sp.wan_motion_prompt("Sami bounces while Lina waves at Sami's kite.", 2, cast_in_frame=cast)
     assert text.startswith("Sami (the one on the right, boy, orange cap) bounces while Lina (the one on the left, "
                            "girl, two braids, red top) waves at Sami's kite.")
-    assert "Feet stay planted" in text and "shape, size and colors" in text
+    assert "Feet stay on the ground" in text and "same shape, size and colors" in text
     assert sp.wan_motion_prompt("Sami waves.", 2).startswith("Sami waves.")
     kling = sp.motion_prompt("Sami waves.", [], {"motion_text": "m"}, ["Sami"], cast_in_frame=cast)
     assert kling.startswith("Sami (the one on the right, boy, orange cap) waves.")

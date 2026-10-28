@@ -62,3 +62,24 @@ def test_off_in_the_rehearsal_and_the_planner_marks_a_missing_shadda_too(monkeyp
     monkeypatch.setenv("GHERAS_FAKE_PROVIDERS", "1")
     assert asyncio.run(pronunciation.spoken(LINES, "مصري")) == LINES
     assert "والسكون على كلمة قد تُقرأ بشدّة ليست فيها" in house_style.DIALECTS["egyptian"]["writing"]
+
+
+def test_a_line_with_more_than_two_marked_words_is_voiced_as_written():
+    # a line came back with three marked words, two with one natural reading and an MSA vowel
+    line = "ميكي الكبير قاعد في آخر الممر ومستني مين يوصله!"
+    three = "ميكي الكبير قاعد في آخر الْمَمَرّ ومُسْتَنِّي مين يِوصَلُه!"
+    assert pronunciation.checked([line], [three]) == [line]
+    two = "ميكي الكبير قاعد في آخر الممر ومِسْتَنّي مين يِوْصَله!"
+    assert pronunciation.checked([line], [two]) == [two]
+
+
+def test_the_scene_mood_goes_to_the_voice_through_fal():
+    from services import shot_pipeline as sp
+
+    base = "Read aloud in a warm storyteller voice:"
+    assert sp.scene_direction(base, None) == base
+    out = sp.scene_direction(base, "Bright and playful, slightly quick. A lively lift on the shout.")
+    assert out == "Read aloud in a warm storyteller voice. In this scene: Bright and playful, slightly quick. " \
+                  "A lively lift on the shout."
+    long = "Calm. " * 80
+    assert len(sp.scene_direction(base, long)) < len(base) + sp.SCENE_DIRECTION_CHARS + 20

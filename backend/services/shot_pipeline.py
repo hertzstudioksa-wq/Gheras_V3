@@ -787,15 +787,13 @@ def clip_negative(style: dict) -> str:
 # Wan at CFG 1 follows a short prompt with the action first; what must NOT move goes
 # in words (a negative prompt does nothing there). The long Kling guards buried the
 # action, ambient motion made hair fly indoors, camera moves stretched objects.
-WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and objects stay exactly where they are "
-             "and keep their shape, size and colors. Feet stay planted on the ground, the seat or the deck: nobody "
-             "rises, hops or floats. No wind: hair and clothes hang still.")
+WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: objects stay where they are, same shape, size and "
+             "colors. Feet stay on the ground or deck; nobody rises or floats. No wind: hair and clothes hang still.")
 
 
 def who_is_who(motion: str, cast_in_frame: list[dict] | None) -> str:
     """The video model sees the picture, not the names: "Sami bounces" moved another child.
-    Each name's first mention says where that person is and how they look (from the start
-    picture's own review)."""
+    Each name's first mention says how that person looks (from their own sheet)."""
     for c in cast_in_frame or []:
         name, where = c.get("name") or "", c.get("where") or ""
         looks = re.sub(r"\s+\S*$", "", (c.get("looks") or "")[:110]) if len(c.get("looks") or "") > 110 else             (c.get("looks") or "")
@@ -1234,6 +1232,23 @@ async def _seconds_of(data: bytes, ext: str) -> float:
         shutil.rmtree(d, ignore_errors=True)
 
 
+# The plan writes how each scene should sound ("bright and playful, a lively lift on the
+# shout"), but the voice only ever got the dialect's one fixed line: the owner heard the
+# right words with the wrong feeling. Through fal the direction is a field of its own, so
+# the scene's few sentences go along; direct Gemini reads its direction aloud when it is
+# long, so it keeps the short line.
+SCENE_DIRECTION_CHARS = 260
+
+
+def scene_direction(base: str, voice_prompt: str | None) -> str:
+    mood = re.sub(r"\s+", " ", (voice_prompt or "")).strip()
+    if not mood:
+        return base
+    if len(mood) > SCENE_DIRECTION_CHARS:
+        mood = mood[:SCENE_DIRECTION_CHARS].rsplit(". ", 1)[0].rstrip(".") + "."
+    return f"{base.rstrip(' :')}. In this scene: {mood}"
+
+
 async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[str, dict]:
     """Voice a shot scene: one Gemini take for the whole scene (natural flow),
     split into one clip per shot line; other providers voice line by line."""
@@ -1279,7 +1294,9 @@ async def execute_scene_narration(job: dict, order: dict, plan: dict) -> tuple[s
             tried = []
             for m in candidates:
                 if via_fal:
-                    w, gmeta = await synthesize_gemini_fal(text, voice, dialect["tts_direction"], m, dialect_key)
+                    w, gmeta = await synthesize_gemini_fal(text, voice, scene_direction(dialect["tts_direction"],
+                                                                                         scene.get("voice_prompt")),
+                                                           m, dialect_key)
                 else:
                     w, gmeta = await synthesize_gemini(text, voice, dialect["tts_direction"], m)
                 secs = await _seconds_of(w, "wav")
