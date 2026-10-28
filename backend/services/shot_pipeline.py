@@ -662,14 +662,23 @@ def _features(profile: dict) -> str:
     return ", ".join(p for p in parts if not _EXPRESSION.search(p)).strip(" .,;")[:200]
 
 
+FROM_PHOTO_FACE = "copy the face, hairline, hair texture and any beard exactly as drawn in the reference"
+
+
 def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
     parts = []
     for n, r in enumerate(refs, 1):
         tag, kind = f"<image{n}>", r["kind"]
         if kind == "sheet":
-            features = _features(profiles.get(r["type"]) or {})
-            parts.append(f"{tag} is {sheets[r['type']]['label']}"
-                         + (f" (keep {features} exactly as in the reference)" if features else ""))
+            # Someone drawn from a real photo keeps the face their sheet has, not the plan's
+            # guess at it: "neatly trimmed beard, closely cropped hair" gave the father a
+            # barber's fade and a sculpted beard his sheet never had.
+            if (sheets.get(r["type"]) or {}).get("from_photo"):
+                note = FROM_PHOTO_FACE
+            else:
+                features = _features(profiles.get(r["type"]) or {})
+                note = f"keep {features} exactly as in the reference" if features else ""
+            parts.append(f"{tag} is {sheets[r['type']]['label']}" + (f" ({note})" if note else ""))
         elif kind == "toy":
             parts.append(f"{tag} shows only the child's {r['name']} (ignore any hands or background around it)")
         elif kind == "object":
@@ -1199,6 +1208,32 @@ def _probe_seconds(path: str) -> float:
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0.0
 
 
+def _quietest(wav: bytes, start: float, end: float, step: float = 0.01) -> float:
+    """The quietest moment of a pause: its middle held the breath before the next line, and
+    the piece ended on a cut-off breath. The middle when the take isn't plain PCM."""
+    import io
+    import wave
+
+    import numpy as np
+
+    try:
+        with wave.open(io.BytesIO(wav)) as w:
+            sr, width, ch = w.getframerate(), w.getsampwidth(), w.getnchannels()
+            w.setpos(int(start * sr))
+            raw = w.readframes(int((end - start) * sr))
+        if width != 2:
+            raise ValueError("not 16-bit")
+        a = np.frombuffer(raw, dtype="<i2").astype(float).reshape(-1, ch).mean(axis=1)
+        k = max(1, int(step * sr))
+        frames = len(a) // k
+        if frames < 3:
+            raise ValueError("too short")
+        energy = (a[: frames * k].reshape(frames, k) ** 2).mean(axis=1)
+        return start + (int(energy[1:-1].argmin()) + 1.5) * step
+    except Exception:  # noqa: BLE001
+        return (start + end) / 2
+
+
 def _split_take(wav: bytes, lines: list[str], words_per_second: float = house_style.WORDS_PER_SECOND) -> list[bytes] | None:
     """Cut one narration take into one clip per line at its longest pauses.
     Returns None when the pauses don't line up with the lines (caller re-voices
@@ -1218,10 +1253,10 @@ def _split_take(wav: bytes, lines: list[str], words_per_second: float = house_st
                               "-f", "null", "-"], capture_output=True, text=True, timeout=60).stderr
         starts = [float(x) for x in re.findall(r"silence_start: ([0-9.]+)", log)]
         ends = [float(x) for x in re.findall(r"silence_end: ([0-9.]+)", log)]
-        gaps = [(e - s, (s + e) / 2) for s, e in zip(starts, ends) if 0.3 < s and e < total - 0.2]
+        gaps = [(e - s, s, e) for s, e in zip(starts, ends) if 0.3 < s and e < total - 0.2]
         if len(gaps) < len(lines) - 1:
             return None
-        cuts = sorted(mid for _, mid in sorted(gaps, reverse=True)[: len(lines) - 1])
+        cuts = sorted(_quietest(wav, s, e) for _, s, e in sorted(gaps, reverse=True)[: len(lines) - 1])
         bounds = [0.0, *cuts, total]
         out = []
         for i, line in enumerate(lines):
@@ -1230,10 +1265,14 @@ def _split_take(wav: bytes, lines: list[str], words_per_second: float = house_st
             if not 0.35 <= seg_len / expected <= 2.6:
                 return None
             dst = os.path.join(d, f"line{i}.wav")
-            trim = ("silenceremove=start_periods=1:start_threshold=-45dB,areverse,"
+            # The cut comes first, inside the filter: as output options -ss/-to counted the
+            # time after the take's leading silence was removed, so every cut slid by that
+            # silence and the next line's first sound ended the previous piece (the owner
+            # heard the voice break at second 5).
+            trim = (f"atrim=start={bounds[i]:.3f}:end={bounds[i + 1]:.3f},asetpts=PTS-STARTPTS,"
+                    "silenceremove=start_periods=1:start_threshold=-45dB,areverse,"
                     "silenceremove=start_periods=1:start_threshold=-45dB,areverse")
-            subprocess.run([ff, "-y", "-hide_banner", "-loglevel", "error", "-i", src,
-                            "-ss", f"{bounds[i]:.3f}", "-to", f"{bounds[i + 1]:.3f}", "-af", trim, dst],
+            subprocess.run([ff, "-y", "-hide_banner", "-loglevel", "error", "-i", src, "-af", trim, dst],
                            check=True, timeout=60)
             with open(dst, "rb") as f:
                 out.append(f.read())

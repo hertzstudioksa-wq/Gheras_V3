@@ -111,8 +111,10 @@ def test_template_order_and_numbering():
     text, refs = build(["child", "father", "dog"], "Lina hugs Bunbun while her father and the dog watch.")
     lines = text.split("\n")
     assert lines[0] == sp.COMFY_INTRO
-    assert lines[1].startswith("IDENTITY (most important): <image1> is Lina (keep two short braids exactly")
-    assert "<image2> is Omar (the child's father)," in lines[1]  # no empty "keep" for no key features
+    # people from a photo keep their sheet's face, not the plan's guess at it ("two short braids")
+    assert lines[1].startswith(f"IDENTITY (most important): <image1> is Lina ({sp.FROM_PHOTO_FACE}), ")
+    assert f"<image2> is Omar (the child's father) ({sp.FROM_PHOTO_FACE})," in lines[1]
+    assert "braids" not in lines[1]
     assert "<image3> is the child's dog (keep red collar, floppy ears exactly as in the reference)" in lines[1]
     assert "<image4> shows only the child's Bunbun" in lines[1]
     assert "previous shot" not in lines[1]

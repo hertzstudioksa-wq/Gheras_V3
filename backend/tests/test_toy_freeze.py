@@ -71,10 +71,29 @@ def test_a_blinking_toy_is_frozen_and_the_child_still_moves():
     assert abs(out[20][60:120, 40:80].astype(int) - out[0][60:120, 40:80].astype(int)).mean() > 20  # the child moved
 
 
-def test_a_toy_someone_moves_is_left_alone():
-    frames = [_scene(t, toy_shift=min(t * 4, 60)) for t in range(24)]
+def test_a_toy_someone_turns_around_is_left_alone():
+    frames = [_scene(t) for t in range(24)]
+    for t in range(6, 24):  # its back shows: another color all over
+        img = Image.fromarray(frames[t].copy())
+        ImageDraw.Draw(img).rectangle(TOY, fill=(250, 240, 60))
+        frames[t] = np.asarray(img)
     frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()})
     assert frozen is None and info["frozen"] == [] and info["moved"]["the toy"] > toy_freeze.MOVED_LIMIT
+
+
+def test_a_carried_toy_goes_along_with_its_face_still_and_no_copy_left_behind():
+    # a teddy hugged closer showed two faces: its first-frame copy pinned on top of the moved one
+    shift = [min(t * 3, 45) for t in range(24)]
+    frames = [_scene(t, toy_shift=shift[t], blink=8 <= t <= 14) for t in range(24)]
+    frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()})
+    assert frozen and info["frozen"] == ["the toy"] and info["moved"]["the toy"] < 0.1
+    assert abs(info["carried_px"]["the toy"] - 45) <= 2
+    out = _decode(frozen)
+    s = shift[12]
+    eye = (slice(TOY[1] + 18, TOY[1] + 27), slice(TOY[0] + 23 + s, TOY[0] + 32 + s))
+    assert out[12][eye].mean() > 200  # the eye stays open, where the toy was carried
+    assert out[20][TOY[1] + 40, TOY[2] + shift[20] - 5][2] > 180  # the toy is at its new place
+    assert abs(out[20][TOY[1] + 40, TOY[0] + 5].astype(int) - np.array([230, 200, 160])).mean() < 25  # none left behind
 
 
 def test_no_toys_or_no_mask_keeps_the_clip(monkeypatch):
@@ -127,8 +146,8 @@ def test_a_toy_nobody_holds_stays_put_even_when_it_walks_off():
     # a doll alone at the end of the path walked away in its clip
     frames = [_scene(t, toy_shift=min(t * 4, 60)) for t in range(24)]
     tracks = {"the toy": _clip([_outline(t, shift=min(t * 4, 60)) for t in range(24)])}
-    left, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()}, tracks)
-    assert left is None  # held (or unknown): someone may carry it
+    carried, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()}, tracks)
+    assert _decode(carried)[20][TOY[1] + 40, TOY[2] + 50][2] > 180  # held (or unknown): it goes where it's carried
     frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()}, tracks, {"the toy"})
     out = _decode(frozen)
     assert info["frozen"] == ["the toy"] and info["untouched"] == ["the toy"]

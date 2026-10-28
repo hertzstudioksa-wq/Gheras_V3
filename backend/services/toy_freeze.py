@@ -16,6 +16,12 @@ doll nobody held walked away down the path (it "really moved", so it was left
 alone). SAM 2's video model now follows the toy through the clip, and wherever it
 shows up outside its first-frame place that spot gets the first frame's pixels
 back; and a toy nobody touches in the start picture is always frozen.
+
+A held toy moves with the hands that hold it: pinned to its first-frame place, a
+teddy hugged closer showed two faces at once (its first-frame copy on top of the
+one Wan moved). Each frame now finds where the toy went (its first-frame pixels
+matched around the last place) and the first-frame toy is pasted there: it moves
+as one piece with the hug and its face never changes.
 """
 from __future__ import annotations
 
@@ -40,6 +46,9 @@ GROW_PX, FEATHER_PX = 6, 4
 # The followed outline is grown and feathered on a quarter-size copy (fast enough
 # for every frame without OpenCV).
 TRACK_SCALE = 4
+# How far a held toy may move from one frame to the next (px of the clip), searched
+# in steps of COARSE_PX then refined; every other pixel of the toy is compared.
+FOLLOW_PX, COARSE_PX = 24, 4
 
 
 async def toy_masks(keyframe: bytes, names: list[str]) -> dict[str, dict]:
@@ -138,12 +147,57 @@ def _soft(mask, w: int, h: int):
     return np.asarray(grown.resize((w, h), Image.BILINEAR), dtype=np.float32)[..., None] / 255
 
 
+def _fit(g, tmpl, weight, top: int, left: int, near: tuple[int, int], radius: int, step: int) -> tuple[int, int]:
+    """The offset around `near` where the toy's first-frame pixels fit frame `g` best."""
+    h, w = 2 * tmpl.shape[0] - 1, 2 * tmpl.shape[1] - 1
+    best, at = None, near
+    for dy in range(near[0] - radius, near[0] + radius + 1, step):
+        y = top + dy
+        if y < 0 or y + h > g.shape[0]:
+            continue
+        for dx in range(near[1] - radius, near[1] + radius + 1, step):
+            x = left + dx
+            if x < 0 or x + w > g.shape[1]:
+                continue
+            d = float((((g[y:y + h:2, x:x + w:2] - tmpl) ** 2) * weight).sum())
+            if best is None or d < best:
+                best, at = d, (dy, dx)
+    return at
+
+
+def _follow(g, tmpl, weight, top: int, left: int, last: tuple[int, int]) -> tuple[int, int]:
+    near = _fit(g, tmpl, weight, top, left, last, FOLLOW_PX, COARSE_PX)
+    return _fit(g, tmpl, weight, top, left, near, COARSE_PX, 1)
+
+
+def _smooth(offsets: list[tuple[int, int]], k: int = 2) -> list[tuple[int, int]]:
+    """A running median, so a hand passing over the toy doesn't make it jump."""
+    import numpy as np
+
+    a = np.array(offsets)
+    return [tuple(int(v) for v in np.median(a[max(0, i - k):i + k + 1], axis=0).round()) for i in range(len(a))]
+
+
+def _shifted(a, dy: int, dx: int):
+    """`a` moved by (dy, dx), zero where nothing came in."""
+    import numpy as np
+
+    if not dy and not dx:
+        return a
+    out = np.zeros_like(a)
+    h, w = a.shape[:2]
+    out[max(dy, 0):h + min(dy, 0), max(dx, 0):w + min(dx, 0)] = a[max(-dy, 0):h - max(dy, 0),
+                                                                  max(-dx, 0):w - max(dx, 0)]
+    return out
+
+
 def freeze_clip(clip: bytes, masks: dict[str, bytes], tracks: dict[str, bytes] | None = None,
                 untouched: set[str] | frozenset = frozenset()) -> tuple[bytes | None, dict]:
     """The clip with each still toy pasted from its first frame, or None when no toy
-    was frozen. A toy in `untouched` (nobody holds it) is always still; `tracks` (its
-    outline in every frame) also put the first frame back wherever it shows up outside
-    its first-frame place. Info: per toy, the share of its pixels that moved."""
+    was frozen. A toy in `untouched` (nobody holds it) is always still at its place;
+    a held one is pasted wherever the hands carried it. `tracks` (its outline in every
+    frame) also put the first frame back wherever it shows up outside that place.
+    Info: per toy, the share of its pixels that changed (after following a held one)."""
     import numpy as np
     from PIL import Image, ImageFilter
 
@@ -165,22 +219,38 @@ def freeze_clip(clip: bytes, masks: dict[str, bytes], tracks: dict[str, bytes] |
             inner[name] = np.asarray(m.filter(ImageFilter.MinFilter(9))) > 127
             grown = m.filter(ImageFilter.MaxFilter(2 * GROW_PX + 1)).filter(ImageFilter.GaussianBlur(FEATHER_PX))
             soft[name] = np.asarray(grown, dtype=np.float32)[..., None] / 255
-        # Pass 1: does anyone really move the toy?
+        # Pass 1: where is each held toy in every frame, and does anyone really change it
+        # (turn it around, squeeze it out of shape)?
         first, moved = None, {n: 0.0 for n in masks}
+        boxes = {}
+        for n, m in inner.items():
+            if m.any():
+                ys, xs = np.nonzero(m)
+                boxes[n] = (int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
+        offsets = {n: [(0, 0)] for n in boxes if n not in untouched}
         for raw in _frames(ff, src, w, h):
             g = np.frombuffer(raw, np.uint8).reshape(h, w, 3).mean(axis=2)
             if first is None:
                 first = g
                 continue
-            for n, m in inner.items():
-                if m.any():
-                    moved[n] = max(moved[n], float((np.abs(g - first)[m] > 30).mean()))
+            for n, (y0, y1, x0, x1) in boxes.items():
+                dy, dx = 0, 0
+                if n in offsets:
+                    dy, dx = _follow(g, first[y0:y1:2, x0:x1:2], inner[n][y0:y1:2, x0:x1:2], y0, x0, offsets[n][-1])
+                    offsets[n].append((dy, dx))
+                seen = g[y0 + dy:y1 + dy, x0 + dx:x1 + dx]
+                if seen.shape == (y1 - y0, x1 - x0):
+                    changed = np.abs(seen - first[y0:y1, x0:x1])[inner[n][y0:y1, x0:x1]] > 30
+                    moved[n] = max(moved[n], float(changed.mean()))
         still = [n for n in masks if inner[n].any() and (n in untouched or moved[n] <= MOVED_LIMIT)]
         info = {"moved": {n: round(v, 3) for n, v in moved.items()}, "frozen": still,
                 "untouched": sorted(set(untouched) & set(masks))}
         if not still:
             return None, info
-        mask = np.clip(sum(soft[n] for n in still), 0, 1)
+        shifts = {n: _smooth(offsets[n]) for n in still if n in offsets}
+        if shifts:
+            info["carried_px"] = {n: max(max(abs(dy), abs(dx)) for dy, dx in s) for n, s in shifts.items()}
+        mask = np.clip(sum((soft[n] for n in still if n not in shifts), np.zeros((h, w, 1), np.float32)), 0, 1)
         followed = {}
         for n in still:
             if (tracks or {}).get(n):
@@ -189,24 +259,34 @@ def freeze_clip(clip: bytes, masks: dict[str, bytes], tracks: dict[str, bytes] |
                     f.write(tracks[n])
                 followed[n] = _frames(ff, path, w, h)
         info["followed"] = sorted(followed)
-        # Pass 2: paste the still toys from the first frame onto every frame, and wherever
-        # a followed toy shows up outside its first-frame place.
+        # Pass 2: paste the still toys from the first frame onto every frame (a held one
+        # where it was carried), and wherever a followed toy shows up outside that place.
         enc = subprocess.Popen([ff, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",
                                 "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "17",
                                 "-preset", "medium", "-movflags", "+faststart", dst], stdin=subprocess.PIPE)
         base, last_out = None, {}
-        for raw in _frames(ff, src, w, h):
+        for i, raw in enumerate(_frames(ff, src, w, h)):
             frame = np.frombuffer(raw, np.uint8).reshape(h, w, 3).astype(np.float32)
             if base is None:
                 base = frame
-            region = mask
+            region, carried = mask, {}
             for n, frames in followed.items():
                 out = next(frames, None)
                 if out is not None:  # a shorter outline video keeps its last outline
                     last_out[n] = np.frombuffer(out, np.uint8).reshape(h, w, 3).mean(axis=2) > 127
                 if n in last_out:
-                    region = np.maximum(region, _soft(last_out[n], w, h))
-            enc.stdin.write((frame * (1 - region) + base * region).round().astype(np.uint8).tobytes())
+                    if n in shifts:
+                        carried[n] = _soft(last_out[n], w, h)
+                    else:
+                        region = np.maximum(region, _soft(last_out[n], w, h))
+            frame = frame * (1 - region) + base * region
+            for n, s in shifts.items():
+                dy, dx = s[min(i, len(s) - 1)]
+                part = _shifted(soft[n], dy, dx)
+                if n in carried:
+                    part = np.maximum(part, carried[n])
+                frame = frame * (1 - part) + _shifted(base, dy, dx) * part
+            enc.stdin.write(frame.round().astype(np.uint8).tobytes())
         for frames in followed.values():
             frames.close()
         enc.stdin.close()
