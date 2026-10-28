@@ -7,8 +7,9 @@ sheet looked like nobody in the video. The heads go to the shot pictures as a re
 of their own, right after the person's sheet, laid out 2×2 on a square (`grid`): next to
 the body in one wide picture they reached Qwen a few dozen pixels high and the scene's
 father was a stock face again; as their own square his hairline, thinning curls, grey in
-the beard and face width came through. The book's portraits, the sheet's look and the
-video keep the plain sheet.
+the beard and face width came through. Only grown-ups get it in the shots: with the
+child's own square too, Qwen drew the child twice and gave the copy the father's beard.
+The book's portraits, the sheet's look and the video keep the plain sheet.
 
 The heads come from:
 - the parent's extra photos (three-quarter, side), when there are any: each one drawn on

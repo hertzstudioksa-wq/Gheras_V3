@@ -136,7 +136,9 @@ SHEETS = {"father": {"url": "/u/2", "label": "Omar (the child's father)", "from_
 
 def test_the_face_reference_follows_its_sheet_and_belongs_to_that_person_alone():
     sh = {"characters": ["child", "father"], "keyframe_prompt": "Lina hugs her father."}
-    refs = sp.comfy_references(sh, {"scene_index": 1}, SHEETS, None, None)
+    sheets = {**SHEETS, "child": {**SHEETS["child"], "head_views_url": "/u/8"}}
+    refs = sp.comfy_references(sh, {"scene_index": 1}, sheets, None, None)
+    # grown-ups only: with the child's own square, Qwen drew the child twice, the copy bearded
     assert [r["kind"] for r in refs] == ["sheet", "sheet", "faces"] and refs[2]["type"] == "father"
     text = sp.comfy_identity(refs, {}, SHEETS)
     assert f"<image1> is Lina ({sp.FROM_PHOTO_FACE}; {sp.CHILD_FACE})" in text  # the father's beard stays his

@@ -652,9 +652,12 @@ def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, prev
         refs.append({"kind": f"prev_{previous}"})
     if not refs and sheets:
         refs.append({"kind": "style", "type": by_likeness(sorted(sheets), sheets)[0]})
-    # A person's face from three sides right after their sheet, while there's room
-    # (services/head_views.py).
-    for t in [r["type"] for r in refs if r["kind"] == "sheet" and (sheets.get(r["type"]) or {}).get("head_views_url")]:
+    # A grown-up's face from three sides right after their sheet, while there's room
+    # (services/head_views.py). Children keep their sheet alone: with a face square for
+    # the child too, Qwen drew him twice in three of four sample scenes, the copy with
+    # the father's beard; their likeness was already right from the sheet.
+    for t in [r["type"] for r in refs if r["kind"] == "sheet" and house_style.is_adult(r["type"])
+              and (sheets.get(r["type"]) or {}).get("head_views_url")]:
         if len(refs) >= comfy.MAX_REFS:
             break
         at = next(i for i, r in enumerate(refs) if r["kind"] == "sheet" and r["type"] == t)
@@ -1049,7 +1052,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 refs.append({"image_bytes": sheet_bytes[t][0], "mime_type": sheet_bytes[t][1]})
                 notes.append(f"{sheets[t]['label']}'s character sheet (full figure and clothes)")
                 types.append(t)
-                faces = await faces_data(t)
+                faces = await faces_data(t) if house_style.is_adult(t) else None
                 if faces:
                     refs.append({"image_bytes": faces[0], "mime_type": faces[1]})
                     notes.append(f"{sheets[t]['label']}'s face from the front, three-quarter and side ({FACES_COPY}; "
