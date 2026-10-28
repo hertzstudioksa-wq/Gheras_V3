@@ -1039,7 +1039,7 @@ async def _music_stage(order: dict, plan: dict, run_id: str) -> None:
 
 
 async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict], process,
-                           narration_task: asyncio.Task) -> None:
+                           narration_task: asyncio.Task) -> bool:
     """Shot plans, overlapped instead of one stage after another:
       * narration was voiced while the sheets were drawn; music (it needs the
         narrated length) starts as soon as narration is done,
@@ -1048,7 +1048,8 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
         clips started while pictures were still being drawn, and a picture with
         an extra child was animated); a start frame still broken after its takes
         is held, never animated.
-    Clip requests are saved before polling, so a restart still resumes them."""
+    Clip requests are saved before polling, so a restart still resumes them.
+    True when the order stopped for the parent to check the pictures (no clip yet)."""
     order_id = order["id"]
     # Draw a reference sheet for every cast member without one (e.g. the mother)
     # so they look the same in every shot.
@@ -1081,6 +1082,12 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
             await scene(job)
     await _run_jobs([j for j in jobs if j["job_type"] == "book_page_asset"], process)
     await asyncio.gather(*cover_tasks, narration_task, return_exceptions=True)
+    from services import picture_review
+    if await picture_review.waits(order):
+        # The parent sees the pictures before any of them is animated; the approval
+        # starts a new run that skips everything already drawn and voiced.
+        await music_task
+        return True
     try:
         # All pictures are in and checked: now every shot is animated, in story order.
         clips = await shot_pipeline.run_shot_clips(order, plan, run_id, sem=clip_sem)
@@ -1088,6 +1095,7 @@ async def _run_shot_assets(order: dict, plan: dict, run_id: str, jobs: list[dict
     except Exception as e:  # noqa: BLE001
         logger.exception(f"[video_generation] unexpected crash (ignored): {e}")
     await music_task
+    return False
 
 
 # ---------------- Run (entrypoint) ----------------
@@ -1201,7 +1209,10 @@ async def _run_asset_generation(order_id: str, run_id: str):
     await asyncio.gather(*side_tasks, return_exceptions=True)
 
     if shot_mode:
-        await _run_shot_assets(order, plan, run_id, jobs, process, narration_task)
+        if await _run_shot_assets(order, plan, run_id, jobs, process, narration_task):
+            from services import picture_review
+            await picture_review.open_review(order_id)
+            return
     else:
         # Legacy scene-image plans: cover, scene images, narration, book assets.
         priority = {"cover_image": 0, "scene_image": 1, "narration_audio": 2, "book_page_asset": 3}

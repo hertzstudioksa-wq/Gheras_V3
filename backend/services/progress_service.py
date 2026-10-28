@@ -32,6 +32,7 @@ STAGE_LABELS_AR = {
     "delivered": "جاهز",
     "failed": "تعذّر الإنشاء",
     "paused": "تأخير بسيط من جهتنا",
+    "review": "مراجعة الصور",
 }
 
 # Real-world seconds per unit, measured on the first full test order.
@@ -244,6 +245,11 @@ async def compute_pipeline_progress(order: dict) -> dict:
                                   "ولا تحتاج إلى فعل أي شيء."}
         return {"stage": "failed", "stage_ar": STAGE_LABELS_AR["failed"], "percent": 0,
                 "message_ar": "تعذّر إكمال بعض الخطوات"}
+
+    if status == OrderStatus.PICTURES_REVIEW.value:
+        redrawing = (order.get("picture_review") or {}).get("state") == "redrawing"
+        return {"stage": "review", "stage_ar": STAGE_LABELS_AR["review"], "percent": 60, "review": True,
+                "message_ar": "نعيد رسم الصور التي اخترتها 🖌️" if redrawing else "صور القصة جاهزة — راجعها واعتمدها"}
 
     if status == OrderStatus.AWAITING_PAYMENT.value:
         return {"stage": "plan", "stage_ar": STAGE_LABELS_AR["plan"], "percent": 12,

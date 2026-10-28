@@ -272,6 +272,7 @@ class OrderStatus(str, Enum):
     PRODUCTION_READY = "production_ready"
     PRODUCTION_APPROVED = "production_approved"
     ASSETS_GENERATING = "assets_generating"
+    PICTURES_REVIEW = "pictures_review"  # pictures drawn, waiting for the parent (services/picture_review.py)
     ASSETS_READY = "assets_ready"
     ASSEMBLING = "assembling"
     DELIVERED = "delivered"
@@ -294,6 +295,7 @@ ORDER_STATUS_AR = {
     "production_ready": "خطة الإنتاج جاهزة",
     "production_approved": "تمت الموافقة على الخطة",
     "assets_generating": "جاري توليد الوسائط",
+    "pictures_review": "الصور جاهزة لمراجعتك",
     "assets_ready": "الوسائط جاهزة",
     "assembling": "جاري التجميع",
     "delivered": "تم التسليم",

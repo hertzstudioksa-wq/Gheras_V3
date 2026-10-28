@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import JourneySteps from "../components/gheras/JourneySteps";
 import StoryFeedbackCard from "../components/gheras/StoryFeedbackCard";
 import PlanScriptCard from "../components/gheras/PlanScriptCard";
+import PictureReview from "../components/gheras/PictureReview";
 import { scenesLabel, imagesLabel, pagesLabel, countLabel } from "../lib/arabic";
 
 const audioBgLabel = (mode) => ({
@@ -236,6 +237,8 @@ export default function ProductionReady() {
   const planReady = status === "production_ready" && !!summary;
   const isPlanStillLoading = status === "production_ready" && !summary;
   const isGeneratingMedia = status === "assets_generating";
+  // Every picture is drawn: the parent checks them before any is animated.
+  const isPictureReview = status === "pictures_review";
   const isMediaReady = status === "assets_ready";
   const isMediaFailed = status === "media_failed";
   const isAssembling = status === "assembling";
@@ -260,9 +263,11 @@ export default function ProductionReady() {
   useEffect(() => {
     const base = "غِراس";
     const working = ["production_planning", "assets_generating", "assets_ready", "assembling"].includes(status);
-    document.title = working ? `${progressPercent}% · ${base}` : isDelivered ? `🎉 جاهزة · ${base}` : `قصة طفلك | ${base}`;
+    document.title = working ? `${progressPercent}% · ${base}`
+      : isDelivered ? `🎉 جاهزة · ${base}`
+      : isPictureReview ? `🎨 الصور جاهزة · ${base}` : `قصة طفلك | ${base}`;
     return () => { document.title = base; };
-  }, [status, progressPercent, isDelivered]);
+  }, [status, progressPercent, isDelivered, isPictureReview]);
   const [delivery, setDelivery] = useState(null);
 
   useEffect(() => {
@@ -392,6 +397,8 @@ export default function ProductionReady() {
                 ? (delivery?.plan?.title ? `«${delivery.plan.title}» 🎉` : "🎉 قصتك أصبحت جاهزة!")
                 : isAssembling
                 ? "جاري تجميع قصة طفلك..."
+                : isPictureReview
+                ? "صور القصة جاهزة لمراجعتك 🎨"
                 : isMediaReady
                 ? "وسائط قصتك جاهزة"
                 : isGeneratingMedia
@@ -417,6 +424,8 @@ export default function ProductionReady() {
                 ? `قصة ${summary?.child_name || "طفلك"} جاهزة — شاهدها معه الآن، وحمّل الكتاب المصوّر لتقرآه معاً.`
                 : isAssembling
                 ? "نجمع الصور والسرد في فيديو وكتاب نهائيين."
+                : isPictureReview
+                ? "رسمنا كل لقطات القصة. راجعها، وأعد رسم ما لا يعجبك، ثم اعتمدها لنبدأ تحريكها."
                 : isMediaReady
                 ? "تم إعداد جميع الصور. جاري الآن التجميع النهائي."
                 : isGeneratingMedia
@@ -435,7 +444,8 @@ export default function ProductionReady() {
             </p>
 
             {/* Unified pipeline progress bar — always visible from planning to delivery */}
-            {progress && !isDelivered && !isFailed && !isMediaFailed && !isAwaitingPayment && !(planReady && !approved) && (
+            {progress && !isDelivered && !isFailed && !isMediaFailed && !isAwaitingPayment && !isPictureReview
+              && !(planReady && !approved) && (
               <div className="mt-5 bg-white/70 backdrop-blur rounded-2xl p-4 border border-[#E2D8C9]" data-testid="hero-progress">
                 <div className="flex items-center justify-between mb-2 text-xs font-body text-[#5A677D]">
                   <span className="inline-flex items-center gap-2">
@@ -591,6 +601,12 @@ export default function ProductionReady() {
           </div>
         )}
 
+        {isPictureReview && (
+          <div className="mb-6">
+            <PictureReview orderId={id} childName={summary?.child_name} onApproved={() => fetchData({ silent: true })} />
+          </div>
+        )}
+
         {/* MEDIA GENERATING / READY / FAILED / ASSEMBLING */}
         {(isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling) && !isDelivered && (
           <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#87A96B] mb-5" data-testid="media-progress-card">
@@ -651,7 +667,7 @@ export default function ProductionReady() {
         )}
 
         {/* APPROVED (SUCCESS) STATE — only when NOT yet in media flow */}
-        {approved && !isGeneratingMedia && !isMediaReady && !isMediaFailed && !isAssembling && !isDelivered && summary && (
+        {approved && !isGeneratingMedia && !isPictureReview && !isMediaReady && !isMediaFailed && !isAssembling && !isDelivered && summary && (
           <div className="bg-white rounded-[2rem] p-6 md:p-8 border-2 border-[#87A96B] mb-6 relative overflow-hidden" data-testid="approved-state">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-2xl bg-[#E8F0E1] grid place-content-center">
@@ -824,7 +840,7 @@ export default function ProductionReady() {
           const ctxRendered =
             isAwaitingPayment ||
             isDelivered ||
-            isGeneratingMedia || isMediaReady || isMediaFailed || isAssembling ||
+            isGeneratingMedia || isPictureReview || isMediaReady || isMediaFailed || isAssembling ||
             (!approved && !isFailed && planReady) ||
             (isPlanning && !summary) ||
             (approved && !isMediaFailed && !isAssembling && !isMediaReady && !isGeneratingMedia && !isDelivered) ||

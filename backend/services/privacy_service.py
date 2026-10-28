@@ -24,7 +24,7 @@ CONSENT_VERSION = "2026-10-24"
 ORIGINAL_PHOTO_DAYS = 30
 PHOTO_SCOPES = ("child", "character", "toy")
 BUSY_STATUSES = ("scenarios_generating", "ready_for_ai", "production_planning", "production_approved",
-                 "assets_generating", "assets_ready", "assembling", "generating")
+                 "assets_generating", "pictures_review", "assets_ready", "assembling", "generating")
 SWEEP_EVERY_SECONDS = 6 * 3600
 
 

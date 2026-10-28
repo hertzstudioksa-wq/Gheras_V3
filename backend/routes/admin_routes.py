@@ -167,7 +167,7 @@ ORDER_PHASES = {
     "intake": ["draft", "pending", "in_review"],
     "scenarios": ["scenarios_generating", "scenarios_ready", "scenario_selected", "awaiting_payment"],
     "planning": ["ready_for_ai", "production_planning", "production_ready", "production_approved"],
-    "media": ["assets_generating", "assets_ready", "assembling", "generating"],
+    "media": ["assets_generating", "pictures_review", "assets_ready", "assembling", "generating"],
     "delivered": ["delivered", "completed"],
     "failed": ["media_failed", "failed"],
 }
@@ -646,6 +646,22 @@ KNOWN_SETTINGS = {
         "description_ar": "مقفول افتراضياً (قرار المالك: مش مهم ويوفّر فلوس). لو اتفتح: نداء واحد لموديل التخطيط بيشكّل "
                           "كل صفحات الكتاب (~$0.03 للكتاب). الصوت مش بيتأثر بيه.",
         "type": "bool", "default": False,
+    },
+    "review.parent_pictures": {
+        "label_ar": "ولي الأمر يراجع الصور قبل الفيديو",
+        "description_ar": "بعد ما كل صور اللقطات تترسم وتتراجع، الطلب بيستنى ولي الأمر: يشوف الصور ويرجّع اللي "
+                          "مش عاجباه تترسم تاني، ويعتمد، وبعدها بس بتتحرّك. الفيديو المرفوض أغلى بكتير من صورة.",
+        "type": "bool", "default": True,
+    },
+    "review.parent_redraws": {
+        "label_ar": "عدد الصور اللي ولي الأمر يقدر يرجّعها",
+        "description_ar": "إعادات رسم مجانية في مراجعة الصور، للطلب كله (كل صورة بتترسم من تاني بنفس المراجعات).",
+        "type": "int", "min": 0, "max": 12, "default": 3,
+    },
+    "review.auto_approve_hours": {
+        "label_ar": "اعتماد الصور تلقائياً بعد (ساعات)",
+        "description_ar": "لو ولي الأمر مراجعش الصور، بتتعتمد لوحدها بعد المدة دي والقصة بتكمل. 0 = يستنى ولي الأمر.",
+        "type": "int", "min": 0, "max": 168, "default": 24,
     },
     "comfy.pin_last_frame": {
         "label_ar": "تثبيت آخر فريم في كل مقطع",
