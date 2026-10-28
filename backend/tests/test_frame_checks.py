@@ -371,3 +371,31 @@ def test_a_sheet_look_is_off_in_the_rehearsal(monkeypatch):
 def test_the_review_knows_a_thing_at_the_wrong_stage():
     assert "wrong_stage" in clip_review.PROBLEMS and "- wrong_stage:" in clip_review.SYSTEM
     assert clip_review._problem("rose already in full bloom") == "wrong_stage"
+
+
+def test_a_clip_where_someone_turns_to_the_camera_is_sent_back(monkeypatch):
+    # the whole-clip question passed a clip where the father and the child turned to the
+    # camera in its last second; the person-by-person question on its second half caught it
+    frames = [b"f0", b"f1", b"f2", b"f3", b"f4", b"f5"]
+    asked = []
+
+    async def ask(*a, **k):
+        return {"ok": True, "problems": [], "note": "all fine"}
+
+    async def people(frame):
+        asked.append(frame)
+        return [{"who": "the child", "at_viewer": frame == b"f5"}, {"who": "the father", "at_viewer": False}]
+
+    monkeypatch.setattr(clip_review, "_clip_frames", lambda data: frames)
+    monkeypatch.setattr(clip_review, "static_verdict", lambda f: None)
+    monkeypatch.setattr(clip_review, "_ask", ask)
+    monkeypatch.setattr(clip_review, "people_in", people)
+    review = asyncio.run(clip_review.review_clip("1_1", b"clip", ["Lina", "Omar"], "they smile"))
+    assert asked == [b"f3", b"f4", b"f5"]  # the clip's second half
+    assert review["ok"] is False and review["problems"] == ["camera_gaze"] and "the child" in review["note"]
+
+    async def nobody(frame):
+        return [{"who": "the child", "at_viewer": False}]
+
+    monkeypatch.setattr(clip_review, "people_in", nobody)
+    assert asyncio.run(clip_review.review_clip("1_1", b"clip", ["Lina"], "x"))["ok"] is True

@@ -576,5 +576,10 @@ async def review_clip(shot_key: str, data: bytes, expected: list[str], action: s
     static = await asyncio.to_thread(static_verdict, frames)
     if static:
         return static
-    return await _ask("clip_review", shot_key, [(f, "image/jpeg") for f in frames], expected, action, sheets, first,
-                      objects)
+    verdict = await _ask("clip_review", shot_key, [(f, "image/jpeg") for f in frames], expected, action, sheets,
+                         first, objects)
+    # The whole-clip question passed a clip where the father and the child turned to the
+    # camera in its last second; asked person by person on the frames of its second half,
+    # it was caught every time.
+    late = await asyncio.gather(*(people_in(f) for f in frames[len(frames) // 2:]))
+    return with_gaze(verdict, [p for found in late if found for p in found])
