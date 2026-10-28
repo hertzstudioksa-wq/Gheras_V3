@@ -259,3 +259,17 @@ def test_a_refused_prompt_is_retried_without_the_toys_own_names():
     from services.ai import AIPermanentError
     assert sp.content_refused(AIPermanentError("HTTP 422: material flagged by a content checker"))
     assert not sp.content_refused(AIPermanentError("HTTP 500: internal error"))
+
+
+def test_grown_ups_keep_their_real_face_and_children_keep_the_cute_one():
+    # side by side the owner chose real proportions for adults (the father's face was lost)
+    from services import engine_config, house_style
+
+    style = engine_config.DEFAULT_STYLE["style_text"]
+    assert house_style.CUTE_FACE in style
+    adult = house_style.character_sheet_prompt("Omar, the child's father", None, style, None, adult=True)
+    child = house_style.character_sheet_prompt("Lina", None, style, None)
+    assert house_style.ADULT_FACE in adult and "big expressive eyes" not in adult
+    assert "big expressive eyes" in child and house_style.ADULT_FACE not in child
+    assert house_style.ADULT_FACE in house_style.adult_style("An admin's own style.")
+    assert house_style.is_adult("father") and house_style.is_adult("grandmother_2") and not house_style.is_adult("friend")

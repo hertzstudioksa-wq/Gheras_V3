@@ -119,7 +119,8 @@ async def _run_one(order: dict, character_index: int, character: dict,
     who = (f"{character.get('name')}, the child's {character.get('type')}" if character.get("name")
            else f"the child's {character.get('type') or 'relative'}")
     art_style = await engine_config.style_for_order(order)
-    prompt = house_style.character_sheet_prompt(who, outfit, art_style["style_text"], art_style["sheet_rules"])
+    prompt = house_style.character_sheet_prompt(who, outfit, art_style["style_text"], art_style["sheet_rules"],
+                                                adult=house_style.is_adult(character.get("type")))
     prompt_src = "default"
 
     generated_url: str | None = None

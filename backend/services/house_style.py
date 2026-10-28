@@ -150,16 +150,44 @@ IDENTITY_RULES = (
 )
 
 
+# The style's cute face (big eyes, small nose) erased the father's likeness: a broad face
+# with heavy-lidded eyes and a strong nose came out as a generic cartoon dad, and a mirror
+# selfie's downward glance and frown were copied too. Side by side the owner chose real
+# proportions for grown-ups (2026-10-28); children keep the approved look.
+ADULT_TYPES = {"father", "mother", "grandfather", "grandmother", "uncle", "aunt", "teacher", "parent", "grandparent"}
+CUTE_FACE = ("simplified rounded shapes, big expressive eyes with simple highlights, small simplified noses, smooth "
+             "simplified skin with no realistic texture, soft cute storybook proportions (adults keep natural body "
+             "proportions, never big-head caricatures).")
+ADULT_FACE = ("ADULTS keep their own real facial proportions: their own eye size and shape (never enlarged into big "
+              "cartoon eyes), their own nose size and shape, their own face width and length, jaw, forehead and "
+              "hairline — simplified only in line and skin, never cute or baby-faced; natural adult body proportions. "
+              "The sheet faces forward with the eyes looking straight ahead and a calm, friendly expression, whatever "
+              "the photo's angle, glance or mood.")
+
+
+def is_adult(kind: str | None) -> bool:
+    return base_type(kind or "") in ADULT_TYPES
+
+
+def adult_style(style_text: str) -> str:
+    if CUTE_FACE in style_text:
+        return style_text.replace(CUTE_FACE, "simplified rounded shapes and smooth simplified skin with no realistic "
+                                             f"texture. {ADULT_FACE}")
+    return f"{style_text} {ADULT_FACE}"
+
+
 def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str | None = None,
-                           sheet_rules: str | None = None) -> str:
+                           sheet_rules: str | None = None, adult: bool = False) -> str:
     """Photo → cartoon character sheet (the owner's proven prompt, fixed: opaque
-    white instead of transparent, photo rules, photo outfit by default, one view)."""
+    white instead of transparent, photo rules, photo outfit by default, one view;
+    grown-ups keep their real face proportions)."""
+    style = adult_style(style_text or STYLE) if adult else (style_text or STYLE)
     return (
         f"Create a highly stylized 2D children's storybook cartoon character based on the uploaded photo of {who}, "
         "more cartoonish than the photo while keeping the person instantly recognizable to their own family. "
         "The first reference image is the photo (use it ONLY for identity). "
         f"{STYLE_REF_NOTE}\n\n{IDENTITY_RULES}\n\n{PHOTO_RULES}\n\nOUTFIT: {outfit_rule(outfit)}.\n\n"
-        f"STYLE: {style_text or STYLE}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
+        f"STYLE: {style}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
     )
 
 
