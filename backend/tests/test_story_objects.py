@@ -261,18 +261,69 @@ def test_a_refused_prompt_is_retried_without_the_toys_own_names():
     assert not sp.content_refused(AIPermanentError("HTTP 500: internal error"))
 
 
-def test_grown_ups_keep_their_real_face_and_children_keep_the_cute_one():
-    # side by side the owner chose real proportions for adults (the father's face was lost)
+def test_children_and_grown_ups_share_one_natural_style_by_default():
+    # realistic grown-ups next to wide-eyed cartoon children looked like two films: the
+    # owner picked one middle style for everyone (2026-10-28); the soft style stays a preset
     from services import engine_config, house_style
 
     style = engine_config.DEFAULT_STYLE["style_text"]
-    assert house_style.CUTE_FACE in style
+    assert style == house_style.STYLE_NATURAL and engine_config.DEFAULT_STYLE["is_default"]
+    assert engine_config.DEFAULT_STYLE["reference_image"].endswith("storybook_natural.png")
     adult = house_style.character_sheet_prompt("Omar, the child's father", None, style, None, adult=True)
     child = house_style.character_sheet_prompt("Lina", None, style, None)
-    assert house_style.ADULT_FACE in adult and "big expressive eyes" not in adult
-    assert "big expressive eyes" in child and house_style.ADULT_FACE not in child
+    assert "big expressive eyes" not in adult and "big expressive eyes" not in child
+    assert "natural eye size and shape for everyone" in child and house_style.ADULT_FACE in adult
+    assert house_style.ADULT_FACE not in child
+    assert house_style.CUTE_FACE in engine_config.SOFT_STYLE["style_text"] and not engine_config.SOFT_STYLE["is_default"]
+    assert not engine_config.SOFT_STYLE["active"]
     assert house_style.ADULT_FACE in house_style.adult_style("An admin's own style.")
     assert house_style.is_adult("father") and house_style.is_adult("grandmother_2") and not house_style.is_adult("friend")
+
+
+def test_the_natural_style_becomes_the_default_once(monkeypatch):
+    import asyncio
+
+    from services import engine_config
+
+    class Coll:
+        def __init__(self, docs):
+            self.docs = docs
+
+        async def find_one(self, q, *_):
+            return next((d for d in self.docs if all(d.get(k) == v for k, v in q.items())), None)
+
+        async def insert_one(self, doc):
+            self.docs.append(dict(doc))
+
+        async def update_many(self, q, upd):
+            for d in self.docs:
+                if d.get("key") != q["key"]["$ne"]:
+                    d.update(upd["$set"])
+
+        async def update_one(self, q, upd, upsert=False):
+            d = await self.find_one(q)
+            if d:
+                d.update(upd.get("$set") or {})
+            elif upsert:
+                self.docs.append({**q, **(upd.get("$setOnInsert") or {})})
+
+    class DB:
+        style_presets = Coll([{"key": "storybook_soft", "is_default": True, "style_text": "admin's text"}])
+        dialect_profiles = Coll([{"key": k} for k in engine_config.house_style.DIALECTS])
+        engine_settings = Coll([{"id": "default"}])
+        migrations = Coll([])
+
+    monkeypatch.setattr(engine_config, "db", DB)
+    asyncio.run(engine_config.seed_engine_config())
+    by_key = {d["key"]: d for d in DB.style_presets.docs}
+    assert by_key["storybook_natural"]["is_default"] and by_key["storybook_natural"]["active"]
+    assert not by_key["storybook_soft"]["is_default"] and not by_key["storybook_soft"]["active"]  # off the parents' list
+    assert by_key["storybook_soft"]["style_text"] == "admin's text"  # the admin's edits are kept
+    by_key["storybook_soft"].update(is_default=True, active=True)  # the admin switches back
+    by_key["storybook_natural"]["is_default"] = False
+    asyncio.run(engine_config.seed_engine_config())
+    assert by_key["storybook_soft"]["is_default"] and by_key["storybook_soft"]["active"]  # never undone
+    assert not by_key["storybook_natural"]["is_default"]
 
 
 def test_a_set_without_all_its_owners_goes_in_words_and_a_changing_thing_follows_the_scene():

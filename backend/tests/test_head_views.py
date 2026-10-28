@@ -164,3 +164,9 @@ def test_a_gpt_picture_numbers_the_sheets_around_the_face_pictures():
     text = sp.keyframe_prompt(scene, sh, profiles, SHEETS, "Lina", ["n1", "n2", "n3"], style, None,
                               ["father", None, "child"])
     assert "Omar (reference image 1)" in text and "Lina (reference image 3)" in text
+
+
+def test_the_heads_ask_for_facial_hair_only_as_the_sheet_has_it():
+    # asked for "any beard" exactly, the child's heads came back bearded
+    assert "any beard" not in head_views.PROMPT and "none where it has none" in head_views.PROMPT
+    assert all(v in (None, 0) for v in head_views.NONE.values())

@@ -7,8 +7,9 @@ sheet looked like nobody in the video. The heads go to the shot pictures as a re
 of their own, right after the person's sheet, laid out 2×2 on a square (`grid`): next to
 the body in one wide picture they reached Qwen a few dozen pixels high and the scene's
 father was a stock face again; as their own square his hairline, thinning curls, grey in
-the beard and face width came through. Only grown-ups get it in the shots: with the
-child's own square too, Qwen drew the child twice and gave the copy the father's beard.
+the beard and face width came through. Only grown-ups get them: with the child's own
+square in the shots too, Qwen drew the child twice and gave the copy the father's beard,
+and the child's own heads, asked for "any beard" exactly, came back with one.
 The book's portraits, the sheet's look and the video keep the plain sheet.
 
 The heads come from:
@@ -38,9 +39,9 @@ PROMPT = ("<image1> is a cartoon character sheet of a person. Draw this same car
           "clean outlines, flat colors and soft simple shading, no realistic skin, hair or lighting. Facing front on "
           "the left, turned three-quarters to the left in the middle, and in side profile facing left on the right. "
           "Keep their exact face in every view: the same face width and shape, cheeks, eyes and eyelids, eyebrows, "
-          "nose width and shape, mouth, hairline, hair, and any beard's exact shape, fullness and how far up the "
-          "cheeks it grows. Neutral relaxed expression, the same top as <image1>. Three heads only, the same size, "
-          "evenly spaced, no body below the shoulders, no text.")
+          "nose width and shape, mouth, hairline and hair, and facial hair exactly as on <image1> (none where it "
+          "has none). Neutral relaxed expression, the same top as <image1>. Three heads only, the same size, evenly "
+          "spaced, no body below the shoulders, no text.")
 ANGLE_LINE = "The head stays turned exactly as in the photo (the same angle), with a calm, friendly expression."
 HEAD_ONLY = ("COMPOSITION: head and shoulders only, centered on a plain pure white background (opaque white), the head "
              "turned exactly as in the photo; no full body, no props, no text.")
@@ -183,14 +184,17 @@ def grid(heads: bytes, side: int = GRID_SIDE) -> bytes:
     return buf.getvalue()
 
 
+# Every field each time: a redrawn sheet's asset keeps nothing from the drawing before.
+NONE = {"head_views_url": None, "head_views_gpu_seconds": None, "head_views_angles": 0, "head_views_model": None,
+        "head_views_quality": None}
+
+
 async def for_asset(sheet_png: bytes, save, *, photos: list[bytes] | None = None, sheet_prompt: str = "",
                     provider: str = "", model: str = "", style_ref: bytes | None = None) -> dict:
     """The heads for a sheet just made from a photo (from the parent's extra `photos` when
     there are any, else from the sheet); `save` stores a PNG and returns its URL. The fields
     to keep on the character's asset."""
-    # Every field each time: a redrawn sheet's asset keeps no count from the drawing before.
-    fields = {"head_views_url": None, "head_views_gpu_seconds": None, "head_views_angles": 0,
-              "head_views_model": None, "head_views_quality": None}
+    fields = dict(NONE)
     if photos:
         made = await from_photos(sheet_png, sheet_prompt, photos, provider, model, style_ref)
         if made:

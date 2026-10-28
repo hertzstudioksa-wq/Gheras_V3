@@ -24,6 +24,18 @@ STYLE = (
     "never big-head caricatures). Premium children's book animation look: clean elegant linework, soft simplified "
     "painterly shading, warm appealing colors, charming and hand-crafted."
 )
+# The owner's pick (2026-10-28): one middle style for children and adults. Next to the
+# cute big-eyed children, grown-ups drawn with their real features looked like they came
+# from another film; with natural eyes for everyone the father and the child read as one
+# picture in every place and angle tried. Its reference picture is the same made-up family
+# as the soft style's, redrawn (assets/styles/storybook_natural.png).
+STYLE_NATURAL = (
+    "One consistent 2D storybook illustration style for children and adults alike, like a modern animated film: "
+    "natural eye size and shape for everyone (never enlarged big cartoon eyes), real facial proportions simplified "
+    "into clean appealing shapes, clean outlines, soft painterly shading, warm appealing colors, no realistic skin "
+    "texture, pores or single hairs. Children keep soft childlike features (round cheeks, small noses, child body "
+    "proportions); adults keep their own real features."
+)
 FRAME_RULES = (
     "Full-bleed 16:9 cinematic frame filling the whole canvas edge to edge: no border, no white margin, "
     "no vignette, no text, no letters, no watermark."

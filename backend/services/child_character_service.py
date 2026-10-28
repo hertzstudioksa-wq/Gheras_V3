@@ -64,7 +64,7 @@ def _build_context(order: dict, plan: dict | None, outfit: str = "",
         "child_outfit":  outfit or "same as in the photo",
         "outfit_rule":   house_style.outfit_rule(outfit),
         # The parent's art style preset (admin-editable).
-        "style_text":    art_style.get("style_text") or house_style.STYLE,
+        "style_text":    art_style.get("style_text") or engine_config.DEFAULT_STYLE["style_text"],
         "sheet_rules":   art_style.get("sheet_rules") or house_style.SHEET_RULES,
     }
 
@@ -244,7 +244,6 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
     views: dict[str, Any] = {}
     error: str | None = None
     src_tuple = await _fetch_source_bytes(source_image_url, owner_id=order["user_id"])
-    extra = [got[0] for got in [await _fetch_source_bytes(u, owner_id=order["user_id"]) for u in extra_urls] if got]
     if not src_tuple:
         error = "child photo could not be read from storage"
     else:
@@ -253,9 +252,7 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
             result = await _generate_character(src_tuple[0], prompt, provider, model_name, style_ref)
             generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
             real_meta = result.get("meta") or {}
-            views = await head_views.for_asset(
-                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png),
-                photos=extra, sheet_prompt=prompt, provider=provider, model=model_name, style_ref=style_ref)
+            views = dict(head_views.NONE)  # the heads are for grown-ups only (services/head_views.py)
         except Exception as e:  # noqa: BLE001 — recorded on the asset and surfaced to the orchestrator
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[child_character_i2i] generation failed order={order_id}: {error[:300]}")

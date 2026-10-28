@@ -141,7 +141,8 @@ async def _run_one(order: dict, character_index: int, character: dict,
             real_meta = result.get("meta") or {}
             views = await head_views.for_asset(
                 result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png),
-                photos=extra, sheet_prompt=prompt, provider=provider, model=model_name, style_ref=style_ref)
+                photos=extra, sheet_prompt=prompt, provider=provider, model=model_name, style_ref=style_ref) \
+                if house_style.is_adult(character.get("type")) else dict(head_views.NONE)
         except Exception as e:  # noqa: BLE001 — recorded on the asset; the book continues without this likeness
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[extra_character_i2i] failed order={order_id} char={character_index}: {error[:300]}")

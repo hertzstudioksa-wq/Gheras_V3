@@ -71,6 +71,10 @@ const OUTPUT_TYPE_OPTIONS = [
   { v: "pdf",   l: "كتاب PDF فقط",          d: "كتاب مصوّر للقراءة معاً",              i: BookOpen },
 ];
 
+// More sides of the face help grown-ups only: the scenes draw adults from their face at
+// every angle, while a child's likeness comes from the sheet (backend services/head_views.py).
+const ADULT_TYPES = ["mother", "father", "teacher", "grandparent"];
+
 const blankData = () => ({
   goal: { category_id: "", subcategory_id: "", custom_subcategory: "", context: "" },
   child: { name: "", age: 5, gender: "male", image_url: "", extra_image_urls: [], appearance_notes: "", hijab: false },
@@ -428,12 +432,6 @@ export default function StoryBuilder() {
                     size="lg"
                     testId="child-image"
                   />
-                  <AngleUploads
-                    value={data.child.extra_image_urls}
-                    onChange={(urls) => updateChild({ extra_image_urls: urls })}
-                    scope="child"
-                    testId="child-angles"
-                  />
                   <div className="mt-3 font-body text-xs leading-relaxed text-[#2D3748] bg-white border border-[#E2D8C9] rounded-2xl p-3" data-testid="photo-tips">
                     <div className="font-bold text-[#4F6B3B] mb-1">صورة تعطي أفضل شبه:</div>
                     <ul className="space-y-0.5">
@@ -616,7 +614,7 @@ export default function StoryBuilder() {
                             size="sm"
                             testId={`char-image-${idx}`}
                           />
-                          {c.image_url && (
+                          {c.image_url && ADULT_TYPES.includes(c.type) && (
                             <AngleUploads
                               value={c.extra_image_urls}
                               onChange={(urls) => updateChar(idx, { extra_image_urls: urls })}
