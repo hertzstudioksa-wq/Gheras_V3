@@ -10,7 +10,8 @@ through an oval mask, so the rest of the picture never changes. The owner picked
 after the kitchen and swing tests (2026-10-29): strength 0.5 kept the angle and the
 expression, 0.65 turned the face to the camera. About a cent a face. Whatever goes
 wrong (no photo any more, no head found, two grown-ups who could be confused, a failed
-job), the picture stays as drawn.
+job), the picture stays as drawn. Off by default: side by side with Qwen's own face
+drawn from the head-fitted sheet, the owner preferred Qwen's (2026-10-29).
 """
 from __future__ import annotations
 
@@ -54,7 +55,7 @@ def targets(shot: dict, sheets: dict) -> list[str]:
 
 async def on() -> bool:
     s = await db.settings.find_one({"key": SETTING}, {"_id": 0, "value": 1})
-    return (s or {}).get("value", True) is not False
+    return (s or {}).get("value", False) is True  # off unless the owner turns it on (he preferred Qwen's faces)
 
 
 Box = tuple[int, int, int, int]  # x, y, w, h

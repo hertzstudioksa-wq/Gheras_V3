@@ -143,3 +143,12 @@ def test_only_a_box_shaped_like_a_face_and_not_the_childs_is_used(monkeypatch):
     assert run(face_fix._face_box(pic, "man", child_in_shot=True)) is None
     answers["man's face"] = [(1, 0, 178, 373)]
     assert run(face_fix._face_box(pic, "man", child_in_shot=False)) is None
+
+
+def test_the_face_step_is_off_unless_the_owner_turns_it_on():
+    # side by side with Qwen's own face (from the head-fitted sheet), the owner preferred Qwen's
+    async def go():
+        assert not await face_fix.on()
+        await db.settings.insert_one({"key": face_fix.SETTING, "value": True})
+        assert await face_fix.on()
+    run(go())
