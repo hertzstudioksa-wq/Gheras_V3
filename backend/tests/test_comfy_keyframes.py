@@ -309,3 +309,18 @@ def test_the_plan_rules_keep_legs_still_gaze_off_the_lens_and_owners_colors_apar
         assert words in ps.SYSTEM_MSG, words
     line = sp.objects_line([{"key": "k", "name": "the kids' kites", "look": "red for Lina, blue for Sami"}])
     assert "keep each owner's own colors" in line
+
+
+@pytest.mark.parametrize("problems,engine,attempt,expected", [
+    (["wrong_stage"], "qwen", 1, "gpt"),     # Qwen drew the full bloom four times running
+    (["wrong_stage", "action_missing"], "qwen", 2, "gpt"),
+    (["wrong_stage"], "gpt", 2, None),       # GPT still wrong: the least broken take
+])
+def test_a_thing_at_the_wrong_stage_goes_to_gpt(problems, engine, attempt, expected):
+    assert sp.next_take({"ok": False, "problems": problems}, engine, attempt) == expected
+
+
+def test_a_partial_set_is_left_to_the_scenes_words():
+    full = {"key": "cans", "name": "the cans", "look": "red for Lina, green for Sami"}
+    assert sp.objects_line([{**full, "partial": True}]) == ""
+    assert "red for Lina" in sp.objects_line([full])

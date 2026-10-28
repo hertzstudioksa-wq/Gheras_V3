@@ -286,7 +286,7 @@ def test_a_set_without_all_its_owners_goes_in_words_and_a_changing_thing_follows
     both = sp.shot_objects(shot(["child", "friend"], ["cans"], "Lina and Sami water."), objects, SCENE)
     assert alone[0].get("partial") and sp.without_picture(alone[0]) and not both[0].get("partial")
     line = sp.objects_line(alone)
-    assert sp.PARTIAL_NOTE in line and sp.CHANGES_NOTE in line
+    assert "red for Lina" not in line and sp.CHANGES_NOTE in line  # the set is left to the scene's words
     assert sp.CHANGES_NOTE not in sp.objects_line(both)
     docs = ps.build_docs({"id": "o", "data": {}}, {
         "production_plan": {}, "characters": [{"type": "child"}],

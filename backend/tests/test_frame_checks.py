@@ -366,3 +366,8 @@ def test_who_is_who_comes_from_each_sheets_own_look():
 def test_a_sheet_look_is_off_in_the_rehearsal(monkeypatch):
     monkeypatch.setenv("GHERAS_FAKE_PROVIDERS", "1")
     assert asyncio.run(clip_review.sheet_look(cartoon_picture())) is None
+
+
+def test_the_review_knows_a_thing_at_the_wrong_stage():
+    assert "wrong_stage" in clip_review.PROBLEMS and "- wrong_stage:" in clip_review.SYSTEM
+    assert clip_review._problem("rose already in full bloom") == "wrong_stage"

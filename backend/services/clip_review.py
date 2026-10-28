@@ -33,8 +33,8 @@ REVIEW_MODEL = "anthropic/claude-haiku-5.5"
 # Six frames: a child rose off the ground and a leg kicked the air between four of them.
 CLIP_FRAMES = 6
 PROBLEMS = ("duplicate", "extra_person", "role_swap", "clipping", "vanishing", "text", "deformed", "wrong_look",
-            "outfit_change", "melting", "floating", "camera_gaze", "action_missing", "mood_mismatch", "noise",
-            "object_alive")
+            "outfit_change", "melting", "floating", "camera_gaze", "wrong_stage", "action_missing", "mood_mismatch",
+            "noise", "object_alive")
 # A model's words for one cast member standing in another's place (checked before the
 # "wrong_..." prefix would read them as wrong_look).
 ROLE_WORDS = ("swap", "switched", "wrong_person", "wrong_character", "wrong_role", "role")
@@ -49,6 +49,7 @@ SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": 
             "alive": "object_alive", "animated_toy": "object_alive", "toy_mov": "object_alive",
             "float": "floating", "levitat": "floating", "hover": "floating",
             "gaze": "camera_gaze", "viewer": "camera_gaze", "camera": "camera_gaze",
+            "stage": "wrong_stage", "bloom": "wrong_stage",
             "color": "melting", "colour": "melting"}
 REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and colors
 # Qwen sometimes returns coloured static instead of a picture (2 frames of the
@@ -88,6 +89,8 @@ SYSTEM = (
     "- floating: someone's feet leave the ground, the seat or the deck they stand on, or their body rises or sinks, "
     "with no jump in `action`; or a leg or arm moves in a way no body moves\n"
     "- camera_gaze: in a clip, someone turns to look straight out at the viewer, as if into the camera\n"
+    "- wrong_stage: a thing that changes in the story is drawn at another stage than `action` says (a flower already "
+    "open when the action says it has not bloomed yet, a finished tower when it is still being built)\n"
     "- action_missing: the main action described in `action` clearly does not happen (in a single picture: the "
     "picture doesn't show that moment)\n"
     "- mood_mismatch: a face clearly shows the opposite feeling of `action` (smiling while the action says crying, "
@@ -103,7 +106,7 @@ SYSTEM = (
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
     '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed, wrong_look, '
-    'outfit_change, melting, floating, camera_gaze, action_missing, mood_mismatch, object_alive], '
+    'outfit_change, melting, floating, camera_gaze, wrong_stage, action_missing, mood_mismatch, object_alive], '
     '"note": "<one short English sentence>"}'
 )
 

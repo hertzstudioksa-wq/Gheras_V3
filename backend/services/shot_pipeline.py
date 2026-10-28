@@ -232,7 +232,7 @@ CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks o
 # A start frame with a held problem is never animated, so any take without one is the better take.
 FLAW_WEIGHT = {"noise": 30, "deformed": 8, "melting": 3, "duplicate": 8, "extra_person": 8, "role_swap": 8,
                "wrong_look": 2, "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2,
-               "camera_gaze": 4, "floating": 4, "object_mixup": 3}
+               "camera_gaze": 4, "floating": 4, "object_mixup": 3, "wrong_stage": 6}
 
 
 def flaw(review: dict) -> int:
@@ -291,6 +291,10 @@ def next_take(review: dict, engine: str, attempt: int, last: int = 3) -> str | N
         return "gpt"
     if problems:
         return engine
+    # A plant drawn in full bloom before it flowered came back four Qwen takes running
+    # (its name said what it becomes): GPT follows the scene's words for the stage.
+    if "wrong_stage" in (review.get("problems") or []):
+        return "gpt" if engine == "qwen" else None
     if "camera_gaze" in (review.get("problems") or []):
         return "qwen" if engine == "qwen" and attempt < 2 else "gpt" if engine == "qwen" else None
     return "qwen" if engine == "qwen" and attempt < 2 else None
@@ -494,7 +498,6 @@ def without_picture(o: dict) -> bool:
 
 
 BACKGROUND_NOTE = "only small and far in the background, sitting still, never in front of anyone"
-PARTIAL_NOTE = "only the ones of the people in this picture, in their hands or right beside them — no extra ones"
 CHANGES_NOTE = ("it changes during the story: draw it exactly as the SCENE describes it in this picture, never a "
                 "later stage")
 
@@ -508,12 +511,14 @@ def object_brief(obj: dict) -> str:
 
 def objects_line(objects: list[dict]) -> str:
     """The fixed look of the shot's story objects, word for word in every shot."""
+    # A set some of whose owners aren't in the shot is left to the scene's own words: its look
+    # lists every owner's one, and the three cans were drawn around one child.
+    objects = [o for o in objects if not o.get("partial")]
     if not objects:
         return ""
     return ("OBJECTS (they look exactly the same in every picture of this story): "
             + "; ".join(f"{o['name']}: {o['look'].rstrip('.')}" + (f" ({TOY_NOTE}; {TOY_POSE})" if o.get("toy") else "")
                         + (f" ({BACKGROUND_NOTE})" if o.get("background") else "")
-                        + (f" ({PARTIAL_NOTE})" if o.get("partial") else "")
                         + (f" ({CHANGES_NOTE})" if o.get("changes") else "") for o in objects)
             + f" — {OBJECTS_NOTE}. Things that belong to different people keep each owner's own colors as written.")
 
