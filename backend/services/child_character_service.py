@@ -253,8 +253,7 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
             generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
             real_meta = result.get("meta") or {}
             views = await head_views.for_asset(
-                order, result["image_bytes"], [source_image_url, *extra_urls],
-                lambda png: _save_generated_png(order_id, order["user_id"], png))
+                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png))
         except Exception as e:  # noqa: BLE001 — recorded on the asset and surfaced to the orchestrator
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[child_character_i2i] generation failed order={order_id}: {error[:300]}")

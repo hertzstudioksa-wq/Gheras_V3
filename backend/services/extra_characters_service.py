@@ -141,8 +141,7 @@ async def _run_one(order: dict, character_index: int, character: dict,
             generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
             real_meta = result.get("meta") or {}
             views = await head_views.for_asset(
-                order, result["image_bytes"], [source_url, *extra_urls],
-                lambda png: _save_generated_png(order_id, order["user_id"], png))
+                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png))
         except Exception as e:  # noqa: BLE001 — recorded on the asset; the book continues without this likeness
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[extra_character_i2i] failed order={order_id} char={character_index}: {error[:300]}")

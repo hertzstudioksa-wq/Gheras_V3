@@ -63,10 +63,33 @@ def test_the_card_is_the_sheet_and_the_three_heads_side_by_side():
     assert card.getpixel((10, 10)) == (200, 120, 90) and card.getpixel((683 + 10, 10)) == (255, 255, 255)
 
 
-def test_without_photos_or_in_rehearsal_there_are_no_heads(monkeypatch):
-    assert asyncio.run(head_views.draw(b"sheet", [])) is None
+def test_without_a_sheet_or_in_rehearsal_there_are_no_heads(monkeypatch):
+    assert asyncio.run(head_views.draw(b"")) is None
     monkeypatch.setenv("GHERAS_FAKE_PROVIDERS", "1")
-    assert asyncio.run(head_views.draw(b"sheet", [b"photo"])) is None
+    assert asyncio.run(head_views.draw(b"sheet")) is None
+
+
+def test_the_heads_are_drawn_from_the_cartoon_sheet_alone(monkeypatch):
+    # drawn from the real photos too, they came out as painted portraits and the father
+    # stood out as a realistic man among cartoon children
+    from services.ai import image_client
+
+    seen = {}
+
+    async def comfy(**k):
+        seen.update(k)
+        return b"png", "image/png", {"gpu_seconds": 12.0}
+
+    monkeypatch.delenv("GHERAS_FAKE_PROVIDERS", raising=False)
+    monkeypatch.setattr(image_client, "comfy_image", comfy)
+    assert asyncio.run(head_views.draw(b"sheet")) == (b"png", 12.0)
+    assert seen["references"] == [b"sheet"] and "photo" not in seen["prompt"]
+
+
+def test_several_photos_keep_the_cartoon_of_the_style_reference():
+    three = house_style.character_sheet_prompt("Omar, the child's father", photos=3, adult=True)
+    assert house_style.CARTOON_LOCK in three
+    assert house_style.CARTOON_LOCK not in house_style.character_sheet_prompt("Omar, the child's father", adult=True)
 
 
 def test_a_card_reference_says_it_is_one_person_from_three_sides():

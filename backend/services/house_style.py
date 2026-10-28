@@ -176,13 +176,24 @@ def adult_style(style_text: str) -> str:
     return f"{style_text} {ADULT_FACE}"
 
 
+# Three sharp colour photos of a father (front, three-quarter, side) gave a semi-realistic
+# painted portrait instead of a cartoon, and he stood out next to the cartoon children; the
+# owner's pick is the cartoon with real proportions drawn from one photo. However many and
+# however detailed the photos, the drawing stays the cartoon of the style reference.
+CARTOON_LOCK = ("However many and however detailed the photos are, the drawing is a flat 2D cartoon exactly like the "
+                "STYLE reference: clean outlines, flat colors with soft simple shading, no skin texture or pores, no "
+                "single hairs in the hair or the beard (the beard is one simple shape), no photographic lighting; the "
+                "likeness comes from the shapes only (face outline, eyes, nose, hairline, beard outline), never from "
+                "realistic rendering.")
+
+
 def photos_note(photos: int = 1) -> str:
     """Which reference images are the person's photos."""
     if photos <= 1:
         return "The first reference image is the photo (use it ONLY for identity)."
     return (f"The first {photos} reference images are photos of the same person from different sides (the first "
-            "from the front): use them ONLY for identity, so the real width of the face, the nose, the jaw, the "
-            "hairline and any beard come out right from every side. The outfit comes from the first photo.")
+            "from the front): use them ONLY for identity, so the width of the face, the nose, the jaw, the hairline "
+            f"and any beard come out right from every side. The outfit comes from the first photo. {CARTOON_LOCK}")
 
 
 def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str | None = None,
