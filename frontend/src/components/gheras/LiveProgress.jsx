@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Bell, CheckCircle2, Circle, Clock, Hourglass, Loader2 } from "lucide-react";
 import { fileSrc } from "../../lib/api";
+import ImageLightbox from "./ImageLightbox";
 
 // Live progress while a story is being made: the server sends what's done
 // (steps, previews), how long it has been and an estimate of what's left; the
@@ -104,15 +105,22 @@ export function StepList({ steps }) {
 /** The child's cartoon (first) and each start frame as it's drawn. */
 export function PreviewStrip({ previews }) {
   const seen = useRef(new Set());
+  const [open, setOpen] = useState(null);
   if (!previews?.length) return null;
   const character = previews.find((p) => p.kind === "character");
   const rest = previews.filter((p) => p !== character);
+  // Every picture opens in front of the parent, in the order shown (owner).
+  const shown = [character, ...rest].filter(Boolean);
+  const items = shown.map((p) => ({ src: fileSrc(p.url), label: p.label_ar }));
   return (
     <div className="mt-5" data-testid="live-previews">
+      <ImageLightbox items={items} index={open} onClose={() => setOpen(null)} onIndex={setOpen} />
       {character && (
         <div className="flex items-center gap-4 bg-gradient-to-br from-[#F8F1E7] to-[#E8F0E1] rounded-2xl p-3 border border-[#D4A373]/30 mb-3">
-          <img src={fileSrc(character.url)} alt={character.label_ar}
-               className="w-20 h-28 object-contain rounded-xl bg-white border border-[#E2D8C9] animate-grow" />
+          <button type="button" onClick={() => setOpen(0)} aria-label={`تكبير ${character.label_ar}`} className="shrink-0">
+            <img src={fileSrc(character.url)} alt={character.label_ar}
+                 className="w-20 h-28 object-contain rounded-xl bg-white border border-[#E2D8C9] animate-grow cursor-zoom-in" />
+          </button>
           <div className="font-body">
             <div className="font-heading font-bold text-[#2D3748]">{character.label_ar} جاهزة 🎨</div>
             <div className="text-xs text-[#5A677D] mt-1">هكذا سيظهر في القصة — ونرسم المشاهد الآن.</div>
@@ -126,9 +134,12 @@ export function PreviewStrip({ previews }) {
             seen.current.add(p.url);
             return (
               <figure key={p.url} className={`shrink-0 snap-start ${fresh ? "animate-grow" : ""}`}>
-                <img src={fileSrc(p.url)} alt={p.label_ar} loading="lazy"
-                     className={`h-20 md:h-24 rounded-xl border border-[#E2D8C9] ${p.kind === "character"
-                       ? "aspect-[3/4] object-contain bg-white" : "aspect-video object-cover bg-[#F2E8DA]"}`} />
+                <button type="button" onClick={() => setOpen(shown.indexOf(p))} aria-label={`تكبير ${p.label_ar}`}
+                        className="block cursor-zoom-in">
+                  <img src={fileSrc(p.url)} alt={p.label_ar} loading="lazy"
+                       className={`h-20 md:h-24 rounded-xl border border-[#E2D8C9] ${p.kind === "character"
+                         ? "aspect-[3/4] object-contain bg-white" : "aspect-video object-cover bg-[#F2E8DA]"}`} />
+                </button>
                 <figcaption className="text-[10px] text-[#8A9AB0] font-body text-center mt-1">{p.label_ar}</figcaption>
               </figure>
             );

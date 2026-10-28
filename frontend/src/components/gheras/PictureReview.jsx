@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2, RefreshCcw, Sparkles, X, ZoomIn } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCcw, Sparkles, ZoomIn } from "lucide-react";
 import { api, errorMessage, fileSrc } from "@/lib/api";
 import { countLabel, imagesLabel } from "@/lib/arabic";
+import ImageLightbox from "./ImageLightbox";
 
 const redrawsLabel = (n) => countLabel(n, ["إعادة واحدة", "إعادتان", "إعادات", "إعادة"]);
 
@@ -42,6 +43,8 @@ export default function PictureReview({ orderId, childName, onApproved }) {
   }
 
   const key = (s) => `${s.scene_index}-${s.shot_index}`;
+  const drawn = data.shots.filter((s) => s.picture_url);
+  const items = drawn.map((s) => ({ src: fileSrc(s.picture_url), label: `المشهد ${s.scene_index} · لقطة ${s.shot_index}` }));
   const left = data.redraws_left || 0;
   const toggle = (s) => {
     if (redrawing || !s.picture_url) return;
@@ -111,7 +114,7 @@ export default function PictureReview({ orderId, childName, onApproved }) {
                  className={`bg-white rounded-[1.5rem] p-3 border-2 transition ${on ? "border-[#E07A5F]" : "border-[#E2D8C9]"}`}>
               <div className="relative rounded-2xl overflow-hidden bg-[#F2E8DA] aspect-video">
                 {s.picture_url && (
-                  <button type="button" onClick={() => setZoom(fileSrc(s.picture_url))} className="block w-full h-full"
+                  <button type="button" onClick={() => setZoom(drawn.indexOf(s))} className="block w-full h-full cursor-zoom-in"
                           aria-label="تكبير الصورة">
                     <img src={fileSrc(s.picture_url)} alt="" loading="lazy" className="w-full h-full object-cover" />
                     <ZoomIn className="absolute top-2 left-2 w-7 h-7 p-1.5 rounded-full bg-white/80 text-[#2D3748]" />
@@ -177,14 +180,7 @@ export default function PictureReview({ orderId, childName, onApproved }) {
         )}
       </div>
 
-      {zoom && (
-        <div className="fixed inset-0 z-50 bg-black/80 grid place-content-center p-3" onClick={() => setZoom(null)}
-             role="dialog" aria-label="الصورة مكبّرة">
-          <img src={zoom} alt="" className="max-w-[96vw] max-h-[88vh] rounded-2xl" />
-          <button type="button" className="absolute top-4 left-4 w-10 h-10 rounded-full bg-white grid place-content-center"
-                  aria-label="إغلاق"><X className="w-5 h-5" /></button>
-        </div>
-      )}
+      <ImageLightbox items={items} index={zoom} onClose={() => setZoom(null)} onIndex={setZoom} />
     </div>
   );
 }

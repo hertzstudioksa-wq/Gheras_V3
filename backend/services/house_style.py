@@ -192,10 +192,12 @@ ADULT_FACE = ("ADULTS keep their own real facial proportions: their own eye size
 # "Highly stylized ... more cartoonish than the photo" drew a father five heads tall
 # (owner: the head is big and silly), the style's own proportion words further down
 # notwithstanding: the proportions get their own line, with numbers.
+# "a full-size torso and long legs" drew a slim, long-legged father and a lanky boy
+# (owner: "why are they so tall?"): the build stays the person's own.
 PROPORTIONS = ("PROPORTIONS: real body proportions for the person's age, never a big-head cartoon figure: a grown-up "
-               "is about seven and a half heads tall (the head about one-seventh of the height, a full-size torso and "
-               "long legs), a child of four to six about five heads tall. The cartoon look is in the lines and the "
-               "shading, never in the body.")
+               "is about seven heads tall, a child of four to six about four and a half to five heads tall, each with "
+               "the person's own build (shoulders, chest, arms and legs as sturdy as in the photo, never slimmed). "
+               "The cartoon look is in the lines and the shading, never in the body.")
 
 
 def is_adult(kind: str | None) -> bool:
