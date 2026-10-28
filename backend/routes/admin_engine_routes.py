@@ -457,7 +457,7 @@ async def prompt_preview(order_id: str):
                     in_shot = shot_pipeline.shot_objects(sh, objects, sc)
                     # On Comfy every story object gets its reference before the keyframes.
                     comfy_refs = shot_pipeline.comfy_references(sh, sc, sheets, toy, previous,
-                                                                [o for o in in_shot if not o.get("background")]) \
+                                                                [o for o in in_shot if not shot_pipeline.without_picture(o)]) \
                         if on_comfy else []
                     mapping = [f"{sheets[t]['label']} is @Element{i + 1}" for i, t in enumerate(
                         shot_pipeline.by_likeness(sh.get("characters") or [], sheets)[:shot_pipeline.MAX_ELEMENTS])

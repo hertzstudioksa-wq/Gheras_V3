@@ -38,7 +38,7 @@ def test_the_plan_keeps_its_objects_and_each_shot_names_only_known_ones():
                    {"narration_line": "b", "characters": ["child"]}]}]}
     docs = ps.build_docs({"id": "o", "data": {}}, payload, "run", "ai")
     assert docs["plan"]["story_objects"] == [{"key": "red_kite", "name_en": "the red kite", "look": "red diamond kite",
-                                              "sheet_view": "", "toy": False}]
+                                              "sheet_view": "", "toy": False, "changes": False, "owners": []}]
     assert [sh["objects"] for sh in docs["scenes"][0]["shots"]] == [["red_kite"], []]
 
 
@@ -273,3 +273,27 @@ def test_grown_ups_keep_their_real_face_and_children_keep_the_cute_one():
     assert "big expressive eyes" in child and house_style.ADULT_FACE not in child
     assert house_style.ADULT_FACE in house_style.adult_style("An admin's own style.")
     assert house_style.is_adult("father") and house_style.is_adult("grandmother_2") and not house_style.is_adult("friend")
+
+
+def test_a_set_without_all_its_owners_goes_in_words_and_a_changing_thing_follows_the_scene():
+    # the three cans' picture laid five cans around one child; the plant's look named its rose,
+    # so it bloomed in every shot
+    cans = {"key": "cans", "name_en": "the children's watering cans", "look": "red for Lina, green for Sami",
+            "owners": ["child", "friend"]}
+    plant = {"key": "plant", "name_en": "the young plant", "look": "a thin green stem", "changes": True}
+    objects = sp.story_objects({"story_objects": [cans, plant]})
+    alone = sp.shot_objects(shot(["child"], ["cans", "plant"], "Lina waters."), objects, SCENE)
+    both = sp.shot_objects(shot(["child", "friend"], ["cans"], "Lina and Sami water."), objects, SCENE)
+    assert alone[0].get("partial") and sp.without_picture(alone[0]) and not both[0].get("partial")
+    line = sp.objects_line(alone)
+    assert sp.PARTIAL_NOTE in line and sp.CHANGES_NOTE in line
+    assert sp.CHANGES_NOTE not in sp.objects_line(both)
+    docs = ps.build_docs({"id": "o", "data": {}}, {
+        "production_plan": {}, "characters": [{"type": "child"}],
+        "story_objects": [{**cans, "owners": ["child", "friend"]}, {**plant, "changes": "true"}],
+        "scenes": [{"scene_index": 1, "shots": [{"narration_line": "a", "objects": ["cans", "plant"]}]}]},
+        "r", "ai")
+    got = {o["key"]: o for o in docs["plan"]["story_objects"]}
+    assert got["cans"]["owners"] == ["child", "friend"] and got["plant"]["changes"] is True
+    for words in ("changes = true", "owners = keys"):
+        assert words in ps.SYSTEM_MSG

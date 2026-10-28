@@ -66,7 +66,9 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
       "name_en": "English name as the shots say it (e.g. the red kite)",
       "look": "English: what never changes — material, shape of its parts, exact colors, any special mark (e.g. a red diamond-shaped paper kite on thin wooden sticks with a long yellow tail of ribbon bows). No size, no arrangement, no state.",
       "sheet_view": "English: how its reference picture shows it alone (e.g. the kite lying flat on the floor, its tail curled beside it); an object that changes in the story shows its parts loose and apart, not assembled",
-      "toy": "true for a toy with a face or a body (plush, doll, action figure, toy animal) — a famous character's toy keeps its famous design — else false"
+      "toy": "true for a toy with a face or a body (plush, doll, action figure, toy animal) — a famous character's toy keeps its famous design — else false",
+      "changes": "true when the object itself changes during the story (a seed that sprouts and flowers, a sandcastle being built, a cake being eaten), else false",
+      "owners": ["character keys when this one object is a set of the same thing, one each (the children's three bikes), else empty"]
     }
   ],
   "scenes": [
@@ -145,6 +147,8 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - story_objects: الأغراض التي لها دور في القصة وتظهر في لقطتين أو أكثر (برج مكعبات، طائرة ورقية، كرة، كعكة، صندوق...) — 3 بحد أقصى. لعبة الطفل التي رفع الأهل صورتها ليست منها (لها صورتها)؛ أما اللعبة أو الشخصية المفضّلة بدون صورة فتدخل لو ظهرت في لقطتين أو أكثر. كل لقطة تُرسم وحدها، فالغرض الذي ليس له شكل ثابت مكتوب يتغيّر شكله من لقطة لأخرى. look: ما لا يتغيّر أبداً بتفاصيل محددة (الخامة، شكل الأجزاء، الألوان بالضبط، أي علامة مميزة)، بدون حجم ولا ترتيب ولا حالة. sheet_view: كيف يُرسم في صورته المرجعية وحده؛ لو الغرض يتغيّر في القصة (برج يُبنى ثم يقع، كعكة تُقطع) ارسم أجزاءه سائبة ومتفرقة فقط (بضع قطع على الأرض غير مركّبة)، لا أي شكل مركّب: الصورة تنسخ الترتيب الذي تراه في المرجع.
 - الشخصية المشهورة أو اللعبة التي لها وجه (سوبر هيرو، شخصية كرتون، دبدوب، عروسة، فيجر): لو الأهل وصفوها لعبة أو دمية، أو القصة واقعية والأهل لم يطلبوها بطلاً حياً: هي من story_objects و toy = true — look يصفها بشكلها المشهور بالضبط (نفس الوجه وشكل العيون وألوانها، الشعر، الملابس والألوان) مصنوعة كدميتها الرسمية من محلات اللعب (قماش فرو بخياطة، أو بلاستيك)؛ في keyframe_prompt تجلس مثل الدمية أو في يد أو حضن أحد، ولا تقف ولا تمشي وحدها. لو القصة خيالية وجعلتها بطلاً حياً مع الطفل (أو الأهل طلبوا ذلك): هي شخصية في characters (type = other) بوصفها المشهور، تتحرك وتتكلم عادي، وليست من story_objects.
 - نفس النوع من الأغراض عند أكثر من شخصية (عجل، سكوترات، طيارات ورق، كور): غرض واحد في story_objects للمجموعة، look يصف الموديل المشترك ولون كل واحد باسم صاحبه، وsheet_view يرسمهم جنب بعض. كل keyframe_prompt فيه حد منهم يقول لون اللي معاه. (صورة مرجع لغرض واحد خلّت الموديل يلوّن غرض كل الشخصيات بألوانه.)
+- الغرض الذي يتغيّر في القصة (بذرة تكبر وتطرح زهرة، قلعة رمل تُبنى، كعكة تُؤكل): changes = true، وlook يصف ما هو موجود من البداية ولا يتغير فقط — لا يذكر أبداً حالة لاحقة (الزهرة، البرعم، القلعة الكاملة)؛ وكل keyframe_prompt يكتب حالته في تلك اللقطة بالضبط. (look ذكر حالة لاحقة للغرض فرُسمت من أول لقطة.)
+- مجموعة الأغراض لأكثر من صاحب: owners = keys أصحابها.
 - objects في كل لقطة: keys الأغراض من story_objects التي تظهر فيها، حتى لو صغيرة أو بعيدة في الخلفية. background_setting يصف المكان فقط ولا يذكر أي غرض من story_objects (الغرض يُذكر في اللقطات التي يظهر فيها).
 - الأحجام بالجسم: كلما ذكر keyframe_prompt غرضاً من story_objects اكتب حجمه بالنسبة لجسم شخصية في نفس اللقطة (حتى ركبة / وسط / كتف / ذقن / فوق رأس فلان وهو واقف أو جالس أو راكع)، لا "كبير" ولا "أطول منهم". لو القصة تقارن (أكبر، أطول، أكثر من الأول): الحجم الجديد أكبر بوضوح بنفس المقياس الذي كُتب به الأول، ورتّب اللقطة ليظهر الفرق (الشخصيات واقفة بجانبه لا جالسة).
 - النظرة: keyframe_prompt يحدد لكل شخصية إلى من أو إلى ماذا تنظر (إلى بعضهم، إلى الغرض، إلى الطفل). لا أحد ينظر إلى الكاميرا: الصور المرجعية مرسومة تنظر للأمام، ومن لم تُكتب نظرته ينظر للمشاهد. ولو الشخصيات ناحية الكاميرا (جاية علينا أو مصوّرة من قدّام) فـ"تنظر للأمام" تعني في العدسة: اكتبها نظرة لجنب الكادر أو لبعض أو لشيء في الصورة.
@@ -624,9 +628,12 @@ def _normalise_objects(raw) -> list[dict]:
             continue
         key, name, look = _object_key(o.get("key") or o.get("name_en")), str(o.get("name_en") or "").strip(),             str(o.get("look") or "").strip()
         if key and name and look and key not in {x["key"] for x in objects}:
+            owners = o.get("owners") if isinstance(o.get("owners"), list) else []
             objects.append({"key": key, "name_en": name[:80], "look": look[:400],
                             "sheet_view": str(o.get("sheet_view") or "").strip()[:300],
-                            "toy": o.get("toy") is True or str(o.get("toy")).strip().lower() == "true"})
+                            "toy": o.get("toy") is True or str(o.get("toy")).strip().lower() == "true",
+                            "changes": o.get("changes") is True or str(o.get("changes")).strip().lower() == "true",
+                            "owners": [str(k).strip() for k in owners if str(k).strip()][:6]})
     return objects[:MAX_STORY_OBJECTS]
 
 

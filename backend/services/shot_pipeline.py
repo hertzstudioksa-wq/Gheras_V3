@@ -436,7 +436,8 @@ def story_objects(plan: dict, toy: dict | None = None) -> dict[str, dict]:
         if toy and toy_named_in(f"{o['name_en']} {o['look']}", toy):
             continue
         out[o["key"]] = {"key": o["key"], "name": o["name_en"], "look": o["look"], "sheet_view": o.get("sheet_view") or "",
-                         "toy": bool(o.get("toy"))}
+                         "toy": bool(o.get("toy")), "changes": bool(o.get("changes")),
+                         "owners": list(o.get("owners") or [])}
     return out
 
 
@@ -473,10 +474,29 @@ def shot_objects(sh: dict, objects: dict[str, dict], scene: dict | None = None) 
                                      f"{(scene or {}).get('background_setting') or ''}".lower()))
     named = [k for k, o in objects.items() if o.get("toy") and k not in listed and _toy_words(o) & said]
     keys = sorted(listed + named, key=lambda k: not objects[k].get("toy"))
-    return [{**objects[k], "background": True} if k in named else objects[k] for k in keys][:MAX_SHOT_OBJECTS]
+    cast = set(sh.get("characters") or [])
+    out = []
+    for k in keys:
+        o = objects[k]
+        if k in named:
+            o = {**o, "background": True}
+        # A set's picture shows every owner's one side by side; with an owner missing, Qwen
+        # still laid them all out in a row (five cans around one child): words only then.
+        elif o.get("owners") and not set(o["owners"]) <= cast:
+            o = {**o, "partial": True}
+        out.append(o)
+    return out[:MAX_SHOT_OBJECTS]
+
+
+def without_picture(o: dict) -> bool:
+    """A shot object whose reference picture stays out of that shot."""
+    return bool(o.get("background") or o.get("partial"))
 
 
 BACKGROUND_NOTE = "only small and far in the background, sitting still, never in front of anyone"
+PARTIAL_NOTE = "only the ones of the people in this picture, in their hands or right beside them — no extra ones"
+CHANGES_NOTE = ("it changes during the story: draw it exactly as the SCENE describes it in this picture, never a "
+                "later stage")
 
 
 def object_brief(obj: dict) -> str:
@@ -492,7 +512,9 @@ def objects_line(objects: list[dict]) -> str:
         return ""
     return ("OBJECTS (they look exactly the same in every picture of this story): "
             + "; ".join(f"{o['name']}: {o['look'].rstrip('.')}" + (f" ({TOY_NOTE}; {TOY_POSE})" if o.get("toy") else "")
-                        + (f" ({BACKGROUND_NOTE})" if o.get("background") else "") for o in objects)
+                        + (f" ({BACKGROUND_NOTE})" if o.get("background") else "")
+                        + (f" ({PARTIAL_NOTE})" if o.get("partial") else "")
+                        + (f" ({CHANGES_NOTE})" if o.get("changes") else "") for o in objects)
             + f" — {OBJECTS_NOTE}. Things that belong to different people keep each owner's own colors as written.")
 
 
@@ -552,7 +574,7 @@ async def ensure_object_sheets(order: dict, plan: dict) -> dict[str, dict]:
         return {}
     objects = story_objects(plan, favourite_toy(order))
     used = {o["key"] for s in await _scenes(order, plan) for sh in s.get("shots") or []
-            for o in shot_objects(sh, objects, s) if not o.get("background")}
+            for o in shot_objects(sh, objects, s) if not without_picture(o)}
     lock = _object_locks.setdefault(plan["id"], asyncio.Lock())
     async with lock:
         drawn = await load_object_sheets(order, plan)
@@ -1003,7 +1025,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         in_shot = shot_objects(sh, objects, scene)
         if on_comfy:
             for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None,
-                                      [o for o in in_shot if o["key"] in object_refs and not o.get("background")]):
+                                      [o for o in in_shot if o["key"] in object_refs and not without_picture(o)]):
                 if r["kind"] in ("sheet", "style"):
                     data = await sheet_data(r["type"])
                 elif r["kind"] == "toy":
