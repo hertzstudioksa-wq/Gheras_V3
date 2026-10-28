@@ -3,10 +3,12 @@
 The sheet is drawn from a front photo and shows the face from the front, while the
 scenes show people turned three-quarters or in profile: Qwen and GPT both invented
 those sides as a stock handsome face, and a father who looked like himself on his
-sheet looked like nobody in the video. `card()` puts the sheet and the heads side by
-side, and that one picture is the person's reference for the shot pictures: the same
-number of references, every side of the face. The book's portraits, the sheet's look
-and the video keep the plain sheet.
+sheet looked like nobody in the video. The heads go to the shot pictures as a reference
+of their own, right after the person's sheet, laid out 2×2 on a square (`grid`): next to
+the body in one wide picture they reached Qwen a few dozen pixels high and the scene's
+father was a stock face again; as their own square his hairline, thinning curls, grey in
+the beard and face width came through. The book's portraits, the sheet's look and the
+video keep the plain sheet.
 
 The heads come from:
 - the parent's extra photos (three-quarter, side), when there are any: each one drawn on
@@ -28,7 +30,7 @@ logger = logging.getLogger("head_views")
 MODEL = "comfy/keyframe_qwen21"
 ANGLE_QUALITY = "medium"
 CARD_HEIGHT = 1024
-CARD_NOTE = "their full figure and their face from the front, three-quarter and side, one person drawn once"
+GRID_SIDE = 1536
 
 PROMPT = ("<image1> is a cartoon character sheet of a person. Draw this same cartoon person's head and shoulders three "
           "times side by side on a plain white background, in exactly the 2D cartoon style of <image1>: the same "
@@ -77,13 +79,16 @@ def angle_prompt(sheet_prompt: str) -> str:
     return (text[:cut] if cut >= 0 else f"{text}\n\n") + f"{ANGLE_LINE} {HEAD_ONLY}"
 
 
+def _trimmed_img(img):
+    box = img.convert("L").point(lambda v: 255 if v < 238 else 0).getbbox()
+    return img.crop(box) if box else img
+
+
 def _trimmed(data: bytes):
     """The drawing without its white margin."""
     from PIL import Image
 
-    img = Image.open(io.BytesIO(data)).convert("RGB")
-    box = img.convert("L").point(lambda v: 255 if v < 238 else 0).getbbox()
-    return img.crop(box) if box else img
+    return _trimmed_img(Image.open(io.BytesIO(data)).convert("RGB"))
 
 
 def head_of(sheet: bytes) -> bytes:
@@ -148,20 +153,30 @@ async def from_photos(sheet: bytes, sheet_prompt: str, photos: list[bytes], prov
     return row([head_of(sheet), *drawn]), len(drawn)
 
 
-def card(sheet: bytes, heads: bytes) -> bytes:
-    """The sheet and the heads side by side at one height, on white, as a PNG."""
+def grid(heads: bytes, side: int = GRID_SIDE) -> bytes:
+    """The heads (drawings side by side on white) laid out 2×2 on a white square, each
+    as big as it fits, as a PNG; the picture as it is when it can't be split."""
     from PIL import Image
 
-    def fit(data: bytes) -> Image.Image:
-        img = Image.open(io.BytesIO(data)).convert("RGBA")
-        flat = Image.new("RGB", img.size, "white")
-        flat.paste(img, mask=img.getchannel("A"))
-        return flat.resize((round(img.width * CARD_HEIGHT / img.height), CARD_HEIGHT), Image.LANCZOS)
-
-    body, faces = fit(sheet), fit(heads)
-    out = Image.new("RGB", (body.width + faces.width, CARD_HEIGHT), "white")
-    out.paste(body, (0, 0))
-    out.paste(faces, (body.width, 0))
+    img = Image.open(io.BytesIO(heads)).convert("RGB")
+    gray = img.convert("L")
+    ink = [gray.crop((x, 0, x + 1, img.height)).getextrema()[0] < 238 for x in range(img.width)]
+    spans, start = [], None
+    for x, on in enumerate([*ink, False]):
+        if on and start is None:
+            start = x
+        elif not on and start is not None:
+            if x - start > img.width // 20:
+                spans.append((start, x))
+            start = None
+    if len(spans) < 2:
+        return heads
+    cell = side // 2
+    out = Image.new("RGB", (side, side), "white")
+    for i, (a, b) in enumerate(spans[:4]):
+        tile = _trimmed_img(img.crop((a, 0, b, img.height)))
+        tile.thumbnail((cell - 24, cell - 24), Image.LANCZOS)
+        out.paste(tile, ((i % 2) * cell + (cell - tile.width) // 2, (i // 2) * cell + (cell - tile.height) // 2))
     buf = io.BytesIO()
     out.save(buf, "PNG")
     return buf.getvalue()

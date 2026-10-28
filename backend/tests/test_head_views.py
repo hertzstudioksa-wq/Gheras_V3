@@ -56,12 +56,20 @@ def test_each_extra_side_is_drawn_on_its_own_with_the_sheets_prompt_at_the_photo
     assert "The first reference image is the photo (use it ONLY for identity)." in angle  # one photo per drawing
 
 
-def test_the_card_is_the_sheet_and_the_three_heads_side_by_side():
-    sheet = _png((1024, 1536), (200, 120, 90))
-    heads = _png((1536, 864), (90, 120, 200, 0), "RGBA")  # a transparent background becomes white
-    card = Image.open(io.BytesIO(head_views.card(sheet, heads)))
-    assert card.height == head_views.CARD_HEIGHT and card.width == 683 + 1820
-    assert card.getpixel((10, 10)) == (200, 120, 90) and card.getpixel((683 + 10, 10)) == (255, 255, 255)
+def test_the_heads_are_laid_out_on_a_square_so_each_face_is_big():
+    # next to the body in one wide picture, the faces reached Qwen a few dozen pixels high
+    img = Image.new("RGB", (1536, 600), "white")
+    for i, color in enumerate(((200, 120, 90), (90, 120, 200), (90, 200, 120))):
+        Image.Image.paste(img, color, (60 + i * 500, 100, 400 + i * 500, 520))
+    out = io.BytesIO(); img.save(out, "PNG")
+    square = Image.open(io.BytesIO(head_views.grid(out.getvalue())))
+    assert square.size == (head_views.GRID_SIDE, head_views.GRID_SIDE)
+    cell = head_views.GRID_SIDE // 2
+    assert square.getpixel((cell // 2, cell // 2)) == (200, 120, 90)          # front, top left
+    assert square.getpixel((cell + cell // 2, cell // 2)) == (90, 120, 200)   # three-quarter, top right
+    assert square.getpixel((cell // 2, cell + cell // 2)) == (90, 200, 120)   # side, bottom left
+    plain = _png((800, 600), (90, 90, 90))
+    assert head_views.grid(plain) == plain  # one drawing: left as it is
 
 
 def test_without_a_sheet_or_in_rehearsal_there_are_no_heads(monkeypatch):
@@ -122,10 +130,35 @@ def test_the_parents_extra_photos_become_heads_one_drawing_each_at_medium_qualit
     assert row.height == head_views.CARD_HEIGHT and row.width > 3 * 300  # the sheet's head + the two sides
 
 
-def test_a_card_reference_says_it_is_one_person_from_three_sides():
-    sheets = {"father": {"url": "/u/2", "label": "Omar (the child's father)", "from_photo": True,
-                         "head_views_url": "/u/9"},
-              "child": {"url": "/u/1", "label": "Lina", "from_photo": True}}
-    text = sp.comfy_identity([{"kind": "sheet", "type": "child"}, {"kind": "sheet", "type": "father"}], {}, sheets)
-    assert f"<image1> is Lina ({sp.FROM_PHOTO_FACE})" in text
-    assert f"<image2> is Omar (the child's father) ({head_views.CARD_NOTE}; {sp.FROM_PHOTO_FACE})" in text
+SHEETS = {"father": {"url": "/u/2", "label": "Omar (the child's father)", "from_photo": True, "head_views_url": "/u/9"},
+          "child": {"url": "/u/1", "label": "Lina", "from_photo": True}}
+
+
+def test_the_face_reference_follows_its_sheet_and_belongs_to_that_person_alone():
+    sh = {"characters": ["child", "father"], "keyframe_prompt": "Lina hugs her father."}
+    refs = sp.comfy_references(sh, {"scene_index": 1}, SHEETS, None, None)
+    assert [r["kind"] for r in refs] == ["sheet", "sheet", "faces"] and refs[2]["type"] == "father"
+    text = sp.comfy_identity(refs, {}, SHEETS)
+    assert f"<image1> is Lina ({sp.FROM_PHOTO_FACE}; {sp.CHILD_FACE})" in text  # the father's beard stays his
+    assert "<image2> is Omar (the child's father) (their full figure and clothes; their face is <image3>)" in text
+    assert "<image3> is Omar (the child's father)'s face from the front, three-quarter and side" in text
+    assert "nobody else takes anything from them" in text
+    assert sp.describe_refs(refs, SHEETS)[2] == "<image3> Omar (the child's father)'s face from three sides"
+
+
+def test_without_room_the_face_reference_is_left_out():
+    sh = {"characters": ["child", "father"], "keyframe_prompt": "x"}
+    objects = [{"key": f"o{i}", "name": f"thing {i}"} for i in range(sp.comfy.MAX_REFS - 2)]
+    refs = sp.comfy_references(sh, {"scene_index": 1}, SHEETS, None, None, objects)
+    assert len(refs) == sp.comfy.MAX_REFS and "faces" not in [r["kind"] for r in refs]
+
+
+def test_a_gpt_picture_numbers_the_sheets_around_the_face_pictures():
+    scene = {"scene_index": 1, "background_setting": "a garden"}
+    sh = {"characters": ["father", "child"], "keyframe_prompt": "Omar watches Lina water the roses.",
+          "shot_type": "medium"}
+    profiles = {"father": {"type": "father", "name_en": "Omar"}, "child": {"type": "child", "name_en": "Lina"}}
+    style = {"style_text": "s", "frame_rules": "f"}
+    text = sp.keyframe_prompt(scene, sh, profiles, SHEETS, "Lina", ["n1", "n2", "n3"], style, None,
+                              ["father", None, "child"])
+    assert "Omar (reference image 1)" in text and "Lina (reference image 3)" in text

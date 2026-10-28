@@ -333,12 +333,14 @@ def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_n
                     notes: list[str], style: dict, objects: list[dict] | None = None,
                     sheet_types: list[str] | None = None) -> str:
     """`sheet_types`: whose sheets come first among the reference images, in order (their
-    names in the scene then point at their picture)."""
+    names in the scene then point at their picture); None marks the face picture that
+    follows a sheet."""
     cast = "; ".join(_cast_line(profiles[t], child_name, bool((sheets.get(t) or {}).get("from_photo")))
                      for t in sh.get("characters") or [] if t in profiles)
     return " ".join(p for p in [
         tag_cast(sh.get("keyframe_prompt") or scene.get("visual_description") or "",
-                 [{"kind": "sheet", "type": t} for t in sheet_types or []], profiles, child_name,
+                 [{"kind": "sheet", "type": t} if t else {"kind": "faces"} for t in sheet_types or []], profiles,
+                 child_name,
                  "reference image {n}"),
         f"Shot type: {sh.get('shot_type') or 'medium'}.",
         f"Setting: {scene['background_setting']}." if scene.get("background_setting") else "",
@@ -650,6 +652,13 @@ def comfy_references(sh: dict, scene: dict, sheets: dict, toy: dict | None, prev
         refs.append({"kind": f"prev_{previous}"})
     if not refs and sheets:
         refs.append({"kind": "style", "type": by_likeness(sorted(sheets), sheets)[0]})
+    # A person's face from three sides right after their sheet, while there's room
+    # (services/head_views.py).
+    for t in [r["type"] for r in refs if r["kind"] == "sheet" and (sheets.get(r["type"]) or {}).get("head_views_url")]:
+        if len(refs) >= comfy.MAX_REFS:
+            break
+        at = next(i for i, r in enumerate(refs) if r["kind"] == "sheet" and r["type"] == t)
+        refs.insert(at + 1, {"kind": "faces", "type": t})
     return refs
 
 
@@ -666,24 +675,35 @@ def _features(profile: dict) -> str:
 
 
 FROM_PHOTO_FACE = "copy the face, hairline, hair texture and any beard exactly as drawn in the reference"
+FACES_COPY = "copy the face, hairline, hair and any beard exactly from it"
+# With a bearded father's face close-ups in the references, the child got stubble.
+CHILD_FACE = "a child's smooth face with no beard, moustache or stubble"
+CHILD_TYPES = {"child", "friend", "brother", "sister", "sibling", "cousin"}
 
 
 def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
     parts = []
+    faces_at = {r["type"]: n for n, r in enumerate(refs, 1) if r["kind"] == "faces"}
     for n, r in enumerate(refs, 1):
         tag, kind = f"<image{n}>", r["kind"]
         if kind == "sheet":
             # Someone drawn from a real photo keeps the face their sheet has, not the plan's
             # guess at it: "neatly trimmed beard, closely cropped hair" gave the father a
             # barber's fade and a sculpted beard his sheet never had.
-            if (sheets.get(r["type"]) or {}).get("head_views_url"):
-                note = f"{head_views.CARD_NOTE}; {FROM_PHOTO_FACE}"
+            if r["type"] in faces_at:
+                note = f"their full figure and clothes; their face is <image{faces_at[r['type']]}>"
             elif (sheets.get(r["type"]) or {}).get("from_photo"):
                 note = FROM_PHOTO_FACE
             else:
                 features = _features(profiles.get(r["type"]) or {})
                 note = f"keep {features} exactly as in the reference" if features else ""
+            if faces_at and house_style.base_type(r["type"]) in CHILD_TYPES:
+                note = f"{note}; {CHILD_FACE}" if note else CHILD_FACE
             parts.append(f"{tag} is {sheets[r['type']]['label']}" + (f" ({note})" if note else ""))
+        elif kind == "faces":
+            label = sheets[r["type"]]["label"]
+            parts.append(f"{tag} is {label}'s face from the front, three-quarter and side, close up: {FACES_COPY}; "
+                         f"these faces are {label}'s alone, nobody else takes anything from them")
         elif kind == "toy":
             parts.append(f"{tag} shows only the child's {r['name']} (ignore any hands or background around it)")
         elif kind == "object":
@@ -783,8 +803,9 @@ def cover_prompt_comfy(plan: dict, profiles: dict, sheets: dict, refs: list[dict
 def describe_refs(refs: list[dict], sheets: dict) -> list[str]:
     """The <imageN> list in words, for the admin."""
     words = {"toy": "the child's toy", "prev_shot": "the previous shot", "prev_scene": "the previous scene's last shot"}
-    return [f"<image{n}> " + (sheets[r["type"]]["label"] + ("'s sheet (style only)" if r["kind"] == "style" else "'s sheet")
-                               if r["kind"] in ("sheet", "style") else
+    return [f"<image{n}> " + (sheets[r["type"]]["label"] + ("'s sheet (style only)" if r["kind"] == "style" else
+                                                         "'s face from three sides" if r["kind"] == "faces" else "'s sheet")
+                               if r["kind"] in ("sheet", "style", "faces") else
                                f"{r['name']}'s reference" if r["kind"] == "object" else words[r["kind"]])
             for n, r in enumerate(refs, 1)]
 
@@ -983,18 +1004,14 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 sheet_bytes[t] = got
         return sheet_bytes.get(t)
 
-    card_bytes: dict[str, tuple[bytes, str]] = {}
+    faces_bytes: dict[str, tuple[bytes, str] | None] = {}
 
-    async def ref_data(t: str) -> tuple[bytes, str] | None:
-        """A person's reference for a shot picture: their sheet with their face from three
-        sides beside it when there is one (services/head_views.py), else the sheet."""
-        sheet = await sheet_data(t)
-        if not sheet or not sheets[t].get("head_views_url"):
-            return sheet
-        if t not in card_bytes:
-            heads = await _fetch_source_bytes(sheets[t]["head_views_url"])
-            card_bytes[t] = (head_views.card(sheet[0], heads[0]), "image/png") if heads else sheet
-        return card_bytes[t]
+    async def faces_data(t: str) -> tuple[bytes, str] | None:
+        """A person's face from three sides, laid out on a square (services/head_views.py)."""
+        if t not in faces_bytes:
+            heads = await _fetch_source_bytes(sheets[t]["head_views_url"]) if sheets[t].get("head_views_url") else None
+            faces_bytes[t] = (head_views.grid(heads[0]), "image/png") if heads else None
+        return faces_bytes[t]
 
     looks_seen: dict[str, str | None] = {}
 
@@ -1028,12 +1045,16 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         = (picture, note) of the toy and story objects a rescued Comfy shot had."""
         refs, notes, types = [], [], []
         for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]:
-            ref = await ref_data(t)
-            if ref:
-                refs.append({"image_bytes": ref[0], "mime_type": ref[1]})
-                notes.append(f"{sheets[t]['label']}'s character sheet"
-                             + (f" ({head_views.CARD_NOTE})" if ref is not sheet_bytes.get(t) else ""))
+            if await sheet_data(t):
+                refs.append({"image_bytes": sheet_bytes[t][0], "mime_type": sheet_bytes[t][1]})
+                notes.append(f"{sheets[t]['label']}'s character sheet (full figure and clothes)")
                 types.append(t)
+                faces = await faces_data(t)
+                if faces:
+                    refs.append({"image_bytes": faces[0], "mime_type": faces[1]})
+                    notes.append(f"{sheets[t]['label']}'s face from the front, three-quarter and side ({FACES_COPY}; "
+                                 "nobody else takes anything from it)")
+                    types.append(None)  # keeps the next sheet's "(reference image N)" right
         for data, note in extra:
             refs.append({"image_bytes": data[0], "mime_type": data[1]})
             notes.append(note)
@@ -1060,10 +1081,10 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         if on_comfy:
             for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None,
                                       [o for o in in_shot if o["key"] in object_refs and not without_picture(o)]):
-                if r["kind"] == "sheet":
-                    data = await ref_data(r["type"])
-                elif r["kind"] == "style":
+                if r["kind"] in ("sheet", "style"):
                     data = await sheet_data(r["type"])
+                elif r["kind"] == "faces":
+                    data = await faces_data(r["type"])
                 elif r["kind"] == "toy":
                     toy_bytes = toy_bytes or await _fetch_source_bytes(toy["url"])
                     data = toy_bytes
