@@ -287,3 +287,25 @@ def test_a_retake_after_a_gaze_says_so_first():
     assert sp.redraw_note({"problems": ["camera_gaze"]}).startswith(sp.GAZE_REDO)
     assert sp.redraw_note({"problems": ["action_missing"]}) == sp.REDRAW_NOTE
     assert sp.flaw({"problems": ["camera_gaze"]}) > sp.flaw({"problems": ["action_missing"]})
+
+
+def test_the_video_model_is_told_who_is_who_and_to_keep_feet_and_colors():
+    # "Sami bounces on his toes" moved another child: the video model sees no names
+    cast = [{"name": "Lina", "where": "on the left", "looks": "girl, two braids, red top"},
+            {"name": "Sami", "where": "on the right", "looks": "boy, orange cap"}]
+    text = sp.wan_motion_prompt("Sami bounces while Lina waves at Sami's kite.", 2, cast_in_frame=cast)
+    assert text.startswith("Sami (the one on the right, boy, orange cap) bounces while Lina (the one on the left, "
+                           "girl, two braids, red top) waves at Sami's kite.")
+    assert "Feet stay planted" in text and "shape, size and colors" in text
+    assert sp.wan_motion_prompt("Sami waves.", 2).startswith("Sami waves.")
+    kling = sp.motion_prompt("Sami waves.", [], {"motion_text": "m"}, ["Sami"], cast_in_frame=cast)
+    assert kling.startswith("Sami (the one on the right, boy, orange cap) waves.")
+
+
+def test_the_plan_rules_keep_legs_still_gaze_off_the_lens_and_owners_colors_apart():
+    from services import production_service as ps
+
+    for words in ("لا حركة للرجلين", "never leg work", "تعني في العدسة", "غرض واحد في story_objects للمجموعة"):
+        assert words in ps.SYSTEM_MSG, words
+    line = sp.objects_line([{"key": "k", "name": "the kids' kites", "look": "red for Lina, blue for Sami"}])
+    assert "keep each owner's own colors" in line

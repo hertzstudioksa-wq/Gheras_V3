@@ -274,6 +274,45 @@ def _person(p) -> dict:
     return {"who": str(p), "at_viewer": False}
 
 
+# How to pick a cast member out of a group picture, from their sheet (asked once per
+# sheet and kept): the video model is told who is who by these words, never by a name.
+LOOK_SYSTEM = ("You look at one cartoon character sheet. Describe the character so they can be picked out of a "
+               "group picture: age group, hair color and style, any hat, helmet or headscarf with its color, and the "
+               "top's color. At most 14 words, no name, no pose. "
+               'Reply with JSON only: {"look": "..."}')
+
+
+async def sheet_look(image: bytes) -> str | None:
+    """A few words that pick the character out of a group picture. None when the check can't run."""
+    from services.ai import fake_providers, fal
+    from services.ai.text_client import generate_vision
+
+    if fake_providers.enabled() or not await enabled():
+        return None
+    try:
+        data, mime = await asyncio.to_thread(_shrink, image, 768)
+        url = await fal.upload(env_key="FAL_KEY_TEXT", data=data, content_type=mime, file_name="sheet-look.jpg")
+        answer = await generate_vision(stage="keyframe_review", model=REVIEW_MODEL, system=LOOK_SYSTEM,
+                                       user="Describe this character.", image_urls=[url], max_tokens=120)
+        start = (answer or "").find("{")
+        look = json.JSONDecoder().raw_decode(answer[start:])[0].get("look") if start >= 0 else None
+        return str(look).strip(" .")[:120] if look else None
+    except Exception as e:  # noqa: BLE001
+        if engine_health.is_balance_message(e):
+            raise
+        logger.warning(f"[review] sheet look skipped: {type(e).__name__}: {str(e)[:160]}")
+        return None
+
+
+def placed(looks: dict[str, str]) -> list[dict]:
+    """The video's who-is-who: each cast member's look from their own sheet (name → look).
+    Places in the picture were tried and dropped: the review put the child's name on the
+    friend in the orange helmet, and called the third child "first from the left"; the
+    sheet's own look picks the person out every time."""
+    out = [{"name": name, "where": "", "looks": look} for name, look in looks.items() if look]
+    return out if len(out) >= 2 else []
+
+
 async def people_in(image: bytes) -> list[dict] | None:
     """Every human figure in the picture ({"who", "at_viewer"}). None when the check can't run."""
     from services.ai import fake_providers, fal
@@ -361,18 +400,22 @@ def _sheet_name(label: str) -> str:
     return re.sub(r"\s*\(.*\)\s*$", "", label or "").strip().lower()
 
 
+def _resolve(value, known: set[str]) -> str | None:
+    """A cast member's sheet name, or None: an exact name, or a first name ("Sami's" → "sami")."""
+    v = _sheet_name(str(value or ""))
+    if v in known:
+        return v
+    first = re.sub(r"['’]s$", "", v.split(" ")[0]) if v else ""
+    return first if first in known else None
+
+
 def swapped_parts(parts: list | None, names: list[str]) -> list[dict]:
     """The parts done by another cast member than the one the action gives them to (both
     must be cast members by name: "none", a toy or a vague answer is never a swap)."""
     known = {_sheet_name(n) for n in names if _sheet_name(n)}
 
     def who(value) -> str | None:
-        """A cast member's sheet name, or None: an exact name, or a first name ("Sami's" → "sami")."""
-        v = _sheet_name(str(value or ""))
-        if v in known:
-            return v
-        first = re.sub(r"['’]s$", "", v.split(" ")[0]) if v else ""
-        return first if first in known else None
+        return _resolve(value, known)
 
     out = []
     for p in parts if isinstance(parts, list) else []:
@@ -383,9 +426,9 @@ def swapped_parts(parts: list | None, names: list[str]) -> list[dict]:
     return out
 
 
-async def who_does_what(image: bytes, sheets: list[tuple[str, bytes, str]], action: str) -> list | None:
-    """The action's parts and whose sheet the person doing each one matches. None when the
-    check can't run."""
+async def who_does_what(image: bytes, sheets: list[tuple[str, bytes, str]], action: str) -> dict | None:
+    """{"people": everyone left to right with their sheet, "parts": the action's parts and
+    whose sheet the person doing each one matches}. None when the check can't run."""
     from services.ai import fake_providers, fal
     from services.ai.text_client import generate_vision
 
@@ -403,7 +446,8 @@ async def who_does_what(image: bytes, sheets: list[tuple[str, bytes, str]], acti
                                                         "action": (action or "")[:600]}, ensure_ascii=False),
                                        max_tokens=900)
         start = (answer or "").find("{")
-        return json.JSONDecoder().raw_decode(answer[start:])[0].get("parts") if start >= 0 else None
+        found = json.JSONDecoder().raw_decode(answer[start:])[0] if start >= 0 else None
+        return found if isinstance(found, dict) else None
     except Exception as e:  # noqa: BLE001
         if engine_health.is_balance_message(e):
             raise
@@ -438,7 +482,7 @@ async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list
     static = await asyncio.to_thread(static_verdict, [image])
     if static:
         return static
-    verdict, people, parts = await asyncio.gather(
+    verdict, people, found = await asyncio.gather(
         _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets, objects=objects),
         people_in(image) if expected else asyncio.sleep(0),
         who_does_what(image, sheets or [], action) if len(sheets or []) >= 2 else asyncio.sleep(0))
@@ -452,6 +496,7 @@ async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list
     if set(verdict.get("problems") or []) & noise:
         problems = [p for p in verdict["problems"] if p not in noise]
         verdict = {**verdict, "problems": problems, "ok": not problems}
+    parts = found if isinstance(found, list) else (found or {}).get("parts")
     return with_swaps(with_gaze(counted_extra(verdict, people, expected), people), parts, sheets)
 
 

@@ -493,7 +493,7 @@ def objects_line(objects: list[dict]) -> str:
     return ("OBJECTS (they look exactly the same in every picture of this story): "
             + "; ".join(f"{o['name']}: {o['look'].rstrip('.')}" + (f" ({TOY_NOTE}; {TOY_POSE})" if o.get("toy") else "")
                         + (f" ({BACKGROUND_NOTE})" if o.get("background") else "") for o in objects)
-            + f" — {OBJECTS_NOTE}.")
+            + f" — {OBJECTS_NOTE}. Things that belong to different people keep each owner's own colors as written.")
 
 
 def story_order(scene: dict, shot: dict) -> str:
@@ -788,7 +788,23 @@ def clip_negative(style: dict) -> str:
 # in words (a negative prompt does nothing there). The long Kling guards buried the
 # action, ambient motion made hair fly indoors, camera moves stretched objects.
 WAN_STILL = ("Static camera, no zoom or pan. Nothing else moves: furniture and objects stay exactly where they are "
-             "and keep their shape and size. No wind: hair and clothes hang still.")
+             "and keep their shape, size and colors. Feet stay planted on the ground, the seat or the deck: nobody "
+             "rises, hops or floats. No wind: hair and clothes hang still.")
+
+
+def who_is_who(motion: str, cast_in_frame: list[dict] | None) -> str:
+    """The video model sees the picture, not the names: "Sami bounces" moved another child.
+    Each name's first mention says where that person is and how they look (from the start
+    picture's own review)."""
+    for c in cast_in_frame or []:
+        name, where = c.get("name") or "", c.get("where") or ""
+        looks = re.sub(r"\s+\S*$", "", (c.get("looks") or "")[:110]) if len(c.get("looks") or "") > 110 else             (c.get("looks") or "")
+        looks = looks.strip(" ,.")
+        desc = ", ".join(p for p in (f"the one {where}" if where else "", looks) if p)
+        if name and desc:
+            motion = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)(?!['’]s)", lambda m: f"{m.group(0)} ({desc})", motion,
+                            count=1, flags=re.I)
+    return motion
 
 
 # A plush with a face is a character to a video model: a cartoon-hero plush raised its
@@ -810,14 +826,15 @@ def lifeless(objects: list[str] | None, toys: list[str] | None = None) -> str:
 
 
 def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfit: bool = False,
-                      objects: list[str] | None = None, toys: list[str] | None = None) -> str:
+                      objects: list[str] | None = None, toys: list[str] | None = None,
+                      cast_in_frame: list[dict] | None = None) -> str:
     who = "Nobody is in the frame." if not people else (
         f"Exactly {people} {'person' if people == 1 else 'people'}, all already in the frame; nobody appears, leaves "
         "or is duplicated, bodies stay solid, and nobody turns to look at the camera.")
     # Right after the action: Wan weighs the first sentences most, and the plush
     # still cheered along when the line came after the stillness guards.
     return " ".join(p for p in [
-        motion or "A small natural movement of the main character.",
+        who_is_who(motion or "A small natural movement of the main character.", cast_in_frame),
         lifeless(objects, toys),
         CALM_NOTE if calm else "",
         OUTFIT_REDO_NOTE if outfit else "",
@@ -828,9 +845,10 @@ def wan_motion_prompt(motion: str | None, people: int, calm: bool = False, outfi
 
 
 def motion_prompt(motion: str | None, mapping: list[str], style: dict, cast: list[str] | None = None,
-                  objects: list[str] | None = None, toys: list[str] | None = None) -> str:
+                  objects: list[str] | None = None, toys: list[str] | None = None,
+                  cast_in_frame: list[dict] | None = None) -> str:
     return " ".join(p for p in [
-        motion or "Gentle natural character motion and a slow camera push-in.",
+        who_is_who(motion or "Gentle natural character motion and a slow camera push-in.", cast_in_frame),
         ("Characters: " + "; ".join(mapping) + ".") if mapping else "",
         cast_lock(cast or []),
         lifeless(objects, toys),
@@ -925,6 +943,33 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             if got:
                 sheet_bytes[t] = got
         return sheet_bytes.get(t)
+
+    looks_seen: dict[str, str | None] = {}
+
+    async def look_of(t: str) -> str | None:
+        """How to pick this cast member out of a group picture, asked once per sheet and kept."""
+        url = sheets[t]["url"]
+        if url not in looks_seen:
+            doc = await db.sheet_looks.find_one({"url": url}, {"_id": 0, "look": 1})
+            look = (doc or {}).get("look")
+            if not look and await sheet_data(t):
+                look = await clip_review.sheet_look(sheet_bytes[t][0])
+                if look:
+                    await db.sheet_looks.update_one({"url": url}, {"$set": {"url": url, "look": look,
+                                                                            "created_at": _now()}}, upsert=True)
+            looks_seen[url] = look
+        return looks_seen[url]
+
+    async def who_is_where(sh: dict) -> list[dict]:
+        types = [t for t in dict.fromkeys(sh.get("characters") or []) if t in sheets]
+        if len(types) < 2:
+            return []
+        looks = {}
+        for t in types:
+            look = await look_of(t)
+            if look:
+                looks[re.sub(r"\s*\(.*\)\s*$", "", sheets[t]["label"]).strip()] = look
+        return clip_review.placed(looks)
 
     async def gpt_inputs(sh: dict, in_shot: list[dict], extra: list[tuple]) -> tuple[list[dict], str, list[str]]:
         """References, prompt and reference notes for a GPT Image draw of the shot; `extra`
@@ -1103,6 +1148,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             "keyframe_seed": meta.get("seed"),
             "objects": [o["name"] for o in in_shot],
             "toys": [o["name"] for o in in_shot if o.get("toy")],
+            "cast_in_frame": await who_is_where(sh),
         })
         prev = (img, mime)
         hero_url = hero_url or url
@@ -1319,7 +1365,8 @@ async def _clip_arguments(row: dict, model: str, sheets: dict, sheet_urls: dict,
             elements.append({"frontal_image_url": sheet_urls[t], "reference_image_urls": [sheet_urls[t]]})
             mapping.append(f"{sheets[t]['label']} is @Element{len(elements)}")
     cast = cast_labels(row.get("characters") or [], sheets)
-    prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast, row.get("objects"), row.get("toys"))
+    prompt = motion_prompt(row.get("motion_prompt"), mapping, style, cast, row.get("objects"), row.get("toys"),
+                           row.get("cast_in_frame"))
     if calm:
         prompt = f"{CALM_NOTE} {prompt}"
     if outfit:
@@ -1353,7 +1400,7 @@ async def _comfy_clip_fills(row: dict, model: str, sheets: dict, tail: float, st
         uploads[row["keyframe_url"]] = await comfy.upload(
             img[0], f"shot{row['scene_index']}-{row['shot_index']}.png", stage="video_generation")
     prompt = wan_motion_prompt(row.get("motion_prompt"), len(set(row.get("characters") or [])), calm, outfit,
-                               row.get("objects"), row.get("toys"))
+                               row.get("objects"), row.get("toys"), row.get("cast_in_frame"))
     return {
         "start_image": uploads[row["keyframe_url"]],
         "motion_prompt": prompt[:2400],

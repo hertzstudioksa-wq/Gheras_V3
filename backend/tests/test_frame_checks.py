@@ -353,3 +353,16 @@ def test_a_still_picture_isnt_flagged_for_motion_or_a_guessed_gaze(monkeypatch):
     monkeypatch.setattr(clip_review, "people_in", people)
     verdict = asyncio.run(clip_review.review_keyframe("1_1", cartoon_picture(), "image/png", ["Lina"], "x"))
     assert verdict["problems"] == ["melting"]  # a melted thing shows in a still; the rest needs frames
+
+
+def test_who_is_who_comes_from_each_sheets_own_look():
+    # places from the review were wrong twice (the friend got the child's name; "first from the left")
+    looks = {"Lina": "girl, black braids, yellow helmet", "Sami": "boy, orange helmet", "Omar": ""}
+    assert clip_review.placed(looks) == [{"name": "Lina", "where": "", "looks": "girl, black braids, yellow helmet"},
+                                         {"name": "Sami", "where": "", "looks": "boy, orange helmet"}]
+    assert clip_review.placed({"Lina": "girl"}) == []  # one person: no pointing
+
+
+def test_a_sheet_look_is_off_in_the_rehearsal(monkeypatch):
+    monkeypatch.setenv("GHERAS_FAKE_PROVIDERS", "1")
+    assert asyncio.run(clip_review.sheet_look(cartoon_picture())) is None
