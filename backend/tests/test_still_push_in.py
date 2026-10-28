@@ -47,3 +47,26 @@ def test_a_still_clip_is_found_and_pushed_in(tmp_path):
     subprocess.run([vas._ffmpeg_bin(), "-v", "error", "-y", "-i", still, "-vf", f"{vas._FRAME_16_9},{vas._PUSH_IN}",
                     "-t", "4", "-an", "-c:v", "libx264", "-crf", "20", out], check=True)
     assert not [s for s in _frozen_spans(out) if s >= vas.QA_FREEZE_SECONDS]
+
+
+def test_the_logo_badge_is_the_icon_and_name_on_a_soft_glow(tmp_path):
+    from PIL import Image
+
+    w, h = vas._logo_badge(str(tmp_path / "logo.png"))
+    img = Image.open(tmp_path / "logo.png")
+    assert img.mode == "RGBA" and img.size == (w, h) and h < 160  # small, in a corner of the 720p frame
+    alpha = img.getchannel("A")
+    assert alpha.getpixel((0, 0)) == 0 and alpha.getextrema()[1] == 255  # transparent around, solid logo
+
+
+def test_the_logo_moves_the_whole_video_and_leaves_with_the_ending():
+    f = vas.logo_filter(60.0)
+    assert "fade=t=in:st=0.4:d=0.8:alpha=1" in f and "fade=t=out:st=59.400:d=0.6:alpha=1" in f
+    assert "rotate=a='0.035*sin(2*PI*t/5)'" in f and "sin(2*PI*t/3.2)" in f  # sway and float, all along
+    assert "overlay=x='W-w-18'" in f and "shortest=1" in f  # bottom-right, as long as the story
+
+
+def test_a_failing_logo_never_blocks_the_story(tmp_path):
+    src = tmp_path / "broken.mp4"
+    src.write_bytes(b"not a video")
+    assert asyncio.run(vas._with_logo(str(tmp_path), str(src), 5.0)) == str(src)

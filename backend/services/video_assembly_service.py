@@ -193,6 +193,75 @@ async def _still_seconds(path: str) -> float:
     return max(spans, default=0.0)
 
 
+# ---------------------------------------------------------------- brand logo
+# The owner wants the Gheras logo in every video, placed well and moving gently the whole
+# time. Bottom-right sat on the ground or the path in every shot of a real story, never on
+# a face (top-left touched the children's heads). The icon and the name only: the tagline
+# can't be read at this size. A soft light glow keeps it readable on grass and trees.
+# It goes on after the quality gate, so its motion never hides a frozen shot.
+BRAND_LOGO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "brand",
+                          "gheras-logo.png")
+LOGO_TAGLINE_TOP = 1541     # first row of the tagline in the 2048px logo
+LOGO_HEIGHT = 108           # px of the 720p frame
+LOGO_MARGIN = (18, 14)      # from the right and the bottom edges
+LOGO_GLOW = 0.6
+
+
+def _logo_badge(path: str, height: int = LOGO_HEIGHT) -> tuple[int, int]:
+    """The logo (icon + name) on a soft light glow, as a transparent PNG. Returns its size."""
+    from PIL import Image, ImageFilter
+
+    src = Image.open(BRAND_LOGO).convert("RGBA")
+    logo = src.crop((0, 0, src.width, min(src.height, LOGO_TAGLINE_TOP)))
+    logo = logo.crop(logo.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox())
+    logo = logo.resize((round(logo.width * height / logo.height), height), Image.LANCZOS)
+    pad = max(8, height // 8)
+    badge = Image.new("RGBA", (logo.width + 2 * pad, logo.height + 2 * pad), (0, 0, 0, 0))
+    mask = Image.new("L", badge.size, 0)
+    mask.paste(logo.getchannel("A").point(lambda v: 255 if v > 30 else 0), (pad, pad))
+    glow = mask.filter(ImageFilter.MaxFilter(13)).filter(ImageFilter.GaussianBlur(7))
+    halo = Image.new("RGBA", badge.size, (255, 250, 240, 0))
+    halo.putalpha(glow.point(lambda v: int(v * LOGO_GLOW)))
+    badge.alpha_composite(halo)
+    badge.alpha_composite(logo, (pad, pad))
+    badge.save(path)
+    return badge.size
+
+
+def logo_filter(total: float) -> str:
+    """The logo's motion for a `total`-second video: fades in and rises into place, then
+    floats and sways gently the whole time, and fades out with the ending."""
+    end = max(0.0, total - 0.6)
+    mx, my = LOGO_MARGIN
+    return (f"[1:v]format=rgba,fade=t=in:st=0.4:d=0.8:alpha=1,fade=t=out:st={end:.3f}:d=0.6:alpha=1,"
+            "rotate=a='0.035*sin(2*PI*t/5)':c=none:ow='rotw(0.05)':oh='roth(0.05)'[logo];"
+            f"[0:v][logo]overlay=x='W-w-{mx}':y='H-h-{my}+3*sin(2*PI*t/3.2)+16*max(0,min(1,(1.2-t)/0.8))'"
+            ":shortest=1,format=yuv420p[v]")
+
+
+async def logo_on() -> bool:
+    s = await db.settings.find_one({"key": "video.logo"}, {"_id": 0, "value": 1})
+    return (s or {}).get("value", True) is not False
+
+
+async def _with_logo(work: str, src: str, total: float) -> str:
+    """`src` with the moving logo, or `src` itself when that fails (never blocks a story)."""
+    badge = os.path.join(work, "logo.png")
+    out = os.path.join(work, "branded.mp4")
+    try:
+        await asyncio.to_thread(_logo_badge, badge)
+        res = await _ffmpeg(["-i", src, "-loop", "1", "-framerate", "24", "-i", badge,
+                             "-filter_complex", logo_filter(total), "-map", "[v]", "-map", "0:a?",
+                             "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "copy",
+                             "-movflags", "+faststart", out], timeout=600)
+        if res.returncode == 0 and os.path.getsize(out) > 0:
+            return out
+        logger.warning(f"[assembly] logo skipped: {res.stderr[-300:]}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[assembly] logo skipped: {type(e).__name__}: {str(e)[:200]}")
+    return src
+
+
 async def _quality_gate(path: str, ordered_seconds: float | None, shots: int) -> dict:
     """Measure the finished video the way the reference videos were measured.
     Raises when it would be delivered with frozen frames or the wrong length."""
@@ -345,7 +414,8 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
             raise RuntimeError(f"ffmpeg audio mix failed: {res.stderr[-300:]}")
 
         qa = await _quality_gate(out_path, plan.get("duration_seconds"), len(rows))
-        video_url = await _store_final_video(order_id, (order or {}).get("user_id"), out_path)
+        delivered = await _with_logo(work, out_path, qa["duration_seconds"] or total) if await logo_on() else out_path
+        video_url = await _store_final_video(order_id, (order or {}).get("user_id"), delivered)
         thumb = cover_image_url or rows[0].get("keyframe_url")
         meta = {
             "assembly_mode": "shots",
@@ -364,6 +434,7 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
             "encoder": "ffmpeg",
             "resolution": "1280x720",
             "real_narration_used": True,
+            "logo": delivered != out_path,
         }
         return video_url, thumb, meta
     finally:
