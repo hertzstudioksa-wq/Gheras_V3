@@ -22,6 +22,14 @@ teddy hugged closer showed two faces at once (its first-frame copy on top of the
 one Wan moved). Each frame now finds where the toy went (its first-frame pixels
 matched around the last place) and the first-frame toy is pasted there: it moves
 as one piece with the hug and its face never changes.
+
+The model first (owner, 2026-10-28): the paste is the last resort, not the rule. A
+plush Wan had drawn right was frozen anyway, and the still patch around it showed
+against the moving plants behind. Each clip's toys are now checked in Wan's own clip
+(`toy_check`: crops around the toy over the clip, one cheap vision question); a toy
+that didn't move by itself leaves the clip exactly as Wan made it, one that did
+sends the take back for a redo, and only a toy still alive in the kept take is
+pasted (`freeze_alive`), with a tight outline that carries no background along.
 """
 from __future__ import annotations
 
@@ -42,7 +50,8 @@ TRACK_MODEL = "fal-ai/sam2/video"
 # Share of a toy's inner pixels that changed from the first frame: a blink or a
 # child swaying behind it stayed under 0.3, a toy really moved is far above.
 MOVED_LIMIT = 0.45
-GROW_PX, FEATHER_PX = 6, 4
+# The pasted outline: grown 6 px it carried a ring of the background from the first frame.
+GROW_PX, FEATHER_PX = 2, 2
 # The followed outline is grown and feathered on a quarter-size copy (fast enough
 # for every frame without OpenCV).
 TRACK_SCALE = 4
@@ -92,6 +101,117 @@ async def toy_masks(keyframe: bytes, names: list[str]) -> dict[str, dict]:
         except Exception as e:  # noqa: BLE001 — that toy stays as drawn
             logger.warning(f"[toy_freeze] mask for {name!r} failed: {type(e).__name__}: {str(e)[:160]}")
     return masks
+
+
+ALIVE_CROPS = 6        # crops of the toy across the clip for the alive check
+ALIVE_CROP_HEIGHT = 240
+
+
+def _toy_strip(clip_path: str, box: tuple, size: tuple, clip_size: tuple, count: int = ALIVE_CROPS) -> bytes:
+    """Crops around one toy (its start-picture box grown by half on each side) taken
+    evenly through the clip, side by side in time order, as a JPEG."""
+    from PIL import Image
+
+    from services.video_assembly_service import _ffmpeg_bin
+
+    ff = _ffmpeg_bin()
+    w, h = clip_size
+    sx, sy = w / size[0], h / size[1]
+    x0, y0, x1, y1 = box[0] * sx, box[1] * sy, box[2] * sx, box[3] * sy
+    gx, gy = max(24, (x1 - x0) / 2), max(24, (y1 - y0) / 2)
+    crop = (max(0, int(x0 - gx)), max(0, int(y0 - gy)), min(w, int(x1 + gx)), min(h, int(y1 + gy)))
+    info = subprocess.run([ff, "-hide_banner", "-i", clip_path], capture_output=True, text=True, timeout=30).stderr or ""
+    m = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", info)
+    fps = re.search(r"(\d+(?:\.\d+)?) fps", info)
+    total = round((int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))) * float(fps.group(1)))         if m and fps else 0
+    wanted = {round(i * max(0, total - 2) / max(1, count - 1)) for i in range(count)}
+    picks = [raw for i, raw in enumerate(_frames(ff, clip_path, w, h)) if i in wanted]
+    if not picks:
+        raise ValueError("no frames")
+    tiles = []
+    for raw in picks:
+        tile = Image.frombytes("RGB", (w, h), raw).crop(crop)
+        tiles.append(tile.resize((round(tile.width * ALIVE_CROP_HEIGHT / tile.height), ALIVE_CROP_HEIGHT), Image.LANCZOS))
+    gap = 8
+    strip = Image.new("RGB", (sum(t.width for t in tiles) + gap * (len(tiles) - 1), ALIVE_CROP_HEIGHT), "white")
+    x = 0
+    for t in tiles:
+        strip.paste(t, (x, 0))
+        x += t.width + gap
+    out = io.BytesIO()
+    strip.save(out, "JPEG", quality=88)
+    return out.getvalue()
+
+
+async def toy_check(clip: bytes, keyframe: bytes | None, toys: list[str] | None) -> dict | None:
+    """Which of the shot's toys Wan brought to life, asked on crops around each toy in its
+    own clip: {"keyframe", "found" (name → start-picture mask), "alive" [names], "notes"}.
+    None when the shot has no toy; a toy that can't be checked counts as fine (the clip is
+    never blocked or changed on a guess)."""
+    from services import clip_review, engine_health
+    from services.video_assembly_service import _ffmpeg_bin
+
+    if not toys or not keyframe:
+        return None
+    try:
+        found = await toy_masks(keyframe, toys)
+        check = {"keyframe": keyframe, "found": found, "alive": [], "notes": {}}
+        if not found:
+            check["notes"] = {"_": "toy not found in the start picture"}
+            return check
+        root = tempfile.mkdtemp(prefix="toycheck-")
+        try:
+            path = os.path.join(root, "clip.mp4")
+            with open(path, "wb") as f:
+                f.write(clip)
+            w, h, _fps = await asyncio.to_thread(_probe, _ffmpeg_bin(), path)
+            strips = {n: await asyncio.to_thread(_toy_strip, path, m["box"], m["size"], (w, h))
+                      for n, m in found.items()}
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        for n, strip in strips.items():
+            verdict = await clip_review.toy_alive(strip, n)
+            if verdict is None:
+                check["notes"][n] = "not checked"
+                continue
+            check["notes"][n] = verdict["note"]
+            if verdict["alive"]:
+                check["alive"].append(n)
+        logger.info(f"[toy_freeze] check {public(check)}")
+        return check
+    except Exception as e:  # noqa: BLE001 — the clip as Wan drew it
+        if engine_health.is_balance_message(e):
+            raise
+        logger.warning(f"[toy_freeze] check skipped: {type(e).__name__}: {str(e)[:160]}")
+        return None
+
+
+def public(check: dict | None) -> dict | None:
+    """What the review keeps of a toy check (no pictures)."""
+    if check is None:
+        return None
+    return {"checked": sorted(check.get("found") or {}), "alive": list(check.get("alive") or []),
+            "notes": dict(check.get("notes") or {})}
+
+
+def with_check(review: dict, check: dict | None) -> dict:
+    """The clip review with the toy check: a toy alive counts against the take like any problem."""
+    if check is None:
+        return review
+    review = {**review, "toy_check": public(check)}
+    if check.get("alive"):
+        review["ok"] = False
+        review["problems"] = list(dict.fromkeys([*(review.get("problems") or []), "object_alive"]))
+    return review
+
+
+async def freeze_alive(clip: bytes, check: dict) -> tuple[bytes, dict]:
+    """The last resort: the toys still alive in the kept take keep their start-picture look
+    (pinned when nobody holds them, carried with the hands otherwise)."""
+    alive = {n: check["found"][n] for n in check.get("alive") or [] if n in (check.get("found") or {})}
+    if not alive:
+        return clip, {"frozen": []}
+    return await freeze_toys(clip, check.get("keyframe"), list(alive), found=alive)
 
 
 async def toy_tracks(clip: bytes, masks: dict[str, dict], clip_size: tuple[int, int]) -> dict[str, bytes]:
@@ -307,14 +427,16 @@ def freeze_clip(clip: bytes, masks: dict[str, bytes], tracks: dict[str, bytes] |
         shutil.rmtree(work, ignore_errors=True)
 
 
-async def freeze_toys(clip: bytes, keyframe: bytes | None, toys: list[str] | None) -> tuple[bytes, dict | None]:
-    """(clip, info): the clip with its still toys frozen, or the clip as it came."""
+async def freeze_toys(clip: bytes, keyframe: bytes | None, toys: list[str] | None,
+                      found: dict | None = None) -> tuple[bytes, dict | None]:
+    """(clip, info): the clip with these toys frozen, or the clip as it came. `found`: their
+    start-picture masks when a toy check already has them."""
     from services import clip_review
 
     if not toys or not keyframe:
         return clip, None
     try:
-        found = await toy_masks(keyframe, toys)
+        found = found if found is not None else await toy_masks(keyframe, toys)
         if not found:
             return clip, {"frozen": [], "note": "toy not found in the start picture"}
         held = await clip_review.toys_held(keyframe, list(found))

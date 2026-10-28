@@ -49,21 +49,37 @@ def test_a_still_clip_is_found_and_pushed_in(tmp_path):
     assert not [s for s in _frozen_spans(out) if s >= vas.QA_FREEZE_SECONDS]
 
 
-def test_the_logo_badge_is_the_icon_and_name_on_a_soft_glow(tmp_path):
+def test_the_logo_is_a_sticker_with_a_white_edge_and_a_shadow(tmp_path):
     from PIL import Image
 
     w, h = vas._logo_badge(str(tmp_path / "logo.png"))
-    img = Image.open(tmp_path / "logo.png")
-    assert img.mode == "RGBA" and img.size == (w, h) and h < 160  # small, in a corner of the 720p frame
+    img = Image.open(tmp_path / "logo.png").convert("RGBA")
+    assert img.size == (w, h) and h < 180  # small, in a corner of the 720p frame
     alpha = img.getchannel("A")
     assert alpha.getpixel((0, 0)) == 0 and alpha.getextrema()[1] == 255  # transparent around, solid logo
+    # the outermost solid ring is white (the sticker's edge), not a milky glow
+    ring = [img.getpixel((x, h // 2)) for x in range(w // 2) if img.getpixel((x, h // 2))[3] == 255][:2]
+    assert ring and all(min(px[:3]) > 235 for px in ring)
 
 
-def test_the_logo_moves_the_whole_video_and_leaves_with_the_ending():
+def test_the_logo_loop_is_seamless_and_sharp(tmp_path):
+    from PIL import Image
+
+    vas._logo_badge(str(tmp_path / "logo.png"))
+    w, h = vas._logo_loop(str(tmp_path / "logo.png"), str(tmp_path / "loop.mov"))
+    frames = sorted(tmp_path.glob("logo_*.png"))
+    assert len(frames) == vas.LOGO_LOOP_SECONDS * vas.LOGO_FPS and (tmp_path / "loop.mov").stat().st_size > 0
+    first, last = (Image.open(f).convert("RGBA") for f in (frames[0], frames[-1]))
+    assert first.size == (w, h)
+    diff = sum(abs(a - b) for a, b in zip(first.tobytes(), last.tobytes())) / len(first.tobytes())
+    assert diff < 3  # the last frame leads back into the first: no jump when it loops
+
+
+def test_the_logo_slides_into_the_top_left_and_leaves_with_the_ending():
     f = vas.logo_filter(60.0)
-    assert "fade=t=in:st=0.4:d=0.8:alpha=1" in f and "fade=t=out:st=59.400:d=0.6:alpha=1" in f
-    assert "rotate=a='0.035*sin(2*PI*t/5)'" in f and "sin(2*PI*t/3.2)" in f  # sway and float, all along
-    assert "overlay=x='W-w-18'" in f and "shortest=1" in f  # bottom-right, as long as the story
+    assert "fade=t=in:st=0.3:d=0.8:alpha=1" in f and "fade=t=out:st=59.400:d=0.6:alpha=1" in f
+    assert "overlay=x=20:y='16-14*max(0,min(1,(1.1-t)/0.8))'" in f and "shortest=1" in f  # top-left
+    assert "rotate" not in f  # ffmpeg's rotate blurred the small logo
 
 
 def test_a_failing_logo_never_blocks_the_story(tmp_path):

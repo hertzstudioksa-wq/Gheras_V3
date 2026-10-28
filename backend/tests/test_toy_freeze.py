@@ -213,3 +213,67 @@ def test_the_detector_gets_the_words_without_the_owner(monkeypatch):
     Image.new("RGB", (W, H)).save(png, "PNG")
     assert asyncio.run(toy_freeze.toy_masks(png.getvalue(), ["Yaman's little brown teddy bear"])) == {}
     assert asked == ["little brown teddy bear"]
+
+
+def _found():
+    return {"the toy": {"mask": _mask(), "box": TOY, "size": (W, H)}}
+
+
+def test_a_toy_that_did_not_come_alive_leaves_the_clip_as_wan_made_it(monkeypatch):
+    # a plush Wan drew right was frozen anyway, and the still patch showed against the plants
+    from services import clip_review
+
+    async def masks(keyframe, names):
+        return _found()
+
+    async def alive(strip, name):
+        assert strip[:2] == b"\xff\xd8"  # the crops, as one JPEG
+        return {"alive": False, "note": "only carried"}
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", masks)
+    monkeypatch.setattr(clip_review, "toy_alive", alive)
+    clip = _clip([_scene(t) for t in range(24)])
+    check = asyncio.run(toy_freeze.toy_check(clip, b"png", ["the toy"]))
+    assert check["alive"] == [] and toy_freeze.public(check)["notes"] == {"the toy": "only carried"}
+    review = toy_freeze.with_check({"ok": True, "problems": []}, check)
+    assert review["ok"] is True and review["toy_check"]["checked"] == ["the toy"]
+    assert asyncio.run(toy_freeze.freeze_alive(clip, check)) == (clip, {"frozen": []})  # no paste at all
+
+
+def test_a_toy_that_came_alive_fails_the_take_and_is_pasted_only_as_a_last_resort(monkeypatch):
+    from services import clip_review
+
+    async def masks(keyframe, names):
+        return _found()
+
+    async def alive(strip, name):
+        return {"alive": True, "note": "it blinks"}
+
+    async def held(image, names):
+        return {"the toy": False}
+
+    async def tracks(clip, found, size):
+        return {}
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", masks)
+    monkeypatch.setattr(clip_review, "toy_alive", alive)
+    monkeypatch.setattr(clip_review, "toys_held", held)
+    monkeypatch.setattr(toy_freeze, "toy_tracks", tracks)
+    clip = _clip([_scene(t, blink=8 <= t <= 12) for t in range(24)])
+    check = asyncio.run(toy_freeze.toy_check(clip, b"png", ["the toy"]))
+    review = toy_freeze.with_check({"ok": True, "problems": ["text"]}, check)
+    assert review["ok"] is False and review["problems"] == ["text", "object_alive"]  # a redo, like any problem
+
+    async def no_second_detection(keyframe, names):
+        raise AssertionError("the masks of the check are reused")
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", no_second_detection)
+    frozen, info = asyncio.run(toy_freeze.freeze_alive(clip, check))
+    assert info["frozen"] == ["the toy"]
+    eye = (slice(TOY[1] + 18, TOY[1] + 27), slice(TOY[0] + 23, TOY[0] + 32))
+    assert _decode(frozen)[10][eye].mean() > 200
+
+
+def test_the_pasted_outline_carries_no_ring_of_background():
+    # grown 6 px, the paste brought the first frame's plants along around the toy
+    assert toy_freeze.GROW_PX <= 2 and toy_freeze.FEATHER_PX <= 2

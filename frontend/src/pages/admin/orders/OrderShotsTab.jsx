@@ -35,6 +35,22 @@ function ReviewBadge({ label, review, redoneKey }) {
   );
 }
 
+// The toy is checked in Wan's own clip: fine from the model (no paste), or alive in every
+// take and pasted from its start picture as the last resort.
+function ToyBadge({ review }) {
+  const check = review?.toy_check;
+  if (!check || !(check.checked || []).length) return null;
+  const frozen = (review.toy_freeze?.frozen || []).length > 0;
+  const alive = (check.alive || []).length > 0;
+  const text = frozen ? "اللعبة اتثبتت (آخر حل)" : alive ? "اللعبة بتتحرك لوحدها" : "اللعبة سليمة من الموديل";
+  return (
+    <span className={`text-[11px] rounded-full px-2 py-0.5 ${frozen || alive ? "bg-[#FCE6D4] text-[#B8612F]" : "bg-[#DEEBCF] text-[#3F5B2E]"}`}
+          title={Object.values(check.notes || {}).join(" · ")}>
+      {text}
+    </span>
+  );
+}
+
 function ShotCard({ orderId, shot, busy, onDone }) {
   const [editing, setEditing] = useState(false);
   const [motion, setMotion] = useState(shot.motion_prompt || "");
@@ -74,6 +90,7 @@ function ShotCard({ orderId, shot, busy, onDone }) {
         <ReviewBadge label="الصورة" review={shot.keyframe_review} redoneKey="redrawn" />
         <ReviewBadge label="المقطع" review={shot.clip_review} redoneKey="redone" />
         {shot.clip_calm_redo && <span className="text-[11px] rounded-full px-2 py-0.5 bg-[#F8F1E7] text-[#8B5A2B]">حركة أهدى</span>}
+        <ToyBadge review={shot.clip_review} />
         {shot.clip_rescue && (
           <span className="text-[11px] rounded-full px-2 py-0.5 bg-[#FCE6D4] text-[#B8612F]" title={shot.clip_rescue.reason || ""}>
             اتعمل بـ Kling بعد Wan

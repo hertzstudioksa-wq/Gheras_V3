@@ -112,6 +112,9 @@ class ChildPayload(BaseModel):
     age: int = Field(ge=1, le=14)
     gender: Literal["male", "female"]
     image_url: str = Field(min_length=3)  # REQUIRED
+    # The face from more sides (three-quarter, side): the sheet sees the real face from
+    # every side and the scenes stop inventing a stock one.
+    extra_image_urls: List[str] = Field(default_factory=list, max_length=2)
     appearance_notes: Optional[str] = None
     hijab: Optional[bool] = False
 
@@ -121,6 +124,7 @@ class CharacterPayload(BaseModel):
     name: Optional[str] = None
     role: Literal["mentioned", "visible"] = "mentioned"
     image_url: Optional[str] = None
+    extra_image_urls: List[str] = Field(default_factory=list, max_length=2)
 
 
 class FavoriteItem(BaseModel):

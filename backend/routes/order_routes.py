@@ -120,10 +120,9 @@ async def _run_scenario_generation(order_id: str, batch_id: str):
 async def _check_own_photos(data: dict, user: dict) -> None:
     """Every photo an order points at must be a file this parent uploaded
     (audit MISS-6): a leaked file id can't pull another child into a story."""
-    urls = [((data.get("child") or {}).get("image_url"))]
-    urls += [c.get("image_url") for c in data.get("characters") or []]
-    urls.append((data.get("personalization") or {}).get("toy_image_url"))
-    for url in filter(None, urls):
+    from services.privacy_service import photo_urls
+
+    for url in photo_urls(data):
         fid = str(url).rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
         rec = await db.files.find_one({"id": fid, "is_deleted": False}, {"_id": 0, "user_id": 1})
         if not rec or rec.get("user_id") != user["id"]:

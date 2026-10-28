@@ -370,6 +370,42 @@ async def toys_held(image: bytes, names: list[str]) -> dict[str, bool] | None:
         return None
 
 
+# Whether Wan brought a toy to life is asked on crops around the toy alone: in the whole
+# frame a blink is a few pixels. A plush Wan had drawn right was frozen anyway, and the
+# still patch around it showed against the moving plants behind.
+ALIVE_SYSTEM = ("You see crops from one short cartoon clip, in time order from left to right, all around the same "
+                "toy. Say whether the toy moves BY ITSELF like a living character: its eyes blink, close or look "
+                "around, its mouth opens, its head turns or nods, an arm or a leg lifts or waves, it walks, or it "
+                "changes shape. Being carried, hugged, squeezed or moved along by a person's hands or body is NOT "
+                "moving by itself, and neither is a person moving next to it. "
+                'Reply with JSON only: {"alive": true or false, "note": "a few words"}')
+
+
+async def toy_alive(strip: bytes, name: str) -> dict | None:
+    """{"alive", "note"} for one toy seen across a clip (`strip`: crops around it, in time order).
+    None when the check can't run."""
+    from services.ai import fake_providers, fal
+    from services.ai.text_client import generate_vision
+
+    if fake_providers.enabled() or not await enabled():
+        return None
+    try:
+        data, mime = await asyncio.to_thread(_shrink, strip, 1600)
+        url = await fal.upload(env_key="FAL_KEY_TEXT", data=data, content_type=mime, file_name="toy-alive.jpg")
+        answer = await generate_vision(stage="toy_freeze", model=REVIEW_MODEL, system=ALIVE_SYSTEM,
+                                       user=f"The toy: {name}.", image_urls=[url], max_tokens=120)
+        start = (answer or "").find("{")
+        verdict = json.JSONDecoder().raw_decode(answer[start:])[0] if start >= 0 else {}
+        if not isinstance(verdict.get("alive"), bool):
+            return None
+        return {"alive": verdict["alive"], "note": str(verdict.get("note") or "")[:160]}
+    except Exception as e:  # noqa: BLE001
+        if engine_health.is_balance_message(e):
+            raise
+        logger.warning(f"[review] toy-alive check skipped: {type(e).__name__}: {str(e)[:160]}")
+        return None
+
+
 def counted_extra(verdict: dict, people: list | None, expected: list[str]) -> dict:
     """More people listed than the shot's cast: an extra person, whatever the full review said.
     Fewer is left alone (a cast member can be off the edge, and an animal isn't listed)."""

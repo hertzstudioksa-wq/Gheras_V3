@@ -32,7 +32,8 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import clip_review, engine_config, engine_health, house_style, pronunciation, toy_freeze
+from services import (clip_review, engine_config, engine_health, head_views, house_style, pronunciation,
+                      toy_freeze)
 from services.ai import AIConfigError, AIError, AIPermanentError, comfy, fal
 from services.ai.image_client import WIDE, comfy_image, comfy_workflow
 from services.child_character_service import _fetch_source_bytes
@@ -150,6 +151,7 @@ async def load_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
     )
     if child:
         sheets["child"] = {"url": child["generated_image_url"], "from_photo": True,
+                           "head_views_url": child.get("head_views_url"),
                            "label": _label(profiles.get("child") or {"type": "child"}, child_name)}
     keys = house_style.cast_keys((order.get("data") or {}).get("characters") or [])
     async for a in db.extra_character_assets.find(
@@ -159,6 +161,7 @@ async def load_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
         t = keys[i] if isinstance(i, int) and 0 <= i < len(keys) else a.get("character_type")
         if t and t not in sheets:
             sheets[t] = {"url": a["generated_image_url"], "from_photo": True,
+                         "head_views_url": a.get("head_views_url"),
                          "label": _label(profiles.get(t) or {"type": t}, child_name)}
     async for s in db.character_sheets.find({"order_id": order["id"], "production_plan_id": plan["id"]}, {"_id": 0}):
         sheets.setdefault(s["type"], {"url": s["image_url"], "label": s["label"]})
@@ -673,7 +676,9 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
             # Someone drawn from a real photo keeps the face their sheet has, not the plan's
             # guess at it: "neatly trimmed beard, closely cropped hair" gave the father a
             # barber's fade and a sculpted beard his sheet never had.
-            if (sheets.get(r["type"]) or {}).get("from_photo"):
+            if (sheets.get(r["type"]) or {}).get("head_views_url"):
+                note = f"{head_views.CARD_NOTE}; {FROM_PHOTO_FACE}"
+            elif (sheets.get(r["type"]) or {}).get("from_photo"):
                 note = FROM_PHOTO_FACE
             else:
                 features = _features(profiles.get(r["type"]) or {})
@@ -978,6 +983,19 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 sheet_bytes[t] = got
         return sheet_bytes.get(t)
 
+    card_bytes: dict[str, tuple[bytes, str]] = {}
+
+    async def ref_data(t: str) -> tuple[bytes, str] | None:
+        """A person's reference for a shot picture: their sheet with their face from three
+        sides beside it when there is one (services/head_views.py), else the sheet."""
+        sheet = await sheet_data(t)
+        if not sheet or not sheets[t].get("head_views_url"):
+            return sheet
+        if t not in card_bytes:
+            heads = await _fetch_source_bytes(sheets[t]["head_views_url"])
+            card_bytes[t] = (head_views.card(sheet[0], heads[0]), "image/png") if heads else sheet
+        return card_bytes[t]
+
     looks_seen: dict[str, str | None] = {}
 
     async def look_of(t: str) -> str | None:
@@ -1010,9 +1028,11 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         = (picture, note) of the toy and story objects a rescued Comfy shot had."""
         refs, notes, types = [], [], []
         for t in by_likeness(sh.get("characters") or [], sheets)[:MAX_KEYFRAME_SHEETS]:
-            if await sheet_data(t):
-                refs.append({"image_bytes": sheet_bytes[t][0], "mime_type": sheet_bytes[t][1]})
-                notes.append(f"{sheets[t]['label']}'s character sheet")
+            ref = await ref_data(t)
+            if ref:
+                refs.append({"image_bytes": ref[0], "mime_type": ref[1]})
+                notes.append(f"{sheets[t]['label']}'s character sheet"
+                             + (f" ({head_views.CARD_NOTE})" if ref is not sheet_bytes.get(t) else ""))
                 types.append(t)
         for data, note in extra:
             refs.append({"image_bytes": data[0], "mime_type": data[1]})
@@ -1040,7 +1060,9 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         if on_comfy:
             for r in comfy_references(sh, scene, sheets, toy, "shot" if prev else "scene" if previous_scene else None,
                                       [o for o in in_shot if o["key"] in object_refs and not without_picture(o)]):
-                if r["kind"] in ("sheet", "style"):
+                if r["kind"] == "sheet":
+                    data = await ref_data(r["type"])
+                elif r["kind"] == "style":
                     data = await sheet_data(r["type"])
                 elif r["kind"] == "toy":
                     toy_bytes = toy_bytes or await _fetch_source_bytes(toy["url"])
@@ -1619,13 +1641,13 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 request_id = prompt_id = None  # used: a redo is a new request
                 made = True
                 refs, first = await review_refs(row)
-                # Wan makes a doll blink and nod whatever the prompt says: still toys
-                # keep their first-frame pixels (services/toy_freeze.py).
-                data, toy_info = await toy_freeze.freeze_toys(data, first[0] if first else None, row.get("toys"))
                 review = await clip_review.review_clip(shot_key, data, cast_labels(row.get("characters") or [], sheets),
                                                        row.get("motion_prompt") or "", refs, first, row.get("objects"))
-                if toy_info is not None:
-                    review = {**review, "toy_freeze": toy_info}
+                # The model first: a toy is checked in Wan's own clip. One that came alive
+                # counts against the take (a redo); one that didn't leaves the clip exactly as
+                # Wan made it (services/toy_freeze.py).
+                toys = await toy_freeze.toy_check(data, first[0] if first else None, row.get("toys"))
+                review = toy_freeze.with_check(review, toys)
                 if not passes(review) and wan and not passes(row.get("keyframe_review")):
                     # The start frame itself was still flagged after its redraw: another
                     # Wan take animates the same picture, so none is paid for. The admin
@@ -1634,7 +1656,7 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                 elif not passes(review):
                     problems = "review: " + ", ".join(review.get("problems") or [])
                     if wan and (best is None or len(review.get("problems") or []) <= len(best[1].get("problems") or [])):
-                        best = (data, review)
+                        best = (data, review, toys)
                     if not calm:
                         # One calmer redo; it doesn't use up the error retry.
                         calm, tries = True, tries - 1
@@ -1653,9 +1675,17 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                                           "clip_error": problems})
                         continue
                     if wan and best:
-                        data, review = best[0], {**best[1], "best_of_takes": True}
+                        data, review, toys = best[0], {**best[1], "best_of_takes": True}, best[2]
+                raw_url = None
+                if toys and toys.get("alive"):
+                    # Still alive in the take kept: the paste is the last resort. Wan's own
+                    # clip is kept beside it for the admin.
+                    raw_url = await _store(order, "clip_raw", data, "video/mp4", "mp4")
+                    data, freeze_info = await toy_freeze.freeze_alive(data, toys)
+                    review = {**review, "toy_freeze": freeze_info}
                 url = await _store(order, "clip", data, "video/mp4", "mp4")
-                await _save(row, {"clip_url": url, "clip_remote_url": remote, "clip_state": "completed",
+                await _save(row, {"clip_url": url, "clip_raw_url": raw_url, "clip_remote_url": remote,
+                                  "clip_state": "completed",
                                   "clip_error": None, "clip_review": review, "clip_calm_redo": calm,
                                   "clip_prompt_id": None, "clip_engine": engine})
                 return "done"

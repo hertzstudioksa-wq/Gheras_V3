@@ -72,6 +72,12 @@ async def actual_cost(order: dict) -> dict:
     for model, n in sheets.items():
         unit = await _price_by_model(model, sheet_quality)
         add("character_sheets", "شيتات الشخصيات", n, "صورة", unit if unit is not None else story_pricing.IMAGE_HIGH, note=model)
+    views_gpu, views = 0.0, 0
+    for coll in (db.child_character_assets, db.extra_character_assets):
+        async for d in coll.find({"order_id": order_id, "head_views_gpu_seconds": {"$gt": 0}},
+                                 {"_id": 0, "head_views_gpu_seconds": 1}):
+            views_gpu, views = views_gpu + float(d["head_views_gpu_seconds"]), views + 1
+    add("head_views", "وشوش الشخصيات من 3 زوايا (Comfy)", views_gpu, "ثانية GPU", gpu_usd, note=f"{views} شخصية")
 
     covers, comfy_covers, cover_gpu = 0, 0, 0.0
     async for c in db.scene_images.find({"order_id": order_id, "kind": "cover", "source_type": {"$ne": "mock"}},

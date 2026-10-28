@@ -38,12 +38,19 @@ def _file_id(url: str | None) -> str | None:
     return str(url).rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0] or None
 
 
-def order_photo_ids(order: dict) -> list[str]:
-    data = order.get("data") or {}
-    urls = [(data.get("child") or {}).get("image_url")]
-    urls += [c.get("image_url") for c in data.get("characters") or []]
+def photo_urls(data: dict) -> list[str]:
+    """Every photo a parent's order points at: the child's and each character's (with
+    their extra sides), and the toy's."""
+    child = data.get("child") or {}
+    urls = [child.get("image_url"), *(child.get("extra_image_urls") or [])]
+    for c in data.get("characters") or []:
+        urls += [c.get("image_url"), *(c.get("extra_image_urls") or [])]
     urls.append((data.get("personalization") or {}).get("toy_image_url"))
-    return [fid for fid in map(_file_id, urls) if fid]
+    return [u for u in urls if u]
+
+
+def order_photo_ids(order: dict) -> list[str]:
+    return [fid for fid in map(_file_id, photo_urls(order.get("data") or {})) if fid]
 
 
 async def _delete_files(query: dict) -> int:

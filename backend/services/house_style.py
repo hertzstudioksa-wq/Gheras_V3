@@ -176,8 +176,17 @@ def adult_style(style_text: str) -> str:
     return f"{style_text} {ADULT_FACE}"
 
 
+def photos_note(photos: int = 1) -> str:
+    """Which reference images are the person's photos."""
+    if photos <= 1:
+        return "The first reference image is the photo (use it ONLY for identity)."
+    return (f"The first {photos} reference images are photos of the same person from different sides (the first "
+            "from the front): use them ONLY for identity, so the real width of the face, the nose, the jaw, the "
+            "hairline and any beard come out right from every side. The outfit comes from the first photo.")
+
+
 def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str | None = None,
-                           sheet_rules: str | None = None, adult: bool = False) -> str:
+                           sheet_rules: str | None = None, adult: bool = False, photos: int = 1) -> str:
     """Photo → cartoon character sheet (the owner's proven prompt, fixed: opaque
     white instead of transparent, photo rules, photo outfit by default, one view;
     grown-ups keep their real face proportions)."""
@@ -185,7 +194,7 @@ def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str 
     return (
         f"Create a highly stylized 2D children's storybook cartoon character based on the uploaded photo of {who}, "
         "more cartoonish than the photo while keeping the person instantly recognizable to their own family. "
-        "The first reference image is the photo (use it ONLY for identity). "
+        f"{photos_note(photos)} "
         f"{STYLE_REF_NOTE}\n\n{IDENTITY_RULES}\n\n{PHOTO_RULES}\n\nOUTFIT: {outfit_rule(outfit)}.\n\n"
         f"STYLE: {style}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
     )

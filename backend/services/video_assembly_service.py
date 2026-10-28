@@ -194,49 +194,91 @@ async def _still_seconds(path: str) -> float:
 
 
 # ---------------------------------------------------------------- brand logo
-# The owner wants the Gheras logo in every video, placed well and moving gently the whole
-# time. Bottom-right sat on the ground or the path in every shot of a real story, never on
-# a face (top-left touched the children's heads). The icon and the name only: the tagline
-# can't be read at this size. A soft light glow keeps it readable on grass and trees.
-# It goes on after the quality gate, so its motion never hides a frozen shot.
+# The owner wants the Gheras logo in every video, top-left, looking good and moving gently
+# the whole time. The first version (a milky glow, ffmpeg rotating a 108 px picture,
+# bottom-right on the grass) looked cheap: the logo is now a die-cut sticker (a clean white
+# edge from its own outline and a soft shadow, readable on grass, sky or skin) drawn once
+# from the 2048 px file, and its float and breath are drawn frame by frame at sub-pixel
+# precision instead of rotated by ffmpeg. The icon and the name only: the tagline can't be
+# read at this size. It goes on after the quality gate, so its motion never hides a frozen shot.
 BRAND_LOGO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "brand",
                           "gheras-logo.png")
 LOGO_TAGLINE_TOP = 1541     # first row of the tagline in the 2048px logo
-LOGO_HEIGHT = 108           # px of the 720p frame
-LOGO_MARGIN = (18, 14)      # from the right and the bottom edges
-LOGO_GLOW = 0.6
+LOGO_HEIGHT = 120           # px of the 720p frame
+LOGO_MARGIN = (20, 16)      # from the left and the top edges
+LOGO_BORDER = 5             # the sticker's white edge, px
+LOGO_SHADOW = (3, 6, 0.35)  # drop (px), blur, opacity
+LOGO_LOOP_SECONDS, LOGO_FPS = 4, 24
+LOGO_FLOAT_PX, LOGO_BREATH = 2.0, 0.02
 
 
 def _logo_badge(path: str, height: int = LOGO_HEIGHT) -> tuple[int, int]:
-    """The logo (icon + name) on a soft light glow, as a transparent PNG. Returns its size."""
+    """The logo (icon + name) as a sticker: a white edge around its outline and a soft
+    shadow, on a transparent PNG. Returns its size."""
     from PIL import Image, ImageFilter
 
     src = Image.open(BRAND_LOGO).convert("RGBA")
     logo = src.crop((0, 0, src.width, min(src.height, LOGO_TAGLINE_TOP)))
     logo = logo.crop(logo.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox())
     logo = logo.resize((round(logo.width * height / logo.height), height), Image.LANCZOS)
-    pad = max(8, height // 8)
-    badge = Image.new("RGBA", (logo.width + 2 * pad, logo.height + 2 * pad), (0, 0, 0, 0))
-    mask = Image.new("L", badge.size, 0)
-    mask.paste(logo.getchannel("A").point(lambda v: 255 if v > 30 else 0), (pad, pad))
-    glow = mask.filter(ImageFilter.MaxFilter(13)).filter(ImageFilter.GaussianBlur(7))
-    halo = Image.new("RGBA", badge.size, (255, 250, 240, 0))
-    halo.putalpha(glow.point(lambda v: int(v * LOGO_GLOW)))
-    badge.alpha_composite(halo)
+    drop, blur, opacity = LOGO_SHADOW
+    pad = LOGO_BORDER + 2 * blur + drop
+    size = (logo.width + 2 * pad, logo.height + 2 * pad)
+    shape = Image.new("L", size, 0)
+    shape.paste(logo.getchannel("A").point(lambda v: 255 if v > 60 else 0), (pad, pad))
+    # A round grow (blur, then a low cut) gives the sticker's smooth die-cut edge.
+    edge = shape.filter(ImageFilter.GaussianBlur(LOGO_BORDER)).point(lambda v: 255 if v > 12 else 0)
+    edge = edge.filter(ImageFilter.GaussianBlur(0.7))
+    shadow = Image.new("L", size, 0)
+    shadow.paste(edge, (0, drop))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: int(v * opacity))
+    badge = Image.new("RGBA", size, (0, 0, 0, 0))
+    badge.putalpha(shadow)
+    white = Image.new("RGBA", size, (255, 255, 255, 0))
+    white.putalpha(edge)
+    badge.alpha_composite(white)
     badge.alpha_composite(logo, (pad, pad))
     badge.save(path)
     return badge.size
 
 
+def _logo_loop(badge_path: str, out_path: str) -> tuple[int, int]:
+    """A seamless LOGO_LOOP_SECONDS loop of the sticker floating and breathing gently, drawn
+    frame by frame (sub-pixel, no jagged steps), as a transparent .mov. Returns its frame size."""
+    import math
+
+    from PIL import Image
+
+    badge = Image.open(badge_path).convert("RGBA")
+    room = math.ceil(LOGO_FLOAT_PX + 1)
+    w = badge.width + 2 * math.ceil(badge.width * LOGO_BREATH / 2 + 1)
+    h = badge.height + 2 * math.ceil(badge.height * LOGO_BREATH / 2 + room)
+    frames = LOGO_LOOP_SECONDS * LOGO_FPS
+    work = os.path.dirname(out_path)
+    for i in range(frames):
+        phase = 2 * math.pi * i / frames
+        scale = 1 + LOGO_BREATH * (0.5 - 0.5 * math.cos(phase))
+        dy = LOGO_FLOAT_PX * math.sin(phase)
+        # The output pixel (x, y) takes the badge pixel ((x - cx) / s + bw/2, (y - cy - dy) / s + bh/2).
+        cx, cy = w / 2, h / 2
+        coeffs = (1 / scale, 0, badge.width / 2 - cx / scale, 0, 1 / scale, badge.height / 2 - (cy + dy) / scale)
+        frame = badge.transform((w, h), Image.AFFINE, coeffs, resample=Image.BICUBIC)
+        frame.save(os.path.join(work, f"logo_{i:03d}.png"))
+    res = subprocess.run([_ffmpeg_bin(), "-v", "error", "-y", "-framerate", str(LOGO_FPS),
+                          "-i", os.path.join(work, "logo_%03d.png"), "-c:v", "qtrle", "-pix_fmt", "argb", out_path],
+                         capture_output=True, text=True, timeout=120)
+    if res.returncode != 0:
+        raise RuntimeError(f"logo loop: {res.stderr[-200:]}")
+    return w, h
+
+
 def logo_filter(total: float) -> str:
-    """The logo's motion for a `total`-second video: fades in and rises into place, then
-    floats and sways gently the whole time, and fades out with the ending."""
+    """The logo's entrance and exit for a `total`-second video: it fades in sliding down into
+    the top-left corner, keeps its gentle loop the whole time, and fades out with the ending."""
     end = max(0.0, total - 0.6)
     mx, my = LOGO_MARGIN
-    return (f"[1:v]format=rgba,fade=t=in:st=0.4:d=0.8:alpha=1,fade=t=out:st={end:.3f}:d=0.6:alpha=1,"
-            "rotate=a='0.035*sin(2*PI*t/5)':c=none:ow='rotw(0.05)':oh='roth(0.05)'[logo];"
-            f"[0:v][logo]overlay=x='W-w-{mx}':y='H-h-{my}+3*sin(2*PI*t/3.2)+16*max(0,min(1,(1.2-t)/0.8))'"
-            ":shortest=1,format=yuv420p[v]")
+    return (f"[1:v]format=rgba,fade=t=in:st=0.3:d=0.8:alpha=1,fade=t=out:st={end:.3f}:d=0.6:alpha=1[logo];"
+            f"[0:v][logo]overlay=x={mx}:y='{my}-14*max(0,min(1,(1.1-t)/0.8))':shortest=1,format=yuv420p[v]")
 
 
 async def logo_on() -> bool:
@@ -247,10 +289,12 @@ async def logo_on() -> bool:
 async def _with_logo(work: str, src: str, total: float) -> str:
     """`src` with the moving logo, or `src` itself when that fails (never blocks a story)."""
     badge = os.path.join(work, "logo.png")
+    loop = os.path.join(work, "logo_loop.mov")
     out = os.path.join(work, "branded.mp4")
     try:
         await asyncio.to_thread(_logo_badge, badge)
-        res = await _ffmpeg(["-i", src, "-loop", "1", "-framerate", "24", "-i", badge,
+        await asyncio.to_thread(_logo_loop, badge, loop)
+        res = await _ffmpeg(["-i", src, "-stream_loop", "-1", "-i", loop,
                              "-filter_complex", logo_filter(total), "-map", "[v]", "-map", "0:a?",
                              "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "copy",
                              "-movflags", "+faststart", out], timeout=600)
