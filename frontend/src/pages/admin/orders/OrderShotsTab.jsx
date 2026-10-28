@@ -15,6 +15,7 @@ const PROBLEM_AR = {
   wrong_look: "شكل مش مطابق للشخصية", outfit_change: "اللبس أو الإكسسوار اتغيّر",
   melting: "حاجة بتسيح أو بتتمدد", action_missing: "الحدث المطلوب ما حصلش", mood_mismatch: "التعبير عكس السطر",
   noise: "صورة مشوّشة (ألوان عشوائية)", object_alive: "لعبة أو حاجة بتتحرك لوحدها",
+  camera_gaze: "حد باصص للكاميرا", floating: "حد بيطير أو رجله في الهوا",
 };
 
 function ReviewBadge({ label, review, redoneKey }) {
