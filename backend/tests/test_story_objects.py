@@ -324,6 +324,24 @@ def test_the_natural_style_becomes_the_default_once(monkeypatch):
     asyncio.run(engine_config.seed_engine_config())
     assert by_key["storybook_soft"]["is_default"] and by_key["storybook_soft"]["active"]  # never undone
     assert not by_key["storybook_natural"]["is_default"]
+    # the first wording drew big-headed children: upgraded where it is still word for word...
+    by_key["storybook_natural"]["style_text"] = engine_config.house_style.STYLE_NATURAL_V1
+    asyncio.run(engine_config.seed_engine_config())
+    assert by_key["storybook_natural"]["style_text"] == engine_config.house_style.STYLE_NATURAL
+    by_key["storybook_natural"]["style_text"] = "the admin's natural wording"  # ...never over an admin's edit
+    asyncio.run(engine_config.seed_engine_config())
+    assert by_key["storybook_natural"]["style_text"] == "the admin's natural wording"
+
+
+def test_the_natural_style_keeps_real_head_sizes():
+    # the child's sheet came out four heads tall ("child body proportions"): silly in the scenes
+    from services import house_style
+
+    child = house_style.character_sheet_prompt("Lina", None, house_style.STYLE_NATURAL, None)
+    assert "no big-head, chibi or bobblehead look" in child and "about five heads tall" in child
+    assert "child body proportions" not in house_style.STYLE_NATURAL
+    adult = house_style.character_sheet_prompt("Omar", None, "An admin's own style.", None, adult=True)
+    assert house_style.PROPORTIONS in adult and house_style.PROPORTIONS in child  # its own line, any style
 
 
 def test_a_set_without_all_its_owners_goes_in_words_and_a_changing_thing_follows_the_scene():

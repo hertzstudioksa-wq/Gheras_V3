@@ -363,17 +363,21 @@ def keyframe_prompt(scene: dict, sh: dict, profiles: dict, sheets: dict, child_n
 COMFY_INTRO = ("Create a brand-new 16:9 children's storybook illustration using the people and objects from the "
                "reference images (a new scene, not an edit of <image1>).")
 # The face is copied, the expression is not: "copy the mouth and smile" kept a
-# crying child smiling like his sheet in the first real story.
+# crying child smiling like his sheet in the first real story. The head size is said
+# on its own: a wide shot gave the father and the son bobbleheads (owner: silly).
 COMFY_COPY = ("Copy each character's identity from their reference exactly: the same face shape, eyes, eyebrows, "
               "nose, skin tone and age; the same hairstyle with the same hair volume, curls and hairline; the same "
-              "beard shape and fullness; plus the same clothes, shoes and colors. Do not redesign, beautify or "
-              "simplify the faces. Facial expressions, gaze and poses follow the SCENE below, not the reference "
-              "sheets.")
+              "beard shape and fullness; plus the same clothes, shoes and colors. Every head keeps its real size "
+              "against its body for the person's age, never enlarged. Do not redesign, beautify or simplify the "
+              "faces. Facial expressions, gaze and poses follow the SCENE below, not the reference sheets.")
 COMFY_ONCE = "Each character appears exactly once and nobody else is in the picture."
 # The sheets face the viewer, and whoever the scene doesn't give a gaze kept it:
-# the parents clapped while staring into the camera.
+# the parents clapped while staring into the camera. Eyes alone weren't enough: a
+# father and son watching the view stood square to us like a photo (twice), and a
+# face turned to us reads as looking at us once Wan moves it.
 GAZE = ("Everyone looks at someone or something inside the picture, as the SCENE says; nobody looks out at the "
-        "viewer or the camera.")
+        "viewer or the camera. Heads and bodies turn toward what they look at, seen in three-quarter view or from "
+        "the side, never posed square to the viewer like a photo.")
 COMFY_NOBODY = "There are no people in this picture."
 COMFY_STYLE = ("STYLE: exactly the same 2D cartoon storybook art style, line quality and shading as the reference "
                "sheets; premium picture-book rendering with soft painterly shading, a gentle visible brush texture, "

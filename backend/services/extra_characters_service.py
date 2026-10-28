@@ -27,7 +27,7 @@ from services.config_service import (
     resolve_model,
     DEFAULT_MODELS,
 )
-from services import engine_config, head_views, house_style
+from services import engine_config, head_views, house_style, sheet_proportions
 from services.child_character_service import (
     _fetch_source_bytes,
     _generate_character,
@@ -137,12 +137,16 @@ async def _run_one(order: dict, character_index: int, character: dict,
         try:
             style_ref = await engine_config.style_reference_bytes(art_style)
             result = await _generate_character(src_tuple[0], prompt, provider, model_name, style_ref)
-            generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
-            real_meta = result.get("meta") or {}
+            adult = house_style.is_adult(character.get("type"))
+            sheet, fitted = await sheet_proportions.real_proportions(result["image_bytes"], age=character.get("age"),
+                                                                     adult=adult)
+            generated_url = await _save_generated_png(order_id, order["user_id"], sheet)
+            real_meta = {**(result.get("meta") or {}), "proportions": fitted}
             views = await head_views.for_asset(
-                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png),
+                sheet, lambda png: _save_generated_png(order_id, order["user_id"], png),
                 photos=extra, sheet_prompt=prompt, provider=provider, model=model_name, style_ref=style_ref) \
-                if house_style.is_adult(character.get("type")) else dict(head_views.NONE)
+                if adult else dict(head_views.NONE)
+            views["proportions_gpu_seconds"] = fitted.get("gpu_seconds") or 0
         except Exception as e:  # noqa: BLE001 — recorded on the asset; the book continues without this likeness
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[extra_character_i2i] failed order={order_id} char={character_index}: {error[:300]}")

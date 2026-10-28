@@ -213,9 +213,17 @@ async def _ask(stage: str, shot_key: str, images: list[tuple[bytes, str]], expec
                            "expected_count": len(expected), "reference_sheets": [label for label, _, _ in sheets or []],
                            "first_frame_given": bool(first), "action": (action or "")[:400],
                            "story_objects": objects or []}, ensure_ascii=False)
-        answer = await generate_vision(stage=stage, model=REVIEW_MODEL, system=SYSTEM, user=user, image_urls=urls,
-                                       max_tokens=600)  # 300 cut a long note mid-string: no verdict
-        verdict = _verdict(answer)
+        # A malformed answer (a quote left unescaped in the note) passed a picture
+        # unchecked: it is asked once more before the review counts as skipped.
+        for tries in (1, 2):
+            answer = await generate_vision(stage=stage, model=REVIEW_MODEL, system=SYSTEM, user=user,
+                                           image_urls=urls, max_tokens=600)  # 300 cut a long note mid-string
+            try:
+                verdict = _verdict(answer)
+                break
+            except ValueError:
+                if tries == 2:
+                    raise
     except Exception as e:  # noqa: BLE001 — a review that can't run never blocks the story...
         if engine_health.is_balance_message(e):
             raise  # ...unless its balance ran out: the order pauses for the top-up

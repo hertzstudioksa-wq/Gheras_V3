@@ -29,7 +29,7 @@ from services.config_service import (
     get_pipeline_config,
     DEFAULT_MODELS,
 )
-from services import engine_config, head_views, house_style
+from services import engine_config, head_views, house_style, sheet_proportions
 from services.ai.image_client import generate_image as generate_provider_image
 from storage import put_object, APP_NAME
 
@@ -250,9 +250,11 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
         try:
             style_ref = await engine_config.style_reference_bytes(art_style)
             result = await _generate_character(src_tuple[0], prompt, provider, model_name, style_ref)
-            generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
-            real_meta = result.get("meta") or {}
-            views = dict(head_views.NONE)  # the heads are for grown-ups only (services/head_views.py)
+            sheet, fitted = await sheet_proportions.real_proportions(
+                result["image_bytes"], age=((order.get("data") or {}).get("child") or {}).get("age"), adult=False)
+            generated_url = await _save_generated_png(order_id, order["user_id"], sheet)
+            real_meta = {**(result.get("meta") or {}), "proportions": fitted}
+            views = {**head_views.NONE, "proportions_gpu_seconds": fitted.get("gpu_seconds") or 0}  # the heads are for grown-ups only (services/head_views.py)
         except Exception as e:  # noqa: BLE001 — recorded on the asset and surfaced to the orchestrator
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[child_character_i2i] generation failed order={order_id}: {error[:300]}")

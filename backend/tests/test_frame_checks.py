@@ -176,6 +176,37 @@ def test_the_review_is_told_the_story_objects(monkeypatch):
     assert clip_review._problem("toy moving by itself (alive)") == "object_alive"
 
 
+def test_a_malformed_review_answer_is_asked_once_more(monkeypatch):
+    # a beach picture passed unchecked when the answer's note broke the JSON
+    from services.ai import fal, text_client
+
+    answers = ['{"ok": false, "problems": ["action_missing"], "note": "they look at the "viewer""}',
+               '{"ok": false, "problems": ["action_missing"], "note": "they face the viewer"}']
+    asked = []
+
+    async def on():
+        return True
+
+    async def upload(**k):
+        return "https://x/u.png"
+
+    async def vision(**k):
+        asked.append(1)
+        return answers[min(len(asked), len(answers)) - 1]
+
+    monkeypatch.setattr(clip_review, "enabled", on)
+    monkeypatch.setattr(fal, "upload", upload)
+    monkeypatch.setattr(text_client, "generate_vision", vision)
+    verdict = asyncio.run(clip_review._ask("keyframe_review", "1_2", [(cartoon_picture(), "image/png")], ["Lina"],
+                                           "Lina watches the sunset."))
+    assert len(asked) == 2 and verdict["problems"] == ["action_missing"]
+    answers[1] = answers[0]  # broken twice: skipped, never a crash
+    asked.clear()
+    verdict = asyncio.run(clip_review._ask("keyframe_review", "1_2", [(cartoon_picture(), "image/png")], ["Lina"],
+                                           "Lina watches the sunset."))
+    assert len(asked) == 2 and verdict["ok"] and verdict["skipped"] == "unavailable"
+
+
 def test_a_verdict_reads_the_first_json_object_only():
     two = '{"ok": false, "problems": ["duplicate"], "note": "twice"}\n\n{"ok": true, "problems": []}'
     assert clip_review._verdict(two)["problems"] == ["duplicate"]

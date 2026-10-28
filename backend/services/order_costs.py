@@ -78,6 +78,12 @@ async def actual_cost(order: dict) -> dict:
                                  {"_id": 0, "head_views_gpu_seconds": 1}):
             views_gpu, views = views_gpu + float(d["head_views_gpu_seconds"]), views + 1
     add("head_views", "وشوش الشخصيات من 3 زوايا (Comfy)", views_gpu, "ثانية GPU", gpu_usd, note=f"{views} شخصية")
+    fit_gpu, fitted = 0.0, 0
+    for coll in (db.child_character_assets, db.extra_character_assets):
+        async for d in coll.find({"order_id": order_id, "proportions_gpu_seconds": {"$gt": 0}},
+                                 {"_id": 0, "proportions_gpu_seconds": 1}):
+            fit_gpu, fitted = fit_gpu + float(d["proportions_gpu_seconds"]), fitted + 1
+    add("character_sheets", "نسب الجسم في الشيتات (Comfy)", fit_gpu, "ثانية GPU", gpu_usd, note=f"{fitted} شيت")
     angles: dict[tuple, int] = {}
     for coll in (db.child_character_assets, db.extra_character_assets):
         async for d in coll.find({"order_id": order_id, "head_views_angles": {"$gt": 0}},

@@ -10,6 +10,8 @@ the face too much); text, narration and review stay on fal.
 |---|---|---|---|
 | `keyframe_qwen21_api.json` | GPT Image 2 high keyframes ($0.17) | Qwen Image 2.1 Edit, 40 steps, 1536x864 | ~17-21 s GPU, ~$0.04 |
 | `clip_wan22_api.json` | Kling v3 pro / 2.5 turbo clips | Wan 2.2 I2V 14B + lightx2v 4-step, 1280x720, RIFE x3 -> 24 fps | ~80 s GPU per 5 s clip, ~$0.15 |
+| `clip_wan22_flf_api.json` | (2026-10-28) the same clip pinned between its start and its checked end picture | `WanFirstLastFrameToVideo`, `{{end_image}}` on node 98 | same as above |
+| `sheet_qwen21_api.json` | (2026-10-28) a GPT sheet's big head made the right size for the age | the keyframe workflow at 1024x1536 | ~12 s GPU, ~$0.02 |
 
 Cost basis: Comfy Cloud plan credits, 0.39 credits/GPU-second, ~211 credits per USD.
 A Comfy API deployment bills RTX PRO 6000 at $3.49/h (about half of plan credits).

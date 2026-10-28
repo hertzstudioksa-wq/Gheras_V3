@@ -58,6 +58,10 @@ PERMANENT_EXCEPTIONS = ("ValidationError",)
 WORKFLOWS = {
     "keyframe_qwen21": {"output_node": "461", "ints": {"seed"}, "refs_node": "459:474",
                         "prompt_input": ("459:474", "prompt")},
+    # The same at the sheet's portrait 1024x1536: a drawn sheet's head made the right
+    # size for the age (services/sheet_proportions.py).
+    "sheet_qwen21": {"output_node": "461", "ints": {"seed"}, "refs_node": "459:474",
+                     "prompt_input": ("459:474", "prompt")},
     "clip_wan22": {"output_node": "108", "ints": {"seed", "duration_seconds"},
                    "prompt_input": ("129:93", "text"), "start_input": ("97", "image"),
                    "duration_input": ("129:161", "value")},

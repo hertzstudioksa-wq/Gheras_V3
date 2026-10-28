@@ -105,6 +105,10 @@ async def seed_engine_config() -> None:
         await db.migrations.update_one({"id": NATURAL_DEFAULT_MIGRATION},
                                        {"$setOnInsert": {"id": NATURAL_DEFAULT_MIGRATION, "applied_at": now}},
                                        upsert=True)
+    # The natural style's first wording drew children with big heads: a preset still
+    # holding it word for word gets the new one (an admin's own wording is left alone).
+    await db.style_presets.update_one({"key": DEFAULT_STYLE_KEY, "style_text": house_style.STYLE_NATURAL_V1},
+                                      {"$set": {"style_text": house_style.STYLE_NATURAL, "updated_at": now}})
     for key, d in house_style.DIALECTS.items():
         if not await db.dialect_profiles.find_one({"key": key}, {"_id": 1}):
             await db.dialect_profiles.insert_one({

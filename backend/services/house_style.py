@@ -29,12 +29,23 @@ STYLE = (
 # from another film; with natural eyes for everyone the father and the child read as one
 # picture in every place and angle tried. Its reference picture is the same made-up family
 # as the soft style's, redrawn (assets/styles/storybook_natural.png).
-STYLE_NATURAL = (
+# Its first wording said "child body proportions": the child's sheet came out four heads
+# tall with a big head that the owner called silly in the scenes. V1 stays to upgrade a
+# database that still holds it word for word (engine_config.seed_engine_config).
+STYLE_NATURAL_V1 = (
     "One consistent 2D storybook illustration style for children and adults alike, like a modern animated film: "
     "natural eye size and shape for everyone (never enlarged big cartoon eyes), real facial proportions simplified "
     "into clean appealing shapes, clean outlines, soft painterly shading, warm appealing colors, no realistic skin "
     "texture, pores or single hairs. Children keep soft childlike features (round cheeks, small noses, child body "
     "proportions); adults keep their own real features."
+)
+STYLE_NATURAL = (
+    "One consistent 2D storybook illustration style for children and adults alike, like a modern animated film: "
+    "natural eye size and shape for everyone (never enlarged big cartoon eyes), real facial proportions simplified "
+    "into clean appealing shapes, clean outlines, soft painterly shading, warm appealing colors, no realistic skin "
+    "texture, pores or single hairs. Real body proportions for everyone's age: the head never enlarged (a child of "
+    "four to six is about five heads tall, a grown-up about seven and a half), no big-head, chibi or bobblehead look. "
+    "Children keep soft childlike features (round cheeks, small noses); adults keep their own real features."
 )
 FRAME_RULES = (
     "Full-bleed 16:9 cinematic frame filling the whole canvas edge to edge: no border, no white margin, "
@@ -178,6 +189,15 @@ ADULT_FACE = ("ADULTS keep their own real facial proportions: their own eye size
               f"{FACE_FORWARD}")
 
 
+# "Highly stylized ... more cartoonish than the photo" drew a father five heads tall
+# (owner: the head is big and silly), the style's own proportion words further down
+# notwithstanding: the proportions get their own line, with numbers.
+PROPORTIONS = ("PROPORTIONS: real body proportions for the person's age, never a big-head cartoon figure: a grown-up "
+               "is about seven and a half heads tall (the head about one-seventh of the height, a full-size torso and "
+               "long legs), a child of four to six about five heads tall. The cartoon look is in the lines and the "
+               "shading, never in the body.")
+
+
 def is_adult(kind: str | None) -> bool:
     return base_type(kind or "") in ADULT_TYPES
 
@@ -200,7 +220,7 @@ def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str 
         "more cartoonish than the photo while keeping the person instantly recognizable to their own family. "
         "The first reference image is the photo (use it ONLY for identity). "
         f"{STYLE_REF_NOTE}\n\n{IDENTITY_RULES}\n\n{PHOTO_RULES}\n\nOUTFIT: {outfit_rule(outfit)}.\n\n"
-        f"STYLE: {style}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
+        f"STYLE: {style}\n\n{PROPORTIONS}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
     )
 
 
