@@ -47,12 +47,13 @@ def test_every_side_is_the_parents_photo_and_is_deleted_with_the_others():
     assert privacy_service.order_photo_ids({"data": data}) == ["c1", "c2", "f1", "f2", "f3", "t1"]
 
 
-def test_the_sheet_prompt_names_the_photos_of_every_side():
-    one = house_style.character_sheet_prompt("Omar, the child's father")
-    assert "The first reference image is the photo (use it ONLY for identity)." in one
-    three = house_style.character_sheet_prompt("Omar, the child's father", photos=3)
-    assert "The first 3 reference images are photos of the same person from different sides" in three
-    assert "The first reference image is the photo" not in three and house_style.STYLE_REF_NOTE in three
+def test_each_extra_side_is_drawn_on_its_own_with_the_sheets_prompt_at_the_photos_angle():
+    sheet_prompt = house_style.character_sheet_prompt("Omar, the child's father", adult=True)
+    assert house_style.FACE_FORWARD in sheet_prompt and "full-body" in sheet_prompt
+    angle = head_views.angle_prompt(sheet_prompt)
+    assert house_style.FACE_FORWARD not in angle and head_views.ANGLE_LINE in angle
+    assert angle.endswith(head_views.HEAD_ONLY) and "full-body standing view" not in angle
+    assert "The first reference image is the photo (use it ONLY for identity)." in angle  # one photo per drawing
 
 
 def test_the_card_is_the_sheet_and_the_three_heads_side_by_side():
@@ -86,10 +87,39 @@ def test_the_heads_are_drawn_from_the_cartoon_sheet_alone(monkeypatch):
     assert seen["references"] == [b"sheet"] and "photo" not in seen["prompt"]
 
 
-def test_several_photos_keep_the_cartoon_of_the_style_reference():
-    three = house_style.character_sheet_prompt("Omar, the child's father", photos=3, adult=True)
-    assert house_style.CARTOON_LOCK in three
-    assert house_style.CARTOON_LOCK not in house_style.character_sheet_prompt("Omar, the child's father", adult=True)
+def test_the_parents_extra_photos_become_heads_one_drawing_each_at_medium_quality(monkeypatch):
+    # all the photos in one sheet call came out as a semi-realistic painted portrait
+    from services import child_character_service
+
+    calls = []
+
+    async def gpt(source, prompt, provider, model, style_ref=None, quality="high"):
+        calls.append((source, quality, head_views.ANGLE_LINE in prompt))
+        return {"image_bytes": _png((800, 900), (120, 90, 60))}
+
+    async def qwen(sheet):
+        raise AssertionError("the sheet-only heads are for orders without extra photos")
+
+    monkeypatch.delenv("GHERAS_FAKE_PROVIDERS", raising=False)
+    monkeypatch.setattr(child_character_service, "_generate_character", gpt)
+    monkeypatch.setattr(head_views, "draw", qwen)
+    saved = []
+
+    async def save(png):
+        saved.append(png)
+        return "/u/heads"
+
+    sheet = _png((1024, 1536))
+    img = Image.open(io.BytesIO(sheet)).convert("RGB")
+    Image.Image.paste(img, (40, 40, 40), (400, 100, 620, 1400))  # a figure on white
+    out = io.BytesIO(); img.save(out, "PNG")
+    fields = asyncio.run(head_views.for_asset(out.getvalue(), save, photos=[b"3q", b"side"], sheet_prompt="a child sheet prompt",
+                                              provider="fal_image", model="openai/gpt-image-2", style_ref=b"style"))
+    assert sorted(c[0] for c in calls) == [b"3q", b"side"] and all(c[1] == "medium" and c[2] for c in calls)
+    assert fields == {"head_views_url": "/u/heads", "head_views_angles": 2, "head_views_model": "openai/gpt-image-2",
+                      "head_views_quality": "medium", "head_views_gpu_seconds": None}  # nothing left from before
+    row = Image.open(io.BytesIO(saved[0]))
+    assert row.height == head_views.CARD_HEIGHT and row.width > 3 * 300  # the sheet's head + the two sides
 
 
 def test_a_card_reference_says_it_is_one_person_from_three_sides():

@@ -122,8 +122,7 @@ async def _run_one(order: dict, character_index: int, character: dict,
            else f"the child's {character.get('type') or 'relative'}")
     art_style = await engine_config.style_for_order(order)
     prompt = house_style.character_sheet_prompt(who, outfit, art_style["style_text"], art_style["sheet_rules"],
-                                                adult=house_style.is_adult(character.get("type")),
-                                                photos=1 + len(extra_urls))
+                                                adult=house_style.is_adult(character.get("type")))
     prompt_src = "default"
 
     generated_url: str | None = None
@@ -136,12 +135,13 @@ async def _run_one(order: dict, character_index: int, character: dict,
         error = "character photo could not be read from storage"
     else:
         try:
-            result = await _generate_character(src_tuple[0], prompt, provider, model_name,
-                                               await engine_config.style_reference_bytes(art_style), extra)
+            style_ref = await engine_config.style_reference_bytes(art_style)
+            result = await _generate_character(src_tuple[0], prompt, provider, model_name, style_ref)
             generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
             real_meta = result.get("meta") or {}
             views = await head_views.for_asset(
-                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png))
+                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png),
+                photos=extra, sheet_prompt=prompt, provider=provider, model=model_name, style_ref=style_ref)
         except Exception as e:  # noqa: BLE001 — recorded on the asset; the book continues without this likeness
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[extra_character_i2i] failed order={order_id} char={character_index}: {error[:300]}")

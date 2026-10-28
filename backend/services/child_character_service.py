@@ -70,7 +70,7 @@ def _build_context(order: dict, plan: dict | None, outfit: str = "",
 
 
 async def _resolve_prompt_safely(order: dict, plan: dict | None,
-                                 art_style: dict | None = None, photos: int = 1) -> tuple[str, str]:
+                                 art_style: dict | None = None) -> tuple[str, str]:
     """Return (rendered_prompt, source). `source` is 'admin' or 'default'."""
     art_style = art_style or engine_config.DEFAULT_STYLE
     outfit = ""
@@ -79,7 +79,7 @@ async def _resolve_prompt_safely(order: dict, plan: dict | None,
             {"production_plan_id": plan.get("id"), "type": "child"}, {"_id": 0, "clothing_style": 1})
         outfit = (profile or {}).get("clothing_style") or ""
     fallback = house_style.character_sheet_prompt(
-        "the person in the photo", outfit, art_style.get("style_text"), art_style.get("sheet_rules"), photos=photos)
+        "the person in the photo", outfit, art_style.get("style_text"), art_style.get("sheet_rules"))
     try:
         ctx = _build_context(order, plan, outfit, art_style)
     except Exception as e:  # noqa: BLE001
@@ -121,7 +121,7 @@ async def _fetch_source_bytes(source_image_url: str, owner_id: str | None = None
 
 
 async def _generate_character(source_bytes: bytes, prompt: str, provider: str, model_name: str,
-                              style_ref: bytes | None = None, extra: list[bytes] | None = None) -> dict[str, Any]:
+                              style_ref: bytes | None = None, quality: str = "high") -> dict[str, Any]:
     """Identity-preserving photo → cartoon character via the image adapter. Raises AIError."""
     image_bytes, mime, meta = await generate_provider_image(
         stage="child_character_i2i",
@@ -129,8 +129,9 @@ async def _generate_character(source_bytes: bytes, prompt: str, provider: str, m
         model=model_name,
         prompt=prompt,
         # The style preset's neutral reference image rides along so every character lands in that style.
-        references=[source_bytes, *(extra or [])] + ([style_ref] if style_ref else []),
+        references=[source_bytes] + ([style_ref] if style_ref else []),
         size=house_style.SHEET_SIZE,
+        quality=quality,
     )
     return {"image_bytes": image_bytes, "mime_type": mime, "meta": meta}
 
@@ -225,7 +226,7 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
     })
 
     art_style = await engine_config.style_for_order(order)
-    prompt, prompt_source = await _resolve_prompt_safely(order, plan, art_style, photos=1 + len(extra_urls))
+    prompt, prompt_source = await _resolve_prompt_safely(order, plan, art_style)
 
     try:
         defaults = DEFAULT_MODELS.get("child_character_i2i", {})
@@ -248,12 +249,13 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
         error = "child photo could not be read from storage"
     else:
         try:
-            result = await _generate_character(src_tuple[0], prompt, provider, model_name,
-                                               await engine_config.style_reference_bytes(art_style), extra)
+            style_ref = await engine_config.style_reference_bytes(art_style)
+            result = await _generate_character(src_tuple[0], prompt, provider, model_name, style_ref)
             generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
             real_meta = result.get("meta") or {}
             views = await head_views.for_asset(
-                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png))
+                result["image_bytes"], lambda png: _save_generated_png(order_id, order["user_id"], png),
+                photos=extra, sheet_prompt=prompt, provider=provider, model=model_name, style_ref=style_ref)
         except Exception as e:  # noqa: BLE001 — recorded on the asset and surfaced to the orchestrator
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[child_character_i2i] generation failed order={order_id}: {error[:300]}")

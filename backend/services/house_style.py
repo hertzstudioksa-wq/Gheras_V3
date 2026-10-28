@@ -158,11 +158,12 @@ ADULT_TYPES = {"father", "mother", "grandfather", "grandmother", "uncle", "aunt"
 CUTE_FACE = ("simplified rounded shapes, big expressive eyes with simple highlights, small simplified noses, smooth "
              "simplified skin with no realistic texture, soft cute storybook proportions (adults keep natural body "
              "proportions, never big-head caricatures).")
+FACE_FORWARD = ("The sheet faces forward with the eyes looking straight ahead and a calm, friendly expression, "
+                "whatever the photo's angle, glance or mood.")
 ADULT_FACE = ("ADULTS keep their own real facial proportions: their own eye size and shape (never enlarged into big "
               "cartoon eyes), their own nose size and shape, their own face width and length, jaw, forehead and "
               "hairline — simplified only in line and skin, never cute or baby-faced; natural adult body proportions. "
-              "The sheet faces forward with the eyes looking straight ahead and a calm, friendly expression, whatever "
-              "the photo's angle, glance or mood.")
+              f"{FACE_FORWARD}")
 
 
 def is_adult(kind: str | None) -> bool:
@@ -176,28 +177,8 @@ def adult_style(style_text: str) -> str:
     return f"{style_text} {ADULT_FACE}"
 
 
-# Three sharp colour photos of a father (front, three-quarter, side) gave a semi-realistic
-# painted portrait instead of a cartoon, and he stood out next to the cartoon children; the
-# owner's pick is the cartoon with real proportions drawn from one photo. However many and
-# however detailed the photos, the drawing stays the cartoon of the style reference.
-CARTOON_LOCK = ("However many and however detailed the photos are, the drawing is a flat 2D cartoon exactly like the "
-                "STYLE reference: clean outlines, flat colors with soft simple shading, no skin texture or pores, no "
-                "single hairs in the hair or the beard (the beard is one simple shape), no photographic lighting; the "
-                "likeness comes from the shapes only (face outline, eyes, nose, hairline, beard outline), never from "
-                "realistic rendering.")
-
-
-def photos_note(photos: int = 1) -> str:
-    """Which reference images are the person's photos."""
-    if photos <= 1:
-        return "The first reference image is the photo (use it ONLY for identity)."
-    return (f"The first {photos} reference images are photos of the same person from different sides (the first "
-            "from the front): use them ONLY for identity, so the width of the face, the nose, the jaw, the hairline "
-            f"and any beard come out right from every side. The outfit comes from the first photo. {CARTOON_LOCK}")
-
-
 def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str | None = None,
-                           sheet_rules: str | None = None, adult: bool = False, photos: int = 1) -> str:
+                           sheet_rules: str | None = None, adult: bool = False) -> str:
     """Photo → cartoon character sheet (the owner's proven prompt, fixed: opaque
     white instead of transparent, photo rules, photo outfit by default, one view;
     grown-ups keep their real face proportions)."""
@@ -205,7 +186,7 @@ def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str 
     return (
         f"Create a highly stylized 2D children's storybook cartoon character based on the uploaded photo of {who}, "
         "more cartoonish than the photo while keeping the person instantly recognizable to their own family. "
-        f"{photos_note(photos)} "
+        "The first reference image is the photo (use it ONLY for identity). "
         f"{STYLE_REF_NOTE}\n\n{IDENTITY_RULES}\n\n{PHOTO_RULES}\n\nOUTFIT: {outfit_rule(outfit)}.\n\n"
         f"STYLE: {style}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
     )

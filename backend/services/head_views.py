@@ -1,26 +1,32 @@
-"""A person's face from three sides, next to their sheet (owner, 2026-10-28).
+"""A person's face from more sides, next to their sheet (owner, 2026-10-28).
 
 The sheet is drawn from a front photo and shows the face from the front, while the
 scenes show people turned three-quarters or in profile: Qwen and GPT both invented
 those sides as a stock handsome face, and a father who looked like himself on his
-sheet looked like nobody in the video. The parent may now upload the face from more
-sides, and they reach the sheet; from the sheet alone Qwen draws the head three times
-(front, three-quarter, side) in the sheet's own cartoon style, about a cent on Comfy.
-(Drawn from the real photos too, the heads came out as painted portraits and the father
-stood out as a realistic man among cartoon children: the owner wants the sheet's look,
-and the views only show that same drawing from other sides.) `card()` puts the
-sheet and the three heads side by side, and that one picture is the person's
-reference for the shot pictures: the same number of references, every side of the face.
-The book's portraits, the sheet's look and the video keep the plain sheet.
+sheet looked like nobody in the video. `card()` puts the sheet and the heads side by
+side, and that one picture is the person's reference for the shot pictures: the same
+number of references, every side of the face. The book's portraits, the sheet's look
+and the video keep the plain sheet.
+
+The heads come from:
+- the parent's extra photos (three-quarter, side), when there are any: each one drawn on
+  its own with the sheet's own prompt, the head kept at the photo's angle, at medium
+  quality (`from_photos`). All the photos in one sheet call came out as a semi-realistic
+  painted portrait; one photo per drawing is the owner's pick, and it gave the closest
+  features of all the tries;
+- otherwise the sheet alone: Qwen draws the head three times in the sheet's style, about
+  a cent on Comfy (`draw`).
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 
 logger = logging.getLogger("head_views")
 
 MODEL = "comfy/keyframe_qwen21"
+ANGLE_QUALITY = "medium"
 CARD_HEIGHT = 1024
 CARD_NOTE = "their full figure and their face from the front, three-quarter and side, one person drawn once"
 
@@ -32,6 +38,15 @@ PROMPT = ("<image1> is a cartoon character sheet of a person. Draw this same car
           "nose width and shape, mouth, hairline, hair, and any beard's exact shape, fullness and how far up the "
           "cheeks it grows. Neutral relaxed expression, the same top as <image1>. Three heads only, the same size, "
           "evenly spaced, no body below the shoulders, no text.")
+ANGLE_LINE = "The head stays turned exactly as in the photo (the same angle), with a calm, friendly expression."
+HEAD_ONLY = ("COMPOSITION: head and shoulders only, centered on a plain pure white background (opaque white), the head "
+             "turned exactly as in the photo; no full body, no props, no text.")
+
+
+def _balance(e: Exception) -> bool:
+    from services import engine_health
+
+    return engine_health.is_balance_message(e)
 
 
 async def draw(sheet: bytes) -> tuple[bytes, float | None] | None:
@@ -46,16 +61,95 @@ async def draw(sheet: bytes) -> tuple[bytes, float | None] | None:
         data, _mime, meta = await comfy_image(stage="head_views", model=MODEL, prompt=PROMPT, references=[sheet])
         return data, meta.get("gpu_seconds")
     except Exception as e:  # noqa: BLE001
-        from services import engine_health
-
-        if engine_health.is_balance_message(e):
+        if _balance(e):
             raise
         logger.warning(f"[head_views] skipped: {type(e).__name__}: {str(e)[:200]}")
         return None
 
 
+def angle_prompt(sheet_prompt: str) -> str:
+    """The sheet's own prompt for one more side of the face: the head kept at the photo's
+    angle, head and shoulders only."""
+    from services import house_style
+
+    text = sheet_prompt.replace(house_style.FACE_FORWARD, "")
+    cut = text.find("COMPOSITION:")
+    return (text[:cut] if cut >= 0 else f"{text}\n\n") + f"{ANGLE_LINE} {HEAD_ONLY}"
+
+
+def _trimmed(data: bytes):
+    """The drawing without its white margin."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    box = img.convert("L").point(lambda v: 255 if v < 238 else 0).getbbox()
+    return img.crop(box) if box else img
+
+
+def head_of(sheet: bytes) -> bytes:
+    """The head and shoulders of a full-body sheet (figure on white), as a PNG."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(sheet)).convert("RGB")
+    shape = img.convert("L").point(lambda v: 255 if v < 238 else 0)
+    left, top, right, bottom = shape.getbbox() or (0, 0, img.width, img.height)
+    h = bottom - top
+    band = shape.crop((left, top, right, top + max(1, int(h * .12)))).getbbox()
+    cx = left + ((band[0] + band[2]) / 2 if band else (right - left) / 2)
+    side = h * 0.24
+    crop = img.crop((int(cx - side / 2), max(0, int(top - side * .05)), int(cx + side / 2), int(top + side * .95)))
+    out = io.BytesIO()
+    crop.save(out, "PNG")
+    return out.getvalue()
+
+
+def row(heads: list[bytes], height: int = CARD_HEIGHT) -> bytes:
+    """Head drawings side by side at one height on white, as a PNG."""
+    from PIL import Image
+
+    tiles = [_trimmed(h) for h in heads]
+    tall = round(height * 0.8)
+    tiles = [t.resize((round(t.width * tall / t.height), tall), Image.LANCZOS) for t in tiles]
+    gap = 40
+    out = Image.new("RGB", (sum(t.width for t in tiles) + gap * (len(tiles) + 1), height), "white")
+    x = gap
+    for t in tiles:
+        out.paste(t, (x, (height - t.height) // 2))
+        x += t.width + gap
+    buf = io.BytesIO()
+    out.save(buf, "PNG")
+    return buf.getvalue()
+
+
+async def from_photos(sheet: bytes, sheet_prompt: str, photos: list[bytes], provider: str, model: str,
+                      style_ref: bytes | None) -> tuple[bytes, int] | None:
+    """(the sheet's head + each extra photo drawn on its own, side by side; how many were
+    drawn), or None when none could be drawn."""
+    from services.ai import fake_providers
+    from services.child_character_service import _generate_character
+
+    if fake_providers.enabled() or not photos:
+        return None
+    prompt = angle_prompt(sheet_prompt)
+
+    async def one(photo: bytes) -> bytes | None:
+        try:
+            res = await _generate_character(photo, prompt, provider, model, style_ref, quality=ANGLE_QUALITY)
+            return res["image_bytes"]
+        except Exception as e:  # noqa: BLE001 — that side is left out
+            if _balance(e):
+                raise
+            logger.warning(f"[head_views] angle skipped: {type(e).__name__}: {str(e)[:200]}")
+            return None
+
+    drawn = [d for d in await asyncio.gather(*(one(p) for p in photos)) if d]
+    if not drawn:
+        return None
+    return row([head_of(sheet), *drawn]), len(drawn)
+
+
 def card(sheet: bytes, heads: bytes) -> bytes:
-    """The sheet and the three heads side by side at one height, on white, as a PNG."""
+    """The sheet and the heads side by side at one height, on white, as a PNG."""
     from PIL import Image
 
     def fit(data: bytes) -> Image.Image:
@@ -73,11 +167,22 @@ def card(sheet: bytes, heads: bytes) -> bytes:
     return buf.getvalue()
 
 
-async def for_asset(sheet_png: bytes, save) -> dict:
-    """Draw the three heads for a sheet just made from a photo; `save` stores a PNG and
-    returns its URL. The fields to keep on the character's asset."""
+async def for_asset(sheet_png: bytes, save, *, photos: list[bytes] | None = None, sheet_prompt: str = "",
+                    provider: str = "", model: str = "", style_ref: bytes | None = None) -> dict:
+    """The heads for a sheet just made from a photo (from the parent's extra `photos` when
+    there are any, else from the sheet); `save` stores a PNG and returns its URL. The fields
+    to keep on the character's asset."""
+    # Every field each time: a redrawn sheet's asset keeps no count from the drawing before.
+    fields = {"head_views_url": None, "head_views_gpu_seconds": None, "head_views_angles": 0,
+              "head_views_model": None, "head_views_quality": None}
+    if photos:
+        made = await from_photos(sheet_png, sheet_prompt, photos, provider, model, style_ref)
+        if made:
+            heads, n = made
+            return {**fields, "head_views_url": await save(heads), "head_views_angles": n, "head_views_model": model,
+                    "head_views_quality": ANGLE_QUALITY}
     drawn = await draw(sheet_png)
     if not drawn:
-        return {"head_views_url": None}
+        return fields
     data, gpu = drawn
-    return {"head_views_url": await save(data), "head_views_gpu_seconds": gpu}
+    return {**fields, "head_views_url": await save(data), "head_views_gpu_seconds": gpu}
