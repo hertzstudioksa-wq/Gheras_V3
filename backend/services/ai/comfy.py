@@ -61,6 +61,11 @@ WORKFLOWS = {
     "clip_wan22": {"output_node": "108", "ints": {"seed", "duration_seconds"},
                    "prompt_input": ("129:93", "text"), "start_input": ("97", "image"),
                    "duration_input": ("129:161", "value")},
+    # The same clip pinned at both ends (WanFirstLastFrameToVideo): the shot's checked
+    # end picture is its last frame, so Wan can't end on a face turned to the camera.
+    "clip_wan22_flf": {"output_node": "108", "ints": {"seed", "duration_seconds"},
+                       "prompt_input": ("129:93", "text"), "start_input": ("97", "image"),
+                       "end_input": ("98", "image"), "duration_input": ("129:161", "value")},
 }
 _PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
 _REF_KEY = re.compile(r"images\.image_(\d+)$")

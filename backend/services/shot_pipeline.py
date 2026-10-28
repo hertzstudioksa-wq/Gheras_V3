@@ -528,6 +528,64 @@ def objects_line(objects: list[dict]) -> str:
             + f" — {OBJECTS_NOTE}. Things that belong to different people keep each owner's own colors as written.")
 
 
+# The last frame of every clip (owner, 2026-10-28). Given only its first frame, Wan ended
+# shot after shot on faces turned to the camera (six takes of one shot running, whatever
+# the prompt said), changed faces and woke toys. Each shot now also gets its end picture:
+# the start picture a moment later (a Qwen edit of it), checked like any picture, and Wan
+# only moves between the two (comfy_workflows/clip_wan22_flf_api.json). One more Qwen
+# picture a shot (~2 cents); on the test shot nobody looked at the camera in any frame.
+END_FRAME = ("<image1> is a picture from a children's storybook. Draw exactly the same picture a moment later, at "
+             "the end of this action: {action} Everything else stays exactly the same: {who}, every object, the "
+             "background, the light, the camera and the framing. Everyone keeps looking where they look in "
+             "<image1>; nobody looks at the viewer. No text.")
+END_FRAME_TAKES = 2
+CLIP_PINNED = "clip_wan22_flf"
+
+
+async def pin_last_frame_on() -> bool:
+    s = await db.settings.find_one({"key": "comfy.pin_last_frame"}, {"_id": 0, "value": 1})
+    return (s or {}).get("value", True) is not False
+
+
+def end_frame_prompt(sh: dict) -> str:
+    n = len(set(sh.get("characters") or []))
+    who = ("the same person in the same place and pose, with the same face, hair, clothes and colors" if n == 1 else
+           f"the same {n} people in the same places and poses, with the same faces, hair, clothes and colors" if n
+           else "nobody appears")
+    action = re.sub(r"\s+", " ", sh.get("motion_prompt") or "").strip() or "a calm, small change of expression."
+    return END_FRAME.format(action=action if action.endswith(".") else f"{action}.", who=who)
+
+
+async def draw_end_frame(order: dict, sh: dict, start: bytes, model: str, queue_key: str) -> dict:
+    """The shot's end picture, checked (static, head count, nobody at the camera): the
+    fields for its row. Without one after END_FRAME_TAKES the clip runs from its start
+    picture alone, as before — this never blocks a story."""
+    n = len(set(sh.get("characters") or []))
+    gpu, problems = 0.0, []
+    for _take in range(END_FRAME_TAKES):
+        try:
+            data, mime, meta = await comfy_image(stage="end_frame", model=model, prompt=end_frame_prompt(sh),
+                                                 references=[start], queue_key=queue_key)
+        except AIConfigError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            problems = [f"error: {type(e).__name__}"]
+            continue
+        gpu += float(meta.get("gpu_seconds") or 0)
+        problems = ["noise"] if clip_review.static_verdict([data]) else []
+        people = await clip_review.people_in(data)
+        if people is not None:
+            if len(people) != n:
+                problems.append("people_count")
+            if any(p.get("at_viewer") for p in people):
+                problems.append("camera_gaze")
+        if not problems:
+            url = await _store(order, "keyframe_end", data, mime, "png")
+            return {"end_keyframe_url": url, "end_frame_review": {"ok": True}, "end_frame_gpu_seconds": gpu}
+    return {"end_keyframe_url": None, "end_frame_review": {"ok": False, "problems": problems},
+            "end_frame_gpu_seconds": gpu}
+
+
 def story_order(scene: dict, shot: dict) -> str:
     """Where a shot sits in the story, as a queue key that sorts in story order."""
     return f"{int(scene.get('scene_index') or 0):03d}.{int(shot.get('shot_index') or 0):03d}"
@@ -993,6 +1051,16 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
     model = None
     provider, comfy_model = await keyframe_engine()
     on_comfy = provider == "comfy_image"
+    pin = on_comfy and await pin_last_frame_on()
+
+    async def end_frame_for(sh: dict, start: bytes) -> None:
+        fields = await draw_end_frame(order, sh, start, comfy_model, story_order(scene, sh))
+        gpu = fields.get("end_frame_gpu_seconds") or 0
+        await _set_shot(order, plan, scene, sh["shot_index"], fields)
+        if gpu:
+            await db.shot_assets.update_one(
+                {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
+                 "shot_index": sh["shot_index"]}, {"$inc": {"comfy_gpu_seconds": gpu, "end_frames_gpu_seconds": gpu}})
     toy = favourite_toy(order) if on_comfy else None
     toy_bytes: tuple[bytes, str] | None = None
     uploads: dict = {}  # Comfy names of the images already sent in this run
@@ -1074,10 +1142,12 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
              "shot_index": sh["shot_index"]},
             {"_id": 0, "keyframe_url": 1, "keyframe_prompt_id": 1, "keyframe_prompt_attempt": 1,
-             "keyframe_counted_id": 1}) or {}
+             "keyframe_counted_id": 1, "end_keyframe_url": 1, "end_frame_review": 1}) or {}
         if row.get("keyframe_url"):
             prev = await _fetch_source_bytes(row["keyframe_url"])
             hero_url = hero_url or row["keyframe_url"]
+            if pin and prev and not row.get("end_keyframe_url") and not row.get("end_frame_review"):
+                await end_frame_for(sh, prev[0])
             continue
         refs, notes, comfy_refs, extra_refs = [], [], [], []
         in_shot = shot_objects(sh, objects, scene)
@@ -1229,9 +1299,12 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             "objects": [o["name"] for o in in_shot],
             "toys": [o["name"] for o in in_shot if o.get("toy")],
             "cast_in_frame": await who_is_where(sh),
+            "end_keyframe_url": None, "end_frame_review": None,
         })
         prev = (img, mime)
         hero_url = hero_url or url
+        if pin:
+            await end_frame_for(sh, img)
 
     # The first shot stands for the scene in the PDF book and the storyboard.
     await db.scene_images.delete_many({"order_id": order["id"], "production_plan_id": plan["id"],
@@ -1530,7 +1603,17 @@ async def _comfy_clip_fills(row: dict, model: str, sheets: dict, tail: float, st
             img[0], f"shot{row['scene_index']}-{row['shot_index']}.png", stage="video_generation")
     prompt = wan_motion_prompt(row.get("motion_prompt"), len(set(row.get("characters") or [])), calm, outfit,
                                row.get("objects"), row.get("toys"), row.get("cast_in_frame"))
+    end = {}
+    if row.get("end_keyframe_url"):
+        if row["end_keyframe_url"] not in uploads:
+            img = await _fetch_source_bytes(row["end_keyframe_url"])
+            if img:
+                uploads[row["end_keyframe_url"]] = await comfy.upload(
+                    img[0], f"shot{row['scene_index']}-{row['shot_index']}-end.png", stage="video_generation")
+        if row["end_keyframe_url"] in uploads:
+            end = {"end_image": uploads[row["end_keyframe_url"]]}
     return {
+        **end,
         "start_image": uploads[row["keyframe_url"]],
         "motion_prompt": prompt[:2400],
         "seed": comfy.new_seed(),
@@ -1637,8 +1720,12 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                                           "clip_seconds": seconds, "clip_prompt_used": fills["motion_prompt"],
                                           "clip_run_id": run_id})
 
+                    # Pinned at both ends when the shot has its checked end picture (on a
+                    # resumed job the fills are gone: the row says which workflow it was).
+                    pinned = bool(fills.get("end_image")) if fills else bool(row.get("end_keyframe_url"))
                     data, _mime, job = await comfy.run(
-                        stage="video_generation", workflow=comfy_workflow(engine_model), fills=fills,
+                        stage="video_generation", workflow=CLIP_PINNED if pinned else comfy_workflow(engine_model),
+                        fills=fills,
                         on_submitted=submitted, prompt_id=prompt_id, timeout=1200.0, poll_interval=5.0,
                         queue_key=story_order(row, row))
                     gpu = comfy.gpu_seconds(job)

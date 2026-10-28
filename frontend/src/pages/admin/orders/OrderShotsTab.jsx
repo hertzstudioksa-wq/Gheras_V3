@@ -85,6 +85,22 @@ function ShotCard({ orderId, shot, busy, onDone }) {
       ) : (
         <div className="w-full aspect-video rounded-xl bg-[#F2E8DA] grid place-content-center text-xs text-[#8A9AB0]">لسه</div>
       )}
+      {(shot.keyframe_url && (shot.end_keyframe_url || shot.end_frame_review)) && (
+        // The clip runs between the start picture and this checked end picture.
+        <div className="flex items-center gap-2 text-[11px] font-body text-[#5A677D]">
+          <img src={fileSrc(shot.keyframe_url)} alt="" className="w-20 aspect-video object-cover rounded-lg" />
+          <span>←</span>
+          {shot.end_keyframe_url ? (
+            <img src={fileSrc(shot.end_keyframe_url)} alt="" className="w-20 aspect-video object-cover rounded-lg" />
+          ) : (
+            <span className="rounded-full px-2 py-0.5 bg-[#FCE6D4] text-[#B8612F]"
+                  title={(shot.end_frame_review?.problems || []).join("، ")}>
+              من غير آخر فريم
+            </span>
+          )}
+          <span>آخر فريم</span>
+        </div>
+      )}
       <p className="font-body text-sm text-[#2D3748]">{shot.narration_line}</p>
       <div className="flex flex-wrap gap-1">
         <ReviewBadge label="الصورة" review={shot.keyframe_review} redoneKey="redrawn" />

@@ -181,7 +181,7 @@ async def admin_get_child_character(order_id: str):
 
 # ---------------- Shots (admin): see every shot, redo one ----------------
 _SHOT_FIELDS = ("scene_index", "shot_index", "narration_line", "shot_type", "characters", "keyframe_url",
-                "keyframe_review", "motion_prompt", "clip_url", "clip_state", "clip_error", "clip_review",
+                "keyframe_review", "end_keyframe_url", "end_frame_review", "motion_prompt", "clip_url", "clip_state", "clip_error", "clip_review",
                 "clip_calm_redo", "clip_prompt_used", "clip_seconds", "narration_seconds", "redo", "updated_at")
 
 
@@ -231,7 +231,7 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
     if payload.target == "both":
         # A stale Comfy job id would hand back the old picture instead of a new one.
         reset.update({"keyframe_url": None, "keyframe_review": None, "keyframe_prompt_id": None,
-                      "keyframe_prompt_attempt": None})
+                      "keyframe_prompt_attempt": None, "end_keyframe_url": None, "end_frame_review": None})
     if payload.motion_prompt is not None and payload.motion_prompt.strip():
         reset["motion_prompt"] = payload.motion_prompt.strip()
         # The plan keeps the edit too, so a later full rerun uses it.

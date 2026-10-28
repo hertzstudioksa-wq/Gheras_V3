@@ -137,7 +137,8 @@ def test_keyframe_resume_waits_on_the_saved_job():
                                                   "keyframe_prompt_attempt": 1}})
         jobs = await db.fake_requests.count_documents({"kind": "comfy"})
         await sp.execute_scene_keyframes({"id": "r-j3", "target_id": "r-s2"}, order, plan)
-        assert await db.fake_requests.count_documents({"kind": "comfy"}) == jobs
+        # no new keyframe job: only the end picture of the picture it waited for
+        assert await db.fake_requests.count_documents({"kind": "comfy"}) == jobs + 1
         assert (await _row("r", 2, 1))["keyframe_url"]
     run(go())
 
@@ -308,7 +309,8 @@ def test_a_keyframe_review_on_an_empty_balance_pauses_and_resumes_without_paying
         jobs = await db.fake_requests.count_documents({"kind": "comfy"})
         await sp.execute_scene_keyframes({"id": "p-j4", "target_id": "p-s2"}, order, plan)  # after the top-up
         r = await _row("p", 2, 1)
-        assert r["keyframe_url"] and await db.fake_requests.count_documents({"kind": "comfy"}) == jobs
+        # the paid keyframe job is collected, not sent again; the one new job is its end picture
+        assert r["keyframe_url"] and await db.fake_requests.count_documents({"kind": "comfy"}) == jobs + 1
         assert r["paid_keyframes"] == 1 and r["keyframe_gpu_seconds"] == 20
     run(go())
 
@@ -345,12 +347,12 @@ def test_a_story_object_is_drawn_once_and_rides_along_its_shots():
                                         "<image3> the red kite's reference"]
         assert "OBJECTS (they look exactly the same" in r11["keyframe_prompt_used"] and sp.GAZE in r11["keyframe_prompt_used"]
         assert "OBJECTS" not in r21["keyframe_prompt_used"]
-        # a redrawn shot reuses the reference: one Comfy job, the keyframe
+        # a redrawn shot reuses the reference: two Comfy jobs, the keyframe and its end picture
         jobs = await db.fake_requests.count_documents({"kind": "comfy"})
         await db.shot_assets.update_one({"order_id": "o", "scene_index": 1, "shot_index": 1},
                                         {"$set": {"keyframe_url": None}})
         await sp.execute_scene_keyframes({"id": "o-j3", "target_id": "o-s1"}, order, plan)
-        assert await db.fake_requests.count_documents({"kind": "comfy"}) == jobs + 1
+        assert await db.fake_requests.count_documents({"kind": "comfy"}) == jobs + 2
         cost = await actual_cost(await db.orders.find_one({"id": "o"}, {"_id": 0}))
         item = next(i for i in cost["items"] if i["key"] == "object_sheets")
         assert item["quantity"] == 20 and item["unit"] == "ثانية GPU"
@@ -463,4 +465,46 @@ def test_a_refused_gpt_take_is_drawn_on_qwen_and_gpt_isnt_asked_again(monkeypatc
         assert r["keyframe_url"] and r["paid_keyframes"] == 3 and not r.get("paid_rescue_keyframes")
         assert r["keyframe_gpu_seconds"] == 60 and r["image_model"].startswith("comfy/")
         assert r["keyframe_review"]["problems"] == ["text"]
+    run(go())
+
+
+def test_every_clip_is_pinned_between_its_start_and_its_checked_end_picture(monkeypatch):
+    # given only its first frame, Wan ended six takes of one shot on faces turned to the camera
+    async def go():
+        from services import clip_review
+        from services.order_costs import actual_cost
+
+        order, plan = await _story("e")
+        r11 = await _row("e", 1, 1)
+        assert r11["end_keyframe_url"] and r11["end_frame_review"] == {"ok": True}
+        assert r11["end_frames_gpu_seconds"] == 20
+        await fake_providers.simulate(flag_times={}, flag_counts={}, comfy_fail_clips=[])
+        await sp.run_shot_clips(order, plan, "run-e")
+        clips = await db.fake_requests.find({"kind": "comfy", "workflow": {"$regex": "^clip_"}}, {"_id": 0}).to_list(10)
+        assert clips and all(c["workflow"] == sp.CLIP_PINNED and c["info"]["end_image"] for c in clips)
+        cost = await actual_cost(await db.orders.find_one({"id": "e"}, {"_id": 0}))
+        assert any(i["label_ar"] == "صور نهاية اللقطات (Comfy)" and i["quantity"] == 60 for i in cost["items"])
+
+        # an end picture refused twice (someone at the camera): the clip runs from the start picture alone
+        async def staring(image):
+            return [{"who": "the child", "at_viewer": True}, {"who": "the father", "at_viewer": False}]
+
+        monkeypatch.setattr(clip_review, "people_in", staring)
+        await db.shot_assets.update_one({"order_id": "e", "scene_index": 1, "shot_index": 1},
+                                        {"$set": {"keyframe_url": None, "clip_url": None, "clip_state": None}})
+        await sp.execute_scene_keyframes({"id": "e-j3", "target_id": "e-s1"}, order, plan)
+        r11 = await _row("e", 1, 1)
+        assert r11["end_keyframe_url"] is None and r11["end_frame_review"]["problems"] == ["camera_gaze"]
+        await sp.run_shot_clips(order, plan, "run-e2", scene_index=1)
+        last = await db.fake_requests.find({"kind": "comfy", "workflow": {"$regex": "^clip_"}}, {"_id": 0}).sort(
+            "t0", -1).to_list(1)
+        assert last[0]["workflow"] == "clip_wan22" and "end_image" not in last[0]["info"]
+    run(go())
+
+
+def test_the_owner_can_turn_the_pinned_last_frame_off():
+    async def go():
+        await db.settings.insert_one({"key": "comfy.pin_last_frame", "value": False})
+        await _story("n")
+        assert not (await _row("n", 1, 1)).get("end_keyframe_url")
     run(go())

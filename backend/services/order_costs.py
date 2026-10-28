@@ -111,6 +111,7 @@ async def actual_cost(order: dict) -> dict:
     clip_seconds: dict[str, float] = {}
     comfy_keyframes = [0, 0.0]   # images, GPU seconds
     comfy_clips = [0.0, 0.0]     # video seconds, GPU seconds
+    end_frames_gpu = 0.0         # the shots' end pictures (Comfy)
     reviews = 0
     async for s in db.shot_assets.find({"order_id": order_id}, {"_id": 0, "keyframe_url": 1, "image_model": 1,
                                                                 "clip_seconds": 1, "clip_model": 1, "clip_url": 1,
@@ -119,7 +120,8 @@ async def actual_cost(order: dict) -> dict:
                                                                 "paid_clip_seconds": 1, "comfy_clip_seconds": 1,
                                                                 "comfy_clip_model": 1, "keyframe_gpu_seconds": 1,
                                                                 "clip_gpu_seconds": 1, "paid_rescue_keyframes": 1,
-                                                                "rescue_model": 1}):
+                                                                "rescue_model": 1, "end_frames_gpu_seconds": 1}):
+        end_frames_gpu += float(s.get("end_frames_gpu_seconds") or 0)
         # Every attempt sent is paid: the review's redos and the admin's
         # single-shot redos too. Shots made before the counters existed fall back
         # to what was kept (twice when the review sent it back).
@@ -160,6 +162,7 @@ async def actual_cost(order: dict) -> dict:
         add("keyframes", "صور اللقطات", n, "صورة", unit if unit is not None else story_pricing.IMAGE_MEDIUM, note=model)
     add("keyframes", "صور اللقطات (Comfy)", comfy_keyframes[1], "ثانية GPU", gpu_usd,
         note=f"comfy/keyframe_qwen21 — {comfy_keyframes[0]} صورة")
+    add("keyframes", "صور نهاية اللقطات (Comfy)", end_frames_gpu, "ثانية GPU", gpu_usd, note="آخر فريم لكل مقطع")
     for model, seconds in clip_seconds.items():
         add("clips", "مقاطع الفيديو", seconds, "ثانية", await _price_by_model(model), note=model)
     add("clips", "مقاطع الفيديو (Comfy)", comfy_clips[1], "ثانية GPU", gpu_usd,
