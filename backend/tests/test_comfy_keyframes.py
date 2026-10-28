@@ -270,3 +270,20 @@ def test_gpt_names_point_at_their_reference_too():
 ])
 def test_the_next_take_after_a_flagged_keyframe(problems, engine, attempt, expected):
     assert sp.next_take({"ok": False, "problems": problems}, engine, attempt) == expected
+
+
+@pytest.mark.parametrize("problems,engine,attempt,expected", [
+    (["camera_gaze"], "qwen", 1, "qwen"),            # owner: one more Qwen take...
+    (["camera_gaze"], "qwen", 2, "gpt"),             # ...then GPT
+    (["camera_gaze", "action_missing"], "qwen", 2, "gpt"),
+    (["camera_gaze"], "gpt", 2, None),               # GPT still looking: kept, never held
+    (["camera_gaze", "extra_person"], "qwen", 1, "gpt"),
+])
+def test_a_gaze_into_the_camera_gets_qwen_then_gpt(problems, engine, attempt, expected):
+    assert sp.next_take({"ok": False, "problems": problems}, engine, attempt) == expected
+
+
+def test_a_retake_after_a_gaze_says_so_first():
+    assert sp.redraw_note({"problems": ["camera_gaze"]}).startswith(sp.GAZE_REDO)
+    assert sp.redraw_note({"problems": ["action_missing"]}) == sp.REDRAW_NOTE
+    assert sp.flaw({"problems": ["camera_gaze"]}) > sp.flaw({"problems": ["action_missing"]})

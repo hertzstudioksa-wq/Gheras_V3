@@ -231,7 +231,8 @@ CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks o
 # How bad a flagged frame is, to keep the least broken of several takes.
 # A start frame with a held problem is never animated, so any take without one is the better take.
 FLAW_WEIGHT = {"noise": 30, "deformed": 8, "melting": 3, "duplicate": 8, "extra_person": 8, "role_swap": 8,
-               "wrong_look": 2, "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2}
+               "wrong_look": 2, "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2,
+               "camera_gaze": 4, "floating": 4, "object_mixup": 3}
 
 
 def flaw(review: dict) -> int:
@@ -280,8 +281,9 @@ def without_toy_names(text: str, objects: list[dict]) -> str:
 def next_take(review: dict, engine: str, attempt: int, last: int = 3) -> str | None:
     """The engine of the next take of a Comfy keyframe after a failed one, or None to keep
     the best take: a wrong cast (extra, repeated or swapped people, a broken body) is
-    redrawn with GPT, static is drawn again on the same engine, a soft flaw gets one more
-    Qwen take, and a GPT take with only soft flaws is kept."""
+    redrawn with GPT, static is drawn again on the same engine, someone looking into the
+    camera gets one more Qwen take (with GAZE_REDO) and then GPT (owner), a soft flaw gets
+    one more Qwen take, and a GPT take with only soft flaws is kept."""
     problems = set(held_problems(review))
     if attempt >= last:
         return None
@@ -289,7 +291,20 @@ def next_take(review: dict, engine: str, attempt: int, last: int = 3) -> str | N
         return "gpt"
     if problems:
         return engine
+    if "camera_gaze" in (review.get("problems") or []):
+        return "qwen" if engine == "qwen" and attempt < 2 else "gpt" if engine == "qwen" else None
     return "qwen" if engine == "qwen" and attempt < 2 else None
+
+
+# A retake after someone looked into the camera says so before anything else.
+GAZE_REDO = ("NOBODY LOOKS AT THE VIEWER: every face is turned toward someone or something inside the picture, the "
+             "eyes clearly aimed to the side, down or at each other, never straight out of the picture.")
+
+
+def redraw_note(review: dict | None) -> str:
+    """What a retake adds to the prompt after a flagged take."""
+    gaze = "camera_gaze" in ((review or {}).get("problems") or [])
+    return f"{GAZE_REDO} {REDRAW_NOTE}" if gaze else REDRAW_NOTE
 
 
 def passes(review: dict | None) -> bool:
@@ -462,6 +477,13 @@ def shot_objects(sh: dict, objects: dict[str, dict], scene: dict | None = None) 
 
 
 BACKGROUND_NOTE = "only small and far in the background, sitting still, never in front of anyone"
+
+
+def object_brief(obj: dict) -> str:
+    """A story object for the review: its name and the start of its look (its colors, so a
+    friend's thing painted in the child's colors is seen)."""
+    look = (obj.get("look") or "").strip().rstrip(".")
+    return f"{obj['name']} ({look[:160]})" if look else obj["name"]
 
 
 def objects_line(objects: list[dict]) -> str:
@@ -967,7 +989,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
         # Qwen takes cost ~3 cents; a soft flaw gets one more, a wrong cast goes to GPT
         # (see next_take). Then the least broken take is kept (Qwen once returned pure
         # noise on a redraw).
-        best = chosen = rescue = None
+        best = chosen = rescue = last_review = None
         engine = "qwen" if on_comfy else "stage"
         # GPT refused a shot naming a famous toy ("content flagged") and the whole shot
         # failed: a refused or failed GPT take is drawn on Qwen instead, and GPT isn't asked again.
@@ -980,7 +1002,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                 for scrubbed in (False, True):
                     try:
                         img, mime, meta = await generate_image(
-                            scene_prompt=used if attempt == 1 else f"{used} {REDRAW_NOTE}",
+                            scene_prompt=used if attempt == 1 else f"{used} {redraw_note(last_review)}",
                             references=take_refs or None, stage="scene_image_generation", size=WIDE,
                             raw_prompt=True, session_hint=f"shot-{shot_key}-{order['id'][:6]}-{attempt}",
                             engine=RESCUE_ENGINE)
@@ -999,7 +1021,7 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
                         gpt_ok, engine = False, "qwen"
                         break
             if engine == "qwen":
-                text = prompt if attempt == 1 else f"{prompt} {REDRAW_NOTE}"
+                text = prompt if attempt == 1 else f"{prompt} {redraw_note(last_review)}"
 
                 async def submitted(prompt_id: str, attempt: int = attempt) -> None:
                     await _set_shot(order, plan, scene, sh["shot_index"],
@@ -1045,11 +1067,12 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             review = await clip_review.review_keyframe(
                 shot_key, img, mime, cast, sh.get("keyframe_prompt") or "",
                 [(sheets[t]["label"], *sheet_bytes[t]) for t in by_likeness(sh.get("characters") or [], sheets)
-                 [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes], [o["name"] for o in in_shot])
+                 [:MAX_KEYFRAME_SHEETS] if t in sheet_bytes], [object_brief(o) for o in in_shot])
             review["redrawn"] = attempt >= 2
             if engine == "gpt":
                 review["rescue"] = RESCUE_ENGINE[1]
             take = (img, mime, meta, review, used, used_refs)
+            last_review = review
             if passes(review):
                 chosen = take
                 break

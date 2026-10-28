@@ -30,9 +30,11 @@ from services import engine_health
 logger = logging.getLogger("clip_review")
 
 REVIEW_MODEL = "anthropic/claude-haiku-5.5"
-CLIP_FRAMES = 4
+# Six frames: a child rose off the ground and a leg kicked the air between four of them.
+CLIP_FRAMES = 6
 PROBLEMS = ("duplicate", "extra_person", "role_swap", "clipping", "vanishing", "text", "deformed", "wrong_look",
-            "outfit_change", "melting", "action_missing", "mood_mismatch", "noise", "object_alive")
+            "outfit_change", "melting", "floating", "camera_gaze", "action_missing", "mood_mismatch", "noise",
+            "object_alive")
 # A model's words for one cast member standing in another's place (checked before the
 # "wrong_..." prefix would read them as wrong_look).
 ROLE_WORDS = ("swap", "switched", "wrong_person", "wrong_character", "wrong_role", "role")
@@ -44,7 +46,10 @@ SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": 
             "melt": "melting", "stretch": "melting", "morph": "melting", "ooz": "melting", "warp": "melting",
             "not_happen": "action_missing", "no_action": "action_missing", "missing_action": "action_missing",
             "expression": "mood_mismatch", "emotion": "mood_mismatch", "mood": "mood_mismatch",
-            "alive": "object_alive", "animated_toy": "object_alive", "toy_mov": "object_alive"}
+            "alive": "object_alive", "animated_toy": "object_alive", "toy_mov": "object_alive",
+            "float": "floating", "levitat": "floating", "hover": "floating",
+            "gaze": "camera_gaze", "viewer": "camera_gaze", "camera": "camera_gaze",
+            "color": "melting", "colour": "melting"}
 REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and colors
 # Qwen sometimes returns coloured static instead of a picture (2 frames of the
 # first 18: a figure on white broken into confetti). Inside small blocks its
@@ -78,8 +83,11 @@ SYSTEM = (
     "clothes twice); a cartoon redrawing, another expression or pose, or slightly different curls is fine\n"
     "- outfit_change: someone's clothes or accessories (hat, cap, glasses, bag, cape) differ from the shot's first "
     "frame or disappear during the clip\n"
-    "- melting: an object or body melts, oozes, stretches, grows, shrinks or changes shape between frames (a tower "
-    "getting taller, blocks flowing like dough)\n"
+    "- melting: an object or body melts, oozes, stretches, grows, shrinks or changes shape or color between frames "
+    "(a tower getting taller, blocks flowing like dough, a green bike turning blue)\n"
+    "- floating: someone's feet leave the ground, the seat or the deck they stand on, or their body rises or sinks, "
+    "with no jump in `action`; or a leg or arm moves in a way no body moves\n"
+    "- camera_gaze: in a clip, someone turns to look straight out at the viewer, as if into the camera\n"
     "- action_missing: the main action described in `action` clearly does not happen (in a single picture: the "
     "picture doesn't show that moment)\n"
     "- mood_mismatch: a face clearly shows the opposite feeling of `action` (smiling while the action says crying, "
@@ -95,7 +103,7 @@ SYSTEM = (
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
     '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed, wrong_look, '
-    'outfit_change, melting, action_missing, mood_mismatch, object_alive], '
+    'outfit_change, melting, floating, camera_gaze, action_missing, mood_mismatch, object_alive], '
     '"note": "<one short English sentence>"}'
 )
 
@@ -246,15 +254,28 @@ async def shows_person(image: bytes) -> bool | None:
 # The full review saw "4 people" on a frame with a second child in a green helmet (five
 # in all), and that shot was animated. A question with only this job, listing each person,
 # counted all six test pictures right (three with an extra child, three without).
-PEOPLE_SYSTEM = ("You count the people drawn in one storybook picture. List every human figure you can see, left "
+# The same question tells who looks out at the viewer: the parent saw a child staring into
+# the camera at the start of the race, and the full review never asked. Checked on the
+# courage story's 12 pictures + 2 broken ones: the counts all right, and every flagged
+# face really looked at us.
+PEOPLE_SYSTEM = ("You check the people drawn in one storybook picture. List every human figure you can see, left "
                  "to right, including small ones in the background and anyone partly hidden or cut off by the frame "
                  "edge, with a few words each (age, hair, hat or helmet color, top color). Dolls, plush toys, mascots, "
                  "statues and figures printed on things are not people. Two figures that look alike are still two "
-                 'entries. Reply with JSON only: {"people": ["...", "..."]}')
+                 "entries. For each, say whether their eyes look straight out of the picture at the viewer, as if "
+                 "into the camera (at_viewer: true), or at someone or something inside the picture, down or to the "
+                 "side (false). A face turned toward us with the eyes looking sideways is false; someone seen from "
+                 'behind is false. Reply with JSON only: {"people": [{"who": "...", "at_viewer": true or false}]}')
 
 
-async def people_in(image: bytes) -> list[str] | None:
-    """Every human figure in the picture, a few words each. None when the check can't run."""
+def _person(p) -> dict:
+    if isinstance(p, dict):
+        return {"who": str(p.get("who") or ""), "at_viewer": p.get("at_viewer") is True}
+    return {"who": str(p), "at_viewer": False}
+
+
+async def people_in(image: bytes) -> list[dict] | None:
+    """Every human figure in the picture ({"who", "at_viewer"}). None when the check can't run."""
     from services.ai import fake_providers, fal
     from services.ai.text_client import generate_vision
 
@@ -267,7 +288,7 @@ async def people_in(image: bytes) -> list[str] | None:
                                        user="List the people in this picture.", image_urls=[url], max_tokens=400)
         start = (answer or "").find("{")
         people = json.JSONDecoder().raw_decode(answer[start:])[0].get("people") if start >= 0 else None
-        return [str(p) for p in people] if isinstance(people, list) else None
+        return [_person(p) for p in people] if isinstance(people, list) else None
     except Exception as e:  # noqa: BLE001
         if engine_health.is_balance_message(e):
             raise
@@ -307,13 +328,14 @@ async def toys_held(image: bytes, names: list[str]) -> dict[str, bool] | None:
         return None
 
 
-def counted_extra(verdict: dict, people: list[str] | None, expected: list[str]) -> dict:
+def counted_extra(verdict: dict, people: list | None, expected: list[str]) -> dict:
     """More people listed than the shot's cast: an extra person, whatever the full review said.
     Fewer is left alone (a cast member can be off the edge, and an animal isn't listed)."""
     if people is None or len(people) <= len(expected):
         return verdict
+    people = [_person(p) for p in people]
     problems = list(dict.fromkeys([*(verdict.get("problems") or []), "extra_person"]))
-    note = f"head count: {len(people)} people for {len(expected)} — " + "; ".join(people)
+    note = f"head count: {len(people)} people for {len(expected)} — " + "; ".join(p["who"] for p in people)
     logger.warning(f"[review] keyframe {note[:300]}")
     return {**verdict, "ok": False, "problems": problems, "people_seen": len(people),
             "note": (note + (" | " + verdict["note"] if verdict.get("note") else ""))[:600]}
@@ -389,6 +411,17 @@ async def who_does_what(image: bytes, sheets: list[tuple[str, bytes, str]], acti
         return None
 
 
+def with_gaze(verdict: dict, people: list | None) -> dict:
+    """Someone looking straight out at the viewer (owner: never in a story)."""
+    at = [p["who"] for p in (_person(p) for p in people or []) if p["at_viewer"]]
+    if not at:
+        return verdict
+    note = "looking at the viewer: " + "; ".join(at)
+    logger.warning(f"[review] keyframe {note[:300]}")
+    return {**verdict, "ok": False, "problems": list(dict.fromkeys([*(verdict.get("problems") or []), "camera_gaze"])),
+            "note": (note + (" | " + verdict["note"] if verdict.get("note") else ""))[:600]}
+
+
 def with_swaps(verdict: dict, parts: list | None, sheets: list[tuple[str, bytes, str]] | None) -> dict:
     swaps = swapped_parts(parts, [label for label, _, _ in sheets or []])
     if not swaps:
@@ -409,13 +442,17 @@ async def review_keyframe(shot_key: str, image: bytes, mime: str, expected: list
         _ask("keyframe_review", shot_key, [(image, mime or "image/png")], expected, action, sheets, objects=objects),
         people_in(image) if expected else asyncio.sleep(0),
         who_does_what(image, sheets or [], action) if len(sheets or []) >= 2 else asyncio.sleep(0))
-    verdict = with_swaps(counted_extra(verdict, people, expected), parts, sheets)
-    # Nothing moves in one picture: the reviewer still flagged "object_alive" on
-    # keyframes (three takes each, some without the toy in them at all).
-    if "object_alive" in (verdict.get("problems") or []):
-        problems = [p for p in verdict["problems"] if p != "object_alive"]
+    # Nothing moves in one picture: the reviewer still flagged "object_alive" on keyframes
+    # (three takes each, some without the toy in them at all), and called a child standing on
+    # a ride-on toy "floating". The gaze is the head count's to say: the full review guessed
+    # it. Colors inside the full review were noisy too (its own note said they matched), so a
+    # friend's thing in the child's colors is prevented at the source instead (one reference
+    # showing every owner's colors).
+    noise = {"object_alive", "floating", "camera_gaze", "vanishing"}
+    if set(verdict.get("problems") or []) & noise:
+        problems = [p for p in verdict["problems"] if p not in noise]
         verdict = {**verdict, "problems": problems, "ok": not problems}
-    return verdict
+    return with_swaps(with_gaze(counted_extra(verdict, people, expected), people), parts, sheets)
 
 
 def _clip_frames(data: bytes, count: int = CLIP_FRAMES) -> list[bytes]:

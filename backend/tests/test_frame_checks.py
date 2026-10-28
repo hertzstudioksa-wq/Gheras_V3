@@ -314,3 +314,42 @@ def test_the_review_holds_a_swapped_picture(monkeypatch):
     assert verdict["note"].startswith("swapped: Lina's part (stands apart) is done by Sami")
     one = asyncio.run(clip_review.review_keyframe("2_1", cartoon_picture(), "image/png", ["Lina"], "x", SHEETS3[:1]))
     assert "role_swap" not in one["problems"]  # one person can't swap with anyone: not asked
+
+
+def test_someone_looking_into_the_camera_is_flagged(monkeypatch):
+    # the parent saw a child stare into the camera at the start of the race
+    async def ask(*a, **k):
+        return {"ok": True, "problems": [], "note": ""}
+
+    async def people(image):
+        return [{"who": "boy, yellow helmet", "at_viewer": True}, {"who": "boy, green helmet", "at_viewer": False}]
+
+    monkeypatch.setattr(clip_review, "_ask", ask)
+    monkeypatch.setattr(clip_review, "people_in", people)
+    verdict = asyncio.run(clip_review.review_keyframe("4_1", cartoon_picture(), "image/png", ["Lina", "Sami"], "x"))
+    assert not verdict["ok"] and verdict["problems"] == ["camera_gaze"]
+    assert verdict["note"].startswith("looking at the viewer: boy, yellow helmet")
+    assert "camera_gaze" not in sp.HOLD_PROBLEMS  # a gaze is redrawn, never held from the story
+    assert clip_review.with_gaze({"ok": True, "problems": []}, ["an old answer as plain words"])["ok"]
+
+
+def test_the_review_knows_floating_gaze_and_mixed_up_colors():
+    for p in ("floating", "camera_gaze"):
+        assert p in clip_review.PROBLEMS and f"- {p}:" in clip_review.SYSTEM
+    assert "object_mixup" not in clip_review.SYSTEM  # noisy in the full review: prevented at the source
+    assert clip_review._problem("child floats above the deck") == "floating"
+    assert clip_review._problem("looks into the camera") == "camera_gaze"
+    assert clip_review.CLIP_FRAMES == 6
+
+
+def test_a_still_picture_isnt_flagged_for_motion_or_a_guessed_gaze(monkeypatch):
+    async def ask(*a, **k):
+        return {"ok": False, "problems": ["floating", "camera_gaze", "vanishing", "melting"], "note": "x"}
+
+    async def people(image):
+        return [{"who": "a girl", "at_viewer": False}]
+
+    monkeypatch.setattr(clip_review, "_ask", ask)
+    monkeypatch.setattr(clip_review, "people_in", people)
+    verdict = asyncio.run(clip_review.review_keyframe("1_1", cartoon_picture(), "image/png", ["Lina"], "x"))
+    assert verdict["problems"] == ["melting"]  # a melted thing shows in a still; the rest needs frames
