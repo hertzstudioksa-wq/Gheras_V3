@@ -112,7 +112,9 @@ def test_template_order_and_numbering():
     lines = text.split("\n")
     assert lines[0] == sp.COMFY_INTRO
     # people from a photo keep their sheet's face, not the plan's guess at it ("two short braids")
-    assert lines[1].startswith(f"IDENTITY (most important): <image1> is Lina ({sp.FROM_PHOTO_FACE}), ")
+    # a child's line never names facial hair and always says it has none (a close-up gave a boy stubble)
+    assert lines[1].startswith(f"IDENTITY (most important): <image1> is Lina ({sp.CHILD_PHOTO_FACE}; {sp.CHILD_FACE}), ")
+    assert "beard" not in lines[1].split("<image2>")[0].replace(sp.CHILD_FACE, "")
     assert f"<image2> is Omar (the child's father) ({sp.FROM_PHOTO_FACE})," in lines[1]
     assert "braids" not in lines[1]
     assert "<image3> is the child's dog (keep red collar, floppy ears exactly as in the reference)" in lines[1]

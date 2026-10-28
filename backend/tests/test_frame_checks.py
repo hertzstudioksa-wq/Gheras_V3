@@ -430,3 +430,15 @@ def test_a_clip_where_someone_turns_to_the_camera_is_sent_back(monkeypatch):
 
     monkeypatch.setattr(clip_review, "people_in", nobody)
     assert asyncio.run(clip_review.review_clip("1_1", b"clip", ["Lina"], "x"))["ok"] is True
+
+
+def test_a_child_with_facial_hair_is_held_and_drawn_again():
+    # a four-year-old came out with stubble and a moustache in a close-up of him alone
+    from services import shot_pipeline as sp
+
+    assert clip_review._problem("facial_hair") == "facial_hair"
+    assert clip_review._problem("child has a stubble moustache") == "facial_hair"
+    assert "facial_hair: a child" in clip_review.SYSTEM
+    assert sp.held_problems({"ok": False, "problems": ["facial_hair"]}) == ["facial_hair"]
+    assert sp.next_take({"ok": False, "problems": ["facial_hair"]}, "qwen", 1) == "gpt"
+    assert "a child's face stays smooth" in sp.COMFY_COPY

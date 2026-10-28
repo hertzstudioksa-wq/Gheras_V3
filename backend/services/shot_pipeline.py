@@ -235,7 +235,7 @@ CALM_NOTE = "Calm, minimal motion: everyone stays where they are, nobody walks o
 # A start frame with a held problem is never animated, so any take without one is the better take.
 FLAW_WEIGHT = {"noise": 30, "deformed": 8, "melting": 3, "duplicate": 8, "extra_person": 8, "role_swap": 8,
                "wrong_look": 2, "vanishing": 2, "action_missing": 2, "mood_mismatch": 2, "object_alive": 2,
-               "camera_gaze": 4, "floating": 4, "object_mixup": 3, "wrong_stage": 6}
+               "camera_gaze": 4, "floating": 4, "object_mixup": 3, "wrong_stage": 6, "facial_hair": 8}
 
 
 def flaw(review: dict) -> int:
@@ -249,7 +249,7 @@ def flaw(review: dict) -> int:
 SOFT_PROBLEMS = {"wrong_look"}
 # Start frames a clip would only animate the mistake of (reliably seen by the
 # review); the shot is held for a new picture instead.
-HOLD_PROBLEMS = {"noise", "duplicate", "extra_person", "role_swap", "deformed"}
+HOLD_PROBLEMS = {"noise", "duplicate", "extra_person", "role_swap", "deformed", "facial_hair"}
 
 
 def held_problems(review: dict | None) -> list[str]:
@@ -367,7 +367,8 @@ COMFY_INTRO = ("Create a brand-new 16:9 children's storybook illustration using 
 # on its own: a wide shot gave the father and the son bobbleheads (owner: silly).
 COMFY_COPY = ("Copy each character's identity from their reference exactly: the same face shape, eyes, eyebrows, "
               "nose, skin tone and age; the same hairstyle with the same hair volume, curls and hairline; the same "
-              "beard shape and fullness; plus the same clothes, shoes and colors. Every head keeps its real size "
+              "beard shape and fullness on a grown-up who has one (a child's face stays smooth, with no facial hair at "
+              "all); plus the same clothes, shoes and colors. Every head keeps its real size "
               "against its body for the person's age, never enlarged. Do not redesign, beautify or simplify the "
               "faces. Facial expressions, gaze and poses follow the SCENE below, not the reference sheets.")
 COMFY_ONCE = "Each character appears exactly once and nobody else is in the picture."
@@ -745,6 +746,10 @@ def _features(profile: dict) -> str:
 
 
 FROM_PHOTO_FACE = "copy the face, hairline, hair texture and any beard exactly as drawn in the reference"
+# "any beard" on a child's line gave a four-year-old stubble and a moustache in a close-up
+# of him alone (the no-beard line only came with a grown-up's face square): a child's line
+# never names facial hair, and always says it has none.
+CHILD_PHOTO_FACE = "copy the face, hairline and hair texture exactly as drawn in the reference"
 FACES_COPY = "copy the face, hairline, hair and any beard exactly from it"
 # With a bearded father's face close-ups in the references, the child got stubble.
 CHILD_FACE = "a child's smooth face with no beard, moustache or stubble"
@@ -757,17 +762,18 @@ def comfy_identity(refs: list[dict], profiles: dict, sheets: dict) -> str:
     for n, r in enumerate(refs, 1):
         tag, kind = f"<image{n}>", r["kind"]
         if kind == "sheet":
+            child = house_style.base_type(r["type"]) in CHILD_TYPES
             # Someone drawn from a real photo keeps the face their sheet has, not the plan's
             # guess at it: "neatly trimmed beard, closely cropped hair" gave the father a
             # barber's fade and a sculpted beard his sheet never had.
             if r["type"] in faces_at:
                 note = f"their full figure and clothes; their face is <image{faces_at[r['type']]}>"
             elif (sheets.get(r["type"]) or {}).get("from_photo"):
-                note = FROM_PHOTO_FACE
+                note = CHILD_PHOTO_FACE if child else FROM_PHOTO_FACE
             else:
                 features = _features(profiles.get(r["type"]) or {})
                 note = f"keep {features} exactly as in the reference" if features else ""
-            if faces_at and house_style.base_type(r["type"]) in CHILD_TYPES:
+            if child:
                 note = f"{note}; {CHILD_FACE}" if note else CHILD_FACE
             parts.append(f"{tag} is {sheets[r['type']]['label']}" + (f" ({note})" if note else ""))
         elif kind == "faces":
@@ -1026,7 +1032,8 @@ async def cover_request(order: dict, plan: dict) -> tuple[str, list[dict], list[
         idea,
         f"Characters, matching their reference sheets exactly: {cast}." if cast else "",
         ("Reference images, in order: " + "; ".join(f"{i + 1}) {n}" for i, n in enumerate(notes)) + ". "
-         "Draw every character exactly like their sheet (face, hair, beard, glasses, clothes, colors); "
+         "Draw every character exactly like their sheet (face, hair, a grown-up's beard, glasses, clothes, "
+         "colors; a child's face stays smooth); "
          "where the scene description says otherwise, the sheet wins.") if notes else "",
         "Leave calm sky or background space in the upper part of the frame for the book title "
         "(the title is added later — don't write it).",

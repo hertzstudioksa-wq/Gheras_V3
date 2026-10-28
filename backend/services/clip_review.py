@@ -34,7 +34,7 @@ REVIEW_MODEL = "anthropic/claude-haiku-5.5"
 CLIP_FRAMES = 6
 PROBLEMS = ("duplicate", "extra_person", "role_swap", "clipping", "vanishing", "text", "deformed", "wrong_look",
             "outfit_change", "melting", "floating", "camera_gaze", "wrong_stage", "action_missing", "mood_mismatch",
-            "noise", "object_alive")
+            "noise", "object_alive", "facial_hair")
 # A model's words for one cast member standing in another's place (checked before the
 # "wrong_..." prefix would read them as wrong_look).
 ROLE_WORDS = ("swap", "switched", "wrong_person", "wrong_character", "wrong_role", "role")
@@ -50,6 +50,7 @@ SYNONYMS = {"costume": "outfit_change", "clothing": "outfit_change", "clothes": 
             "float": "floating", "levitat": "floating", "hover": "floating",
             "gaze": "camera_gaze", "viewer": "camera_gaze", "camera": "camera_gaze",
             "stage": "wrong_stage", "bloom": "wrong_stage",
+            "beard": "facial_hair", "moustache": "facial_hair", "mustache": "facial_hair", "stubble": "facial_hair",
             "color": "melting", "colour": "melting"}
 REF_SIDE = 512  # reference sheets are shrunk: they only need faces, hair and colors
 # Qwen sometimes returns coloured static instead of a picture (2 frames of the
@@ -79,6 +80,7 @@ SYSTEM = (
     "- text: written words or letters anywhere, except printing on someone's clothes that their reference sheet "
     "shows too (a shirt from the family's photo)\n"
     "- deformed: a badly broken face or body\n"
+    "- facial_hair: a child (anyone who is not a grown-up) drawn with any beard, moustache or stubble\n"
     "- wrong_look: someone is clearly a different person from their reference sheet (another hair color or length, "
     "skin tone, age, beard or glasses), or two different characters look like the same person (the same face and "
     "clothes twice); a cartoon redrawing, another expression or pose, or slightly different curls is fine\n"
@@ -106,7 +108,8 @@ SYSTEM = (
     "edge (vanishing means a person visible in one frame is gone in the next). When unsure, it is fine.\n"
     'Answer with JSON only: {"ok": true or false, "people_seen": <most people in one frame>, '
     '"problems": [zero or more of: duplicate, extra_person, clipping, vanishing, text, deformed, wrong_look, '
-    'outfit_change, melting, floating, camera_gaze, wrong_stage, action_missing, mood_mismatch, object_alive], '
+    'outfit_change, melting, floating, camera_gaze, wrong_stage, action_missing, mood_mismatch, object_alive, '
+    'facial_hair], '
     '"note": "<one short English sentence>"}'
 )
 
