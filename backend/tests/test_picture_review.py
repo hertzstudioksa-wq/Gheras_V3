@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tests.test_comfy_pipeline_rehearsal import _row, _story, db, rehearsal, run  # noqa: F401 (fixture)
+from test_comfy_pipeline_rehearsal import _row, _story, db, rehearsal, run  # noqa: F401 (fixture)
 from services import picture_review as pr
 
 

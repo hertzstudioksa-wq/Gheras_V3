@@ -32,8 +32,8 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import (clip_review, engine_config, engine_health, head_views, house_style, pronunciation,
-                      toy_freeze)
+from services import (clip_review, engine_config, engine_health, face_fix, head_views, house_style,
+                      pronunciation, toy_freeze)
 from services.ai import AIConfigError, AIError, AIPermanentError, comfy, fal
 from services.ai.image_client import WIDE, comfy_image, comfy_workflow
 from services.child_character_service import _fetch_source_bytes
@@ -151,7 +151,7 @@ async def load_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
     )
     if child:
         sheets["child"] = {"url": child["generated_image_url"], "from_photo": True,
-                           "head_views_url": child.get("head_views_url"),
+                           "head_views_url": child.get("head_views_url"), "photo_url": child.get("source_image_url"),
                            "label": _label(profiles.get("child") or {"type": "child"}, child_name)}
     keys = house_style.cast_keys((order.get("data") or {}).get("characters") or [])
     async for a in db.extra_character_assets.find(
@@ -161,7 +161,7 @@ async def load_character_sheets(order: dict, plan: dict) -> dict[str, dict]:
         t = keys[i] if isinstance(i, int) and 0 <= i < len(keys) else a.get("character_type")
         if t and t not in sheets:
             sheets[t] = {"url": a["generated_image_url"], "from_photo": True,
-                         "head_views_url": a.get("head_views_url"),
+                         "head_views_url": a.get("head_views_url"), "photo_url": a.get("source_image_url"),
                          "label": _label(profiles.get(t) or {"type": t}, child_name)}
     async for s in db.character_sheets.find({"order_id": order["id"], "production_plan_id": plan["id"]}, {"_id": 0}):
         sheets.setdefault(s["type"], {"url": s["image_url"], "label": s["label"]})
@@ -560,10 +560,11 @@ def end_frame_prompt(sh: dict) -> str:
     return END_FRAME.format(action=action if action.endswith(".") else f"{action}.", who=who)
 
 
-async def draw_end_frame(order: dict, sh: dict, start: bytes, model: str, queue_key: str) -> dict:
+async def draw_end_frame(order: dict, sh: dict, start: bytes, model: str, queue_key: str, fix=None) -> dict:
     """The shot's end picture, checked (static, head count, nobody at the camera): the
     fields for its row. Without one after END_FRAME_TAKES the clip runs from its start
-    picture alone, as before — this never blocks a story."""
+    picture alone, as before — this never blocks a story. `fix(data, mime)` gives a
+    grown-up from a photo their face back (the edit redraws the whole picture)."""
     n = len(set(sh.get("characters") or []))
     gpu, problems = 0.0, []
     for _take in range(END_FRAME_TAKES):
@@ -584,8 +585,12 @@ async def draw_end_frame(order: dict, sh: dict, start: bytes, model: str, queue_
             if any(p.get("at_viewer") for p in people):
                 problems.append("camera_gaze")
         if not problems:
+            face_gpu = 0.0
+            if fix:
+                data, mime, face_gpu, _who = await fix(data, mime)
             url = await _store(order, "keyframe_end", data, mime, "png")
-            return {"end_keyframe_url": url, "end_frame_review": {"ok": True}, "end_frame_gpu_seconds": gpu}
+            return {"end_keyframe_url": url, "end_frame_review": {"ok": True}, "end_frame_gpu_seconds": gpu,
+                    "end_face_gpu_seconds": face_gpu}
     return {"end_keyframe_url": None, "end_frame_review": {"ok": False, "problems": problems},
             "end_frame_gpu_seconds": gpu}
 
@@ -1058,13 +1063,17 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
     pin = on_comfy and await pin_last_frame_on()
 
     async def end_frame_for(sh: dict, start: bytes) -> None:
-        fields = await draw_end_frame(order, sh, start, comfy_model, story_order(scene, sh))
+        fields = await draw_end_frame(order, sh, start, comfy_model, story_order(scene, sh), fix=lambda d, m: (
+            face_fix.fix_faces(order, sh, d, m, sheets, story_order(scene, sh))))
         gpu = fields.get("end_frame_gpu_seconds") or 0
+        face_gpu = fields.pop("end_face_gpu_seconds", 0) or 0
         await _set_shot(order, plan, scene, sh["shot_index"], fields)
-        if gpu:
+        if gpu or face_gpu:
             await db.shot_assets.update_one(
                 {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
-                 "shot_index": sh["shot_index"]}, {"$inc": {"comfy_gpu_seconds": gpu, "end_frames_gpu_seconds": gpu}})
+                 "shot_index": sh["shot_index"]}, {"$inc": {"comfy_gpu_seconds": gpu + face_gpu,
+                                                            "end_frames_gpu_seconds": gpu,
+                                                            "face_fix_gpu_seconds": face_gpu}})
     toy = favourite_toy(order) if on_comfy else None
     toy_bytes: tuple[bytes, str] | None = None
     uploads: dict = {}  # Comfy names of the images already sent in this run
@@ -1289,11 +1298,20 @@ async def execute_scene_keyframes(job: dict, order: dict, plan: dict) -> tuple[s
             await _set_shot(order, plan, scene, sh["shot_index"], {"keyframe_prompt_id": None,
                                                                     "keyframe_prompt_attempt": None})
             raise AIError(f"shot {shot_key}: every keyframe take came out as coloured static")
+        faced: list[str] = []
+        if on_comfy:
+            # A grown-up drawn from a photo gets the parent's own face back (services/face_fix.py).
+            img, mime, face_gpu, faced = await face_fix.fix_faces(order, sh, img, mime, sheets, story_order(scene, sh))
+            if face_gpu:
+                await db.shot_assets.update_one(
+                    {"order_id": order["id"], "production_plan_id": plan["id"], "scene_index": scene["scene_index"],
+                     "shot_index": sh["shot_index"]}, {"$inc": {"comfy_gpu_seconds": face_gpu,
+                                                                "face_fix_gpu_seconds": face_gpu}})
         url = await _store(order, "keyframe", img, mime, "png")
         model = meta.get("model")
         await _set_shot(order, plan, scene, sh["shot_index"], {
             "keyframe_url": url, "keyframe_at": _now(), "keyframe_prompt_used": used, "image_model": model,
-            "keyframe_review": review,
+            "keyframe_review": review, "faces_fixed": faced,
             "narration_line": sh["narration_line"], "shot_type": sh.get("shot_type"),
             "characters": sh.get("characters") or [], "motion_prompt": sh.get("motion_prompt") or "",
             "style_key": style.get("key"), "style_version": style.get("version"),

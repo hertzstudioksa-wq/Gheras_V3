@@ -62,6 +62,8 @@ WORKFLOWS = {
     # size for the age (services/sheet_proportions.py).
     "sheet_qwen21": {"output_node": "461", "ints": {"seed"}, "refs_node": "459:474",
                      "prompt_input": ("459:474", "prompt")},
+    # A grown-up's real face edited into a finished shot picture (services/face_fix.py).
+    "face_id": {"output_node": "60", "ints": {"seed"}, "floats": {"denoise"}, "prompt_input": ("6", "text")},
     "clip_wan22": {"output_node": "108", "ints": {"seed", "duration_seconds"},
                    "prompt_input": ("129:93", "text"), "start_input": ("97", "image"),
                    "duration_input": ("129:161", "value")},
@@ -120,6 +122,10 @@ def _set_references(workflow: dict, target: str, names: list[str]) -> None:
 
 
 def _typed(workflow: str, key: str, value):
+    if key in WORKFLOWS[workflow].get("floats", ()):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise AIPermanentError(f"Comfy {workflow}: '{key}' must be a number, got {value!r}")
+        return float(value)
     if key in WORKFLOWS[workflow]["ints"]:
         if isinstance(value, bool) or not isinstance(value, int):
             raise AIPermanentError(f"Comfy {workflow}: '{key}' must be a whole number, got {value!r}")
