@@ -141,7 +141,7 @@ def test_the_face_reference_follows_its_sheet_and_belongs_to_that_person_alone()
     # grown-ups only: with the child's own square, Qwen drew the child twice, the copy bearded
     assert [r["kind"] for r in refs] == ["sheet", "sheet", "faces"] and refs[2]["type"] == "father"
     text = sp.comfy_identity(refs, {}, SHEETS)
-    assert f"<image1> is Lina ({sp.FROM_PHOTO_FACE}; {sp.CHILD_FACE})" in text  # the father's beard stays his
+    assert f"<image1> is Lina ({sp.CHILD_PHOTO_FACE}; {sp.CHILD_FACE})" in text  # the father's beard stays his
     assert "<image2> is Omar (the child's father) (their full figure and clothes; their face is <image3>)" in text
     assert "<image3> is Omar (the child's father)'s face from the front, three-quarter and side" in text
     assert "nobody else takes anything from them" in text
