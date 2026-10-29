@@ -30,6 +30,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from PIL import Image
 
 from db import db
+from services import house_style
 
 logger = logging.getLogger("book_renderer")
 
@@ -131,6 +132,14 @@ def _palette(cover: bytes | None) -> dict:
 
 
 PEOPLE = {"child", "father", "mother", "brother", "sister", "grandfather", "grandmother", "friend", "teacher"}
+# Head and shoulders = this share of the figure's height. The old crop was as wide as the
+# figure, so a slim child under a big helmet was cut at the chin.
+PORTRAIT_SHARE = 0.44
+
+
+async def tashkeel_on() -> bool:
+    s = await db.settings.find_one({"key": "book.tashkeel"}, {"_id": 0, "value": 1})
+    return (s or {}).get("value") is True
 
 
 def _portrait(data: bytes, kind: str, path: Path) -> str:
@@ -143,10 +152,10 @@ def _portrait(data: bytes, kind: str, path: Path) -> str:
     w, h = right - left, bottom - top
     if kind in PEOPLE:
         # The head sits in the top band of the figure; centre on what's drawn there.
-        band = gray.crop((left, top, right, top + max(1, int(h * .12)))).getbbox()
+        band = gray.crop((left, top, right, top + max(1, int(h * .22)))).getbbox()
         cx = left + ((band[0] + band[2]) / 2 if band else w / 2)
-        side = max(min(w, h * .36), 1)
-        crop = (cx - side / 2, top - side * .06, cx + side / 2, top + side * .94)
+        side = max(h * PORTRAIT_SHARE, 1)
+        crop = (cx - side / 2, top - side * .05, cx + side / 2, top + side * .95)
     else:
         side = max(w, h) * 1.08
         cx, cy = left + w / 2, top + h / 2
@@ -188,9 +197,11 @@ async def _book_data(order_id: str, plan: dict, cover_url: str | None, book_asse
                                        ).sort([("scene_index", 1), ("shot_index", 1)]):
         shots.setdefault(r["scene_index"], []).append(r["keyframe_url"])
 
-    # Children read fully vowelled text (cached per page; plain text if it fails).
-    from services.tashkeel_service import vowelled_pages
-    vowelled = await vowelled_pages([ba for ba in book_assets if ba.get("id")])
+    # Fully vowelled text only when the admin turns it on (owner: not needed, it costs money).
+    vowelled = {}
+    if await tashkeel_on():
+        from services.tashkeel_service import vowelled_pages
+        vowelled = await vowelled_pages([ba for ba in book_assets if ba.get("id")])
 
     pages, strip, longest = [], [], 0
     for i, ba in enumerate(sorted(book_assets, key=lambda b: int(b.get("page_number") or 0))):
@@ -225,9 +236,10 @@ async def _book_data(order_id: str, plan: dict, cover_url: str | None, book_asse
         if not b:
             continue
         name = (profiles.get(t) or {}).get("name") or (child.get("name") if t == "child" else "")
-        role = ROLE_AR.get(t, ROLE_AR["other"])
+        role = ROLE_AR.get(house_style.base_type(t), ROLE_AR["other"])
         role = role[1 if female else 0] if isinstance(role, tuple) else role
-        cast.append({"image": f"img/{_portrait(b, t, img_dir / f'cast_{t}.jpg')}", "name": name or role,
+        cast.append({"image": f"img/{_portrait(b, house_style.base_type(t), img_dir / f'cast_{t}.jpg')}",
+                     "name": name or role,
                      "role": role, "type": t})
 
     enriched = order.get("enriched") or {}

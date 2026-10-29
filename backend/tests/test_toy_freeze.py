@@ -1,0 +1,279 @@
+"""A still toy keeps its first-frame pixels through the clip; a toy really moved is left alone."""
+import asyncio
+import io
+import os
+import subprocess
+import sys
+
+import pytest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+os.environ.setdefault("MONGO_URL", "mongodb://127.0.0.1:27017")
+os.environ.setdefault("DB_NAME", "gheras_comfy_unit")
+
+import numpy as np  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
+
+import storage  # noqa: E402
+from services import toy_freeze  # noqa: E402
+from services.video_assembly_service import _ffmpeg_bin  # noqa: E402
+
+W, H = 320, 180
+TOY = (120, 60, 200, 140)  # where the toy sits
+
+
+def _clip(frames: list[np.ndarray]) -> bytes:
+    p = subprocess.run([_ffmpeg_bin(), "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", "24",
+                        "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "10", "-f", "mp4",
+                        "-movflags", "frag_keyframe+empty_moov", "-"],
+                       input=b"".join(f.tobytes() for f in frames), capture_output=True, check=True)
+    return p.stdout
+
+
+def _decode(data: bytes) -> np.ndarray:
+    raw = subprocess.run([_ffmpeg_bin(), "-v", "error", "-i", "-", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         input=data, capture_output=True, check=True).stdout
+    return np.frombuffer(raw, np.uint8).reshape(-1, H, W, 3)
+
+
+def _scene(t: int, toy_shift: int = 0, blink: bool = False) -> np.ndarray:
+    img = Image.new("RGB", (W, H), (230, 200, 160))
+    d = ImageDraw.Draw(img)
+    d.rectangle((20 + t, 40, 60 + t, 150), fill=(200, 120, 90))  # a child moving next to the toy
+    x0, y0, x1, y1 = TOY
+    d.rectangle((x0 + toy_shift, y0, x1 + toy_shift, y1), fill=(30, 80, 220))
+    d.ellipse((x0 + 20 + toy_shift, y0 + 15, x0 + 35 + toy_shift, y0 + 30), fill=(30, 80, 220) if blink else (255, 255, 255))
+    return np.asarray(img)
+
+
+def _mask() -> bytes:
+    m = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(m).rectangle(TOY, fill=255)
+    out = io.BytesIO()
+    m.save(out, "PNG")
+    return out.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def tmp_storage(monkeypatch, tmp_path):
+    monkeypatch.setattr(storage, "STORAGE_DIR", tmp_path)
+
+
+def test_a_blinking_toy_is_frozen_and_the_child_still_moves():
+    frames = [_scene(t, blink=8 <= t <= 12) for t in range(24)]
+    frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()})
+    assert frozen and info["frozen"] == ["the toy"]
+    out = _decode(frozen)
+    eye = (slice(TOY[1] + 18, TOY[1] + 27), slice(TOY[0] + 23, TOY[0] + 32))
+    assert out[10][eye].mean() > 200  # the eye stays open in the middle of the blink
+    assert abs(out[20][60:120, 40:80].astype(int) - out[0][60:120, 40:80].astype(int)).mean() > 20  # the child moved
+
+
+def test_a_toy_someone_turns_around_is_left_alone():
+    frames = [_scene(t) for t in range(24)]
+    for t in range(6, 24):  # its back shows: another color all over
+        img = Image.fromarray(frames[t].copy())
+        ImageDraw.Draw(img).rectangle(TOY, fill=(250, 240, 60))
+        frames[t] = np.asarray(img)
+    frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()})
+    assert frozen is None and info["frozen"] == [] and info["moved"]["the toy"] > toy_freeze.MOVED_LIMIT
+
+
+def test_a_carried_toy_goes_along_with_its_face_still_and_no_copy_left_behind():
+    # a teddy hugged closer showed two faces: its first-frame copy pinned on top of the moved one
+    shift = [min(t * 3, 45) for t in range(24)]
+    frames = [_scene(t, toy_shift=shift[t], blink=8 <= t <= 14) for t in range(24)]
+    frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()})
+    assert frozen and info["frozen"] == ["the toy"] and info["moved"]["the toy"] < 0.1
+    assert abs(info["carried_px"]["the toy"] - 45) <= 2
+    out = _decode(frozen)
+    s = shift[12]
+    eye = (slice(TOY[1] + 18, TOY[1] + 27), slice(TOY[0] + 23 + s, TOY[0] + 32 + s))
+    assert out[12][eye].mean() > 200  # the eye stays open, where the toy was carried
+    assert out[20][TOY[1] + 40, TOY[2] + shift[20] - 5][2] > 180  # the toy is at its new place
+    assert abs(out[20][TOY[1] + 40, TOY[0] + 5].astype(int) - np.array([230, 200, 160])).mean() < 25  # none left behind
+
+
+def test_no_toys_or_no_mask_keeps_the_clip(monkeypatch):
+    async def none(keyframe, names):
+        return {}
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", none)
+    clip = b"not a video"
+    assert asyncio.run(toy_freeze.freeze_toys(clip, b"png", None)) == (clip, None)
+    out, info = asyncio.run(toy_freeze.freeze_toys(clip, b"png", ["the toy"]))
+    assert out == clip and info["frozen"] == []
+
+
+ARM = (200, 70, 250, 85)  # an arm Wan raises out of the toy's first-frame outline
+
+
+def _arm_scene(t: int) -> np.ndarray:
+    frame = _scene(t)
+    if t >= 8:
+        img = Image.fromarray(frame.copy())
+        ImageDraw.Draw(img).rectangle(ARM, fill=(30, 80, 220))
+        frame = np.asarray(img)
+    return frame
+
+
+def _outline(t: int, arm: bool = False, shift: int = 0) -> np.ndarray:
+    img = Image.new("RGB", (W, H), (0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rectangle((TOY[0] + shift, TOY[1], TOY[2] + shift, TOY[3]), fill=(255, 255, 255))
+    if arm and t >= 8:
+        d.rectangle(ARM, fill=(255, 255, 255))
+    return np.asarray(img)
+
+
+def test_a_limb_moved_out_of_the_first_outline_is_put_back():
+    # the hugged doll's arm rose and waved while its body stayed frozen
+    frames = [_arm_scene(t) for t in range(24)]
+    arm = (slice(ARM[1] + 3, ARM[3] - 3), slice(ARM[0] + 15, ARM[2] - 3))
+    only_first, _ = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()})
+    assert _decode(only_first)[15][arm][..., 2].mean() > 180  # the arm still waves outside the outline
+    tracks = {"the toy": _clip([_outline(t, arm=True) for t in range(24)])}
+    frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()}, tracks)
+    out = _decode(frozen)
+    assert info["followed"] == ["the toy"]
+    assert abs(out[15][arm].astype(int) - np.array([230, 200, 160])).mean() < 25  # the background is back
+    assert abs(out[20][60:120, 40:80].astype(int) - out[0][60:120, 40:80].astype(int)).mean() > 20  # the child moved
+
+
+def test_a_toy_nobody_holds_stays_put_even_when_it_walks_off():
+    # a doll alone at the end of the path walked away in its clip
+    frames = [_scene(t, toy_shift=min(t * 4, 60)) for t in range(24)]
+    tracks = {"the toy": _clip([_outline(t, shift=min(t * 4, 60)) for t in range(24)])}
+    carried, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()}, tracks)
+    assert _decode(carried)[20][TOY[1] + 40, TOY[2] + 50][2] > 180  # held (or unknown): it goes where it's carried
+    frozen, info = toy_freeze.freeze_clip(_clip(frames), {"the toy": _mask()}, tracks, {"the toy"})
+    out = _decode(frozen)
+    assert info["frozen"] == ["the toy"] and info["untouched"] == ["the toy"]
+    assert out[20][TOY[1] + 40, TOY[0] + 5][2] > 180  # still at its first place
+    assert abs(out[20][TOY[1] + 40, TOY[2] + 50].astype(int) - np.array([230, 200, 160])).mean() < 25  # not at the new one
+
+
+def test_the_held_check_and_the_tracks_reach_the_freeze(monkeypatch):
+    from services import clip_review
+
+    seen = {}
+
+    async def masks(keyframe, names):
+        return {"the toy": {"mask": _mask(), "box": TOY, "size": (W, H)}, "the kite": {"mask": _mask(), "box": TOY,
+                                                                                        "size": (W, H)}}
+
+    async def held(image, names):
+        return {"the toy": False, "the kite": True}
+
+    async def tracks(clip, found, size):
+        seen["size"] = size
+        return {"the toy": b"track"}
+
+    def freeze(clip, m, t, untouched):
+        seen.update(masks=sorted(m), tracks=t, untouched=untouched)
+        return None, {"frozen": []}
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", masks)
+    monkeypatch.setattr(clip_review, "toys_held", held)
+    monkeypatch.setattr(toy_freeze, "toy_tracks", tracks)
+    monkeypatch.setattr(toy_freeze, "freeze_clip", freeze)
+    clip = _clip([_scene(t) for t in range(4)])
+    out, info = asyncio.run(toy_freeze.freeze_toys(clip, b"png", ["the toy", "the kite"]))
+    assert out == clip and seen["size"] == (W, H) and seen["masks"] == ["the kite", "the toy"]
+    assert seen["untouched"] == {"the toy"} and seen["tracks"] == {"the toy": b"track"}
+
+
+def test_the_detector_looks_for_the_toy_not_its_owner():
+    # asked for "<child>'s little brown teddy bear", the detector boxed the child holding it
+    assert toy_freeze.detect_words("Yaman's little brown teddy bear") == "little brown teddy bear"
+    assert toy_freeze.detect_words("the child's blue knitted rabbit") == "blue knitted rabbit"
+    assert toy_freeze.detect_words("Baba Amr's red kite") == "red kite"
+    assert toy_freeze.detect_words("Lina’s doll") == "doll"
+    assert toy_freeze.detect_words("the Mickey Mouse plush") == "Mickey Mouse plush"
+
+
+def test_the_detector_gets_the_words_without_the_owner(monkeypatch):
+    from services.ai import fal
+
+    asked = []
+
+    async def upload(**k):
+        return "url"
+
+    async def run(**k):
+        asked.append(k["arguments"].get("text_input"))
+        return {}
+
+    monkeypatch.delenv("GHERAS_FAKE_PROVIDERS", raising=False)
+    monkeypatch.setattr(fal, "upload", upload)
+    monkeypatch.setattr(fal, "run", run)
+    png = io.BytesIO()
+    Image.new("RGB", (W, H)).save(png, "PNG")
+    assert asyncio.run(toy_freeze.toy_masks(png.getvalue(), ["Yaman's little brown teddy bear"])) == {}
+    assert asked == ["little brown teddy bear"]
+
+
+def _found():
+    return {"the toy": {"mask": _mask(), "box": TOY, "size": (W, H)}}
+
+
+def test_a_toy_that_did_not_come_alive_leaves_the_clip_as_wan_made_it(monkeypatch):
+    # a plush Wan drew right was frozen anyway, and the still patch showed against the plants
+    from services import clip_review
+
+    async def masks(keyframe, names):
+        return _found()
+
+    async def alive(strip, name):
+        assert strip[:2] == b"\xff\xd8"  # the crops, as one JPEG
+        return {"alive": False, "note": "only carried"}
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", masks)
+    monkeypatch.setattr(clip_review, "toy_alive", alive)
+    clip = _clip([_scene(t) for t in range(24)])
+    check = asyncio.run(toy_freeze.toy_check(clip, b"png", ["the toy"]))
+    assert check["alive"] == [] and toy_freeze.public(check)["notes"] == {"the toy": "only carried"}
+    review = toy_freeze.with_check({"ok": True, "problems": []}, check)
+    assert review["ok"] is True and review["toy_check"]["checked"] == ["the toy"]
+    assert asyncio.run(toy_freeze.freeze_alive(clip, check)) == (clip, {"frozen": []})  # no paste at all
+
+
+def test_a_toy_that_came_alive_fails_the_take_and_is_pasted_only_as_a_last_resort(monkeypatch):
+    from services import clip_review
+
+    async def masks(keyframe, names):
+        return _found()
+
+    async def alive(strip, name):
+        return {"alive": True, "note": "it blinks"}
+
+    async def held(image, names):
+        return {"the toy": False}
+
+    async def tracks(clip, found, size):
+        return {}
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", masks)
+    monkeypatch.setattr(clip_review, "toy_alive", alive)
+    monkeypatch.setattr(clip_review, "toys_held", held)
+    monkeypatch.setattr(toy_freeze, "toy_tracks", tracks)
+    clip = _clip([_scene(t, blink=8 <= t <= 12) for t in range(24)])
+    check = asyncio.run(toy_freeze.toy_check(clip, b"png", ["the toy"]))
+    review = toy_freeze.with_check({"ok": True, "problems": ["text"]}, check)
+    assert review["ok"] is False and review["problems"] == ["text", "object_alive"]  # a redo, like any problem
+
+    async def no_second_detection(keyframe, names):
+        raise AssertionError("the masks of the check are reused")
+
+    monkeypatch.setattr(toy_freeze, "toy_masks", no_second_detection)
+    frozen, info = asyncio.run(toy_freeze.freeze_alive(clip, check))
+    assert info["frozen"] == ["the toy"]
+    eye = (slice(TOY[1] + 18, TOY[1] + 27), slice(TOY[0] + 23, TOY[0] + 32))
+    assert _decode(frozen)[10][eye].mean() > 200
+
+
+def test_the_pasted_outline_carries_no_ring_of_background():
+    # grown 6 px, the paste brought the first frame's plants along around the toy
+    assert toy_freeze.GROW_PX <= 2 and toy_freeze.FEATHER_PX <= 2

@@ -31,6 +31,7 @@ RESEND_AFTER = timedelta(hours=1)
 
 CUSTOMER_EVENTS = {
     "production_ready": "plan_ready",
+    "pictures_review": "pictures_ready",
     "delivered": "delivered",
     "media_failed": "failed",
     "failed": "failed",
@@ -118,6 +119,11 @@ def _compose(kind: str, order: dict) -> tuple[str, list[str], str | None]:
         return (f"خطة قصة {child} جاهزة — اعتمدها لنبدأ",
                 [f"خطة قصة {child} جاهزة.", "افتحها واعتمدها، ثم نبدأ رسم المشاهد وإعداد الفيديو والكتاب."],
                 "افتح الخطة")
+    if kind == "pictures_ready":
+        return (f"صور قصة {child} جاهزة — راجعها لنبدأ الفيديو",
+                [f"رسمنا كل صور قصة {child}.", "ألقِ نظرة عليها: يمكنك أن تطلب إعادة رسم صورة لا تعجبك، "
+                 "ثم اعتمدها لنبدأ تحريكها وتجهيز الفيديو والكتاب."],
+                "راجع الصور")
     if kind == "delivered":
         return (f"قصة {child} جاهزة 🎉",
                 [f"اكتملت قصة {child}! الفيديو والكتاب بانتظارك في حسابك.", "نتمنى أن تعجبكم وتترك أثراً جميلاً 💚"],

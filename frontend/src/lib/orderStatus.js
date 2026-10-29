@@ -6,7 +6,7 @@ export const ORDER_PHASES = [
   { key: "intake", label: "استلام", statuses: ["draft", "pending", "in_review"] },
   { key: "scenarios", label: "السيناريوهات", statuses: ["scenarios_generating", "scenarios_ready", "scenario_selected", "awaiting_payment"] },
   { key: "planning", label: "خطة الإنتاج", statuses: ["ready_for_ai", "production_planning", "production_ready", "production_approved"] },
-  { key: "media", label: "إنتاج الوسائط", statuses: ["assets_generating", "assets_ready", "assembling", "generating"] },
+  { key: "media", label: "إنتاج الوسائط", statuses: ["assets_generating", "pictures_review", "assets_ready", "assembling", "generating"] },
   { key: "delivered", label: "تم التسليم", statuses: ["delivered", "completed"] },
   { key: "failed", label: "فشل", statuses: ["media_failed", "failed"] },
 ];
@@ -24,6 +24,7 @@ export const STATUS_LABELS = {
   production_ready: "خطة الإنتاج جاهزة",
   production_approved: "تمت الموافقة على الخطة",
   assets_generating: "جاري توليد الوسائط",
+  pictures_review: "الصور بانتظار ولي الأمر",
   assets_ready: "الوسائط جاهزة",
   assembling: "جاري التجميع",
   delivered: "تم التسليم",

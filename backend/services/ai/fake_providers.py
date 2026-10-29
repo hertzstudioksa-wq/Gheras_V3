@@ -453,6 +453,9 @@ async def comfy_submit(stage: str, workflow: str, prompt: dict) -> str:
         info["start_image"] = prompt[node]["inputs"][field]
         node, field = spec["duration_input"]
         info["seconds"] = prompt[node]["inputs"][field]
+    if "end_input" in spec:
+        node, field = spec["end_input"]
+        info["end_image"] = prompt[node]["inputs"][field]
     prompt_id = str(uuid.uuid4())
     # Persisted, so a restart in the middle resumes like a real queued job.
     await db.fake_requests.insert_one({"id": prompt_id, "kind": "comfy", "stage": stage, "workflow": workflow,
@@ -471,7 +474,7 @@ async def comfy_job(prompt_id: str) -> dict:
             "node_id": "", "traceback": [], "current_inputs": {}, "current_outputs": {}}}
     if req.get("job"):
         return req["job"]
-    clip = req["workflow"] == "clip_wan22"
+    clip = req["workflow"].startswith("clip_")
     kind = "comfy_clip" if clip else "comfy_keyframe"
     remaining = REAL_SECONDS[kind] * speed() - (time.time() - float(req.get("t0") or time.time()))
     if remaining > 0:

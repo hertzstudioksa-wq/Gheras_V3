@@ -174,6 +174,161 @@ QA_MAX_DURATION_DRIFT = 0.35  # vs the length the parent ordered
 MAX_SLOWDOWN = 1.6
 
 
+# A clip that comes back nearly still (a shot with nobody in it, or a toy frozen in
+# place) gets a slow digital push-in: a uniform zoom of the finished picture, so it
+# never stretches anything the way a camera move inside the video model does.
+STILL_CLIP_SECONDS = 1.5
+_PUSH_IN = ("scale=2560:1440,zoompan=z='min(1+0.0009*on,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+            ":d=1:s=1280x720:fps=24,setsar=1,format=yuv420p")
+# The same slow push-in on a picture (a shot with no clip): {frames} = the shot's length.
+_PICTURE_PUSH_IN = ("scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440,"
+                    "zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                    ":d={frames}:s=1280x720:fps=24,setsar=1,format=yuv420p")
+
+
+def push_in_clip(picture: bytes, seconds: float) -> bytes:
+    """A slow push-in on a checked picture, as a shot's clip: for a shot every video take
+    broke (a grown-up's hand reached in from nowhere in all five Wan takes of one shot),
+    nothing moves but the frame, and nothing is paid."""
+    with tempfile.TemporaryDirectory() as tmp:
+        img, out = os.path.join(tmp, "picture.png"), os.path.join(tmp, "still.mp4")
+        with open(img, "wb") as f:
+            f.write(picture)
+        frames = int(seconds * 24) + 1
+        res = subprocess.run([_ffmpeg_bin(), "-loglevel", "error", "-y", "-loop", "1", "-i", img, "-vf",
+                              _PICTURE_PUSH_IN.format(frames=frames), "-t", f"{seconds:.3f}", "-c:v", "libx264",
+                              "-preset", "medium", "-crf", "18", "-movflags", "+faststart", out],
+                             capture_output=True, text=True, timeout=180)
+        if res.returncode != 0:
+            raise RuntimeError(f"push-in failed: {res.stderr[-300:]}")
+        with open(out, "rb") as f:
+            return f.read()
+
+
+async def _still_seconds(path: str) -> float:
+    """The longest span in which the clip doesn't move (0 when it always moves)."""
+    res = await asyncio.to_thread(subprocess.run, [
+        _ffmpeg_bin(), "-hide_banner", "-i", path, "-vf", f"freezedetect=n=0.003:d={STILL_CLIP_SECONDS}",
+        "-an", "-f", "null", "-"], capture_output=True, text=True, timeout=300)
+    spans = [float(x) for x in re.findall(r"freeze_duration: ([0-9.]+)", res.stderr or "")]
+    if not spans and "freeze_start" in (res.stderr or ""):
+        return await _media_duration(path) or STILL_CLIP_SECONDS  # still until the end
+    return max(spans, default=0.0)
+
+
+# ---------------------------------------------------------------- brand logo
+# The owner wants the Gheras logo in every video, top-left, looking good and moving gently
+# the whole time. The first version (a milky glow, ffmpeg rotating a 108 px picture,
+# bottom-right on the grass) looked cheap: the logo is now a die-cut sticker (a clean white
+# edge from its own outline and a soft shadow, readable on grass, sky or skin) drawn once
+# from the 2048 px file, and its float and breath are drawn frame by frame at sub-pixel
+# precision instead of rotated by ffmpeg. The icon and the name only: the tagline can't be
+# read at this size. It goes on after the quality gate, so its motion never hides a frozen shot.
+BRAND_LOGO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "brand",
+                          "gheras-logo.png")
+LOGO_TAGLINE_TOP = 1541     # first row of the tagline in the 2048px logo
+LOGO_HEIGHT = 120           # px of the 720p frame
+LOGO_MARGIN = (20, 16)      # from the left and the top edges
+LOGO_BORDER = 5             # the sticker's white edge, px
+LOGO_SHADOW = (3, 6, 0.35)  # drop (px), blur, opacity
+LOGO_LOOP_SECONDS, LOGO_FPS = 4, 24
+LOGO_FLOAT_PX, LOGO_BREATH = 2.0, 0.02
+
+
+def _logo_badge(path: str, height: int = LOGO_HEIGHT) -> tuple[int, int]:
+    """The logo (icon + name) as a sticker: a white edge around its outline and a soft
+    shadow, on a transparent PNG. Returns its size."""
+    from PIL import Image, ImageFilter
+
+    src = Image.open(BRAND_LOGO).convert("RGBA")
+    logo = src.crop((0, 0, src.width, min(src.height, LOGO_TAGLINE_TOP)))
+    logo = logo.crop(logo.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox())
+    logo = logo.resize((round(logo.width * height / logo.height), height), Image.LANCZOS)
+    drop, blur, opacity = LOGO_SHADOW
+    pad = LOGO_BORDER + 2 * blur + drop
+    size = (logo.width + 2 * pad, logo.height + 2 * pad)
+    shape = Image.new("L", size, 0)
+    shape.paste(logo.getchannel("A").point(lambda v: 255 if v > 60 else 0), (pad, pad))
+    # A round grow (blur, then a low cut) gives the sticker's smooth die-cut edge.
+    edge = shape.filter(ImageFilter.GaussianBlur(LOGO_BORDER)).point(lambda v: 255 if v > 12 else 0)
+    edge = edge.filter(ImageFilter.GaussianBlur(0.7))
+    shadow = Image.new("L", size, 0)
+    shadow.paste(edge, (0, drop))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: int(v * opacity))
+    badge = Image.new("RGBA", size, (0, 0, 0, 0))
+    badge.putalpha(shadow)
+    white = Image.new("RGBA", size, (255, 255, 255, 0))
+    white.putalpha(edge)
+    badge.alpha_composite(white)
+    badge.alpha_composite(logo, (pad, pad))
+    badge.save(path)
+    return badge.size
+
+
+def _logo_loop(badge_path: str, out_path: str) -> tuple[int, int]:
+    """A seamless LOGO_LOOP_SECONDS loop of the sticker floating and breathing gently, drawn
+    frame by frame (sub-pixel, no jagged steps), as a transparent .mov. Returns its frame size."""
+    import math
+
+    from PIL import Image
+
+    badge = Image.open(badge_path).convert("RGBA")
+    room = math.ceil(LOGO_FLOAT_PX + 1)
+    w = badge.width + 2 * math.ceil(badge.width * LOGO_BREATH / 2 + 1)
+    h = badge.height + 2 * math.ceil(badge.height * LOGO_BREATH / 2 + room)
+    frames = LOGO_LOOP_SECONDS * LOGO_FPS
+    work = os.path.dirname(out_path)
+    for i in range(frames):
+        phase = 2 * math.pi * i / frames
+        scale = 1 + LOGO_BREATH * (0.5 - 0.5 * math.cos(phase))
+        dy = LOGO_FLOAT_PX * math.sin(phase)
+        # The output pixel (x, y) takes the badge pixel ((x - cx) / s + bw/2, (y - cy - dy) / s + bh/2).
+        cx, cy = w / 2, h / 2
+        coeffs = (1 / scale, 0, badge.width / 2 - cx / scale, 0, 1 / scale, badge.height / 2 - (cy + dy) / scale)
+        frame = badge.transform((w, h), Image.AFFINE, coeffs, resample=Image.BICUBIC)
+        frame.save(os.path.join(work, f"logo_{i:03d}.png"))
+    res = subprocess.run([_ffmpeg_bin(), "-v", "error", "-y", "-framerate", str(LOGO_FPS),
+                          "-i", os.path.join(work, "logo_%03d.png"), "-c:v", "qtrle", "-pix_fmt", "argb", out_path],
+                         capture_output=True, text=True, timeout=120)
+    if res.returncode != 0:
+        raise RuntimeError(f"logo loop: {res.stderr[-200:]}")
+    return w, h
+
+
+def logo_filter(total: float) -> str:
+    """The logo's entrance and exit for a `total`-second video: it fades in sliding down into
+    the top-left corner, keeps its gentle loop the whole time, and fades out with the ending."""
+    end = max(0.0, total - 0.6)
+    mx, my = LOGO_MARGIN
+    return (f"[1:v]format=rgba,fade=t=in:st=0.3:d=0.8:alpha=1,fade=t=out:st={end:.3f}:d=0.6:alpha=1[logo];"
+            f"[0:v][logo]overlay=x={mx}:y='{my}-14*max(0,min(1,(1.1-t)/0.8))':shortest=1,format=yuv420p[v]")
+
+
+async def logo_on() -> bool:
+    s = await db.settings.find_one({"key": "video.logo"}, {"_id": 0, "value": 1})
+    return (s or {}).get("value", True) is not False
+
+
+async def _with_logo(work: str, src: str, total: float) -> str:
+    """`src` with the moving logo, or `src` itself when that fails (never blocks a story)."""
+    badge = os.path.join(work, "logo.png")
+    loop = os.path.join(work, "logo_loop.mov")
+    out = os.path.join(work, "branded.mp4")
+    try:
+        await asyncio.to_thread(_logo_badge, badge)
+        await asyncio.to_thread(_logo_loop, badge, loop)
+        res = await _ffmpeg(["-i", src, "-stream_loop", "-1", "-i", loop,
+                             "-filter_complex", logo_filter(total), "-map", "[v]", "-map", "0:a?",
+                             "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "copy",
+                             "-movflags", "+faststart", out], timeout=600)
+        if res.returncode == 0 and os.path.getsize(out) > 0:
+            return out
+        logger.warning(f"[assembly] logo skipped: {res.stderr[-300:]}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[assembly] logo skipped: {type(e).__name__}: {str(e)[:200]}")
+    return src
+
+
 async def _quality_gate(path: str, ordered_seconds: float | None, shots: int) -> dict:
     """Measure the finished video the way the reference videos were measured.
     Raises when it would be delivered with frozen frames or the wrong length."""
@@ -239,6 +394,8 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
             narr_parts.append((nar_path, dur))
 
             seg = os.path.join(work, f"shot_{tag}.mp4")
+            if r.get("clip_state") == "held" and not r.get("clip_url"):
+                raise RuntimeError(f"shot {tag} is held: its start picture needs a new drawing")
             clip_fid = _file_id_from_url(r.get("clip_url"))
             clip_bytes = await _fetch_file_bytes(clip_fid) if clip_fid else None
             if clip_bytes:
@@ -253,6 +410,9 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
                         raise RuntimeError(f"shot {tag}: clip is {clip_len:.1f}s for a {dur:.1f}s line")
                     vf = f"setpts={factor:.4f}*PTS,{vf}"
                     slowed += 1
+                if await _still_seconds(raw) >= STILL_CLIP_SECONDS:
+                    vf = f"{vf},{_PUSH_IN}"
+                    still_motion += 1
                 res = await _ffmpeg(["-i", raw, "-vf", vf, "-t", f"{dur:.3f}", "-an",
                                      "-c:v", "libx264", "-preset", "medium", "-crf", "20", seg], timeout=180)
             else:
@@ -266,10 +426,7 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
                 with open(img, "wb") as f:
                     f.write(kf)
                 frames = int(dur * 24) + 1
-                res = await _ffmpeg(["-loop", "1", "-i", img, "-vf",
-                                     f"scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440,"
-                                     f"zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-                                     f":d={frames}:s=1280x720:fps=24,setsar=1,format=yuv420p",
+                res = await _ffmpeg(["-loop", "1", "-i", img, "-vf", _PICTURE_PUSH_IN.format(frames=frames),
                                      "-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "20", seg],
                                     timeout=180)
                 still_motion += 1
@@ -321,7 +478,8 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
             raise RuntimeError(f"ffmpeg audio mix failed: {res.stderr[-300:]}")
 
         qa = await _quality_gate(out_path, plan.get("duration_seconds"), len(rows))
-        video_url = await _store_final_video(order_id, (order or {}).get("user_id"), out_path)
+        delivered = await _with_logo(work, out_path, qa["duration_seconds"] or total) if await logo_on() else out_path
+        video_url = await _store_final_video(order_id, (order or {}).get("user_id"), delivered)
         thumb = cover_image_url or rows[0].get("keyframe_url")
         meta = {
             "assembly_mode": "shots",
@@ -340,6 +498,7 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
             "encoder": "ffmpeg",
             "resolution": "1280x720",
             "real_narration_used": True,
+            "logo": delivered != out_path,
         }
         return video_url, thumb, meta
     finally:

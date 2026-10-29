@@ -17,6 +17,10 @@ import { scenesLabel } from "../lib/arabic";
 // The ideas take ~50 s: a bar that fills with time, a counter and changing
 // lines, instead of a spinner that looks stuck.
 const IDEA_SECONDS = 50;
+// Order statuses after a scenario was chosen: the page shows the choice (it used to
+// show an empty page) with a way to the plan, and nothing can be chosen again.
+const PAST_CHOICE = ["ready_for_ai", "production_planning", "production_ready", "production_approved",
+  "assets_generating", "assets_ready", "assembling", "delivered", "media_failed"];
 const IDEA_MESSAGES = [
   "نقرأ الموقف الذي حكيته ✍️",
   "نفكّر في 3 زوايا مختلفة للقصة 💡",
@@ -140,11 +144,13 @@ export default function ScenarioSelection() {
   useTicker(isLoading);
   const ideaElapsed = loadStartRef.current ? (Date.now() - loadStartRef.current) / 1000 : 0;
   const ideaShare = Math.min(ideaElapsed / IDEA_SECONDS, 0.95);
-  const isReady = state.status === "scenarios_ready" || state.status === "scenario_selected" || state.status === "ready_for_ai";
+  const pastChoice = !!state.selected_scenario_id && PAST_CHOICE.includes(state.status);
+  const isReady = state.status === "scenarios_ready" || state.status === "scenario_selected" || state.status === "ready_for_ai"
+    || pastChoice;
   const isFailed = state.status === "failed";
   const isLocked = state.status === "generating" || state.status === "completed";
 
-  const regenBtnDisabled = isLocked || regenerating || limitReached;
+  const regenBtnDisabled = isLocked || pastChoice || regenerating || limitReached;
   const regenTooltip = limitReached
     ? "تم استهلاك جميع محاولات إعادة التوليد"
     : remaining === 1
@@ -235,6 +241,17 @@ export default function ScenarioSelection() {
 
         {isReady && state.scenarios.length > 0 && (
           <>
+            {pastChoice && (
+              <div className="mb-5 rounded-2xl bg-[#E8F0E1] border border-[#87A96B]/40 p-4 flex items-center justify-between gap-3 flex-wrap" data-testid="choice-made">
+                <p className="font-body text-sm text-[#4F6B3B] inline-flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  {state.status === "production_planning" ? "اخترت الحكاية، ونجهّز خطة القصة الآن." : "اخترت الحكاية، وخطة القصة جاهزة."}
+                </p>
+                <button onClick={() => navigate(`/orders/${id}/production-ready`)} className="btn-primary text-sm" data-testid="open-plan-btn">
+                  افتح الخطة
+                </button>
+              </div>
+            )}
             {/* Last-attempt warning banner */}
             {remaining === 1 && !limitReached && (
               <div className="mb-5 rounded-2xl bg-[#F8F1E7] border border-[#D4A373]/40 p-4 flex items-center gap-3" data-testid="last-attempt-warning">
@@ -309,7 +326,7 @@ export default function ScenarioSelection() {
                       </div>
                     )}
 
-                    {selected ? (
+                    {pastChoice && !selected ? null : selected ? (
                       <div className="rounded-full bg-[#87A96B] text-white py-3 font-bold font-body text-center inline-flex items-center justify-center gap-2">
                         <CheckCircle2 className="w-4 h-4" /> تم اختياره
                       </div>

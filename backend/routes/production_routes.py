@@ -237,6 +237,66 @@ async def user_approve_production(order_id: str, background: BackgroundTasks, cu
     return {"ok": True, "asset_run_id": run_id}
 
 
+# ---------------------------------------------------------------- the parent checks the pictures
+class PictureKey(BaseModel):
+    scene_index: int = Field(ge=0, le=200)
+    shot_index: int = Field(ge=0, le=200)
+
+
+class PictureRedrawIn(BaseModel):
+    shots: list[PictureKey] = Field(min_length=1, max_length=12)
+    reason: str = Field("other", max_length=20)
+
+
+@user_router.get("/{order_id}/pictures")
+async def user_order_pictures(order_id: str, current=Depends(get_current_user)):
+    from services import picture_review
+
+    order = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    return {"status": order.get("status"), **await picture_review.pictures(order)}
+
+
+@user_router.post("/{order_id}/pictures/redraw")
+async def user_redraw_pictures(order_id: str, payload: PictureRedrawIn, current=Depends(get_current_user)):
+    from services import picture_review
+
+    order = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    try:
+        return await picture_review.redraw(order, [(k.scene_index, k.shot_index) for k in payload.shots],
+                                           payload.reason, current["id"])
+    except picture_review.ReviewError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@user_router.post("/{order_id}/pictures/approve")
+async def user_approve_pictures(order_id: str, background: BackgroundTasks, current=Depends(get_current_user)):
+    from services import picture_review
+
+    order = await db.orders.find_one({"id": order_id, "user_id": current["id"]}, {"_id": 0, "id": 1})
+    if not order:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود")
+    if not await picture_review.approve(order_id, "user", current["id"], background):
+        raise HTTPException(status_code=409, detail="الصور اعتُمدت بالفعل أو لسه بتترسم")
+    return {"ok": True}
+
+
+@admin_router.post("/orders/{order_id}/pictures/approve")
+async def admin_approve_pictures(order_id: str, background: BackgroundTasks, admin=Depends(require_admin)):
+    """For a parent who asked us by phone: the story goes on as if they approved."""
+    from services import picture_review
+    from services.audit_service import record_audit
+
+    if not await picture_review.approve(order_id, "admin", admin.get("id"), background):
+        raise HTTPException(status_code=409, detail="الطلب مش مستني مراجعة الصور")
+    await record_audit(entity_type="order", entity_id=order_id, action="pictures.approve", actor_id=admin.get("id"),
+                       actor_email=admin.get("email"), summary="اعتماد صور القصة بدل ولي الأمر")
+    return {"ok": True}
+
+
 async def _max_line_words() -> int:
     """The longest narration line that still fits one shot (same rule the plan follows)."""
     from services import engine_config, house_style

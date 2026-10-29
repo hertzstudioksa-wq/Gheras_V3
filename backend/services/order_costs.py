@@ -72,6 +72,27 @@ async def actual_cost(order: dict) -> dict:
     for model, n in sheets.items():
         unit = await _price_by_model(model, sheet_quality)
         add("character_sheets", "شيتات الشخصيات", n, "صورة", unit if unit is not None else story_pricing.IMAGE_HIGH, note=model)
+    views_gpu, views = 0.0, 0
+    for coll in (db.child_character_assets, db.extra_character_assets):
+        async for d in coll.find({"order_id": order_id, "head_views_gpu_seconds": {"$gt": 0}},
+                                 {"_id": 0, "head_views_gpu_seconds": 1}):
+            views_gpu, views = views_gpu + float(d["head_views_gpu_seconds"]), views + 1
+    add("head_views", "وشوش الشخصيات من 3 زوايا (Comfy)", views_gpu, "ثانية GPU", gpu_usd, note=f"{views} شخصية")
+    fit_gpu, fitted = 0.0, 0
+    for coll in (db.child_character_assets, db.extra_character_assets):
+        async for d in coll.find({"order_id": order_id, "proportions_gpu_seconds": {"$gt": 0}},
+                                 {"_id": 0, "proportions_gpu_seconds": 1}):
+            fit_gpu, fitted = fit_gpu + float(d["proportions_gpu_seconds"]), fitted + 1
+    add("character_sheets", "نسب الجسم في الشيتات (Comfy)", fit_gpu, "ثانية GPU", gpu_usd, note=f"{fitted} شيت")
+    angles: dict[tuple, int] = {}
+    for coll in (db.child_character_assets, db.extra_character_assets):
+        async for d in coll.find({"order_id": order_id, "head_views_angles": {"$gt": 0}},
+                                 {"_id": 0, "head_views_angles": 1, "head_views_model": 1, "head_views_quality": 1}):
+            k = (d.get("head_views_model"), d.get("head_views_quality") or "medium")
+            angles[k] = angles.get(k, 0) + int(d["head_views_angles"])
+    for (model, q), n in angles.items():
+        unit = await _price_by_model(model, q)
+        add("head_views", "زوايا الوش من صور الأهل", n, "صورة", unit if unit is not None else 0.06, note=f"{model} · {q}")
 
     covers, comfy_covers, cover_gpu = 0, 0, 0.0
     async for c in db.scene_images.find({"order_id": order_id, "kind": "cover", "source_type": {"$ne": "mock"}},
@@ -84,12 +105,20 @@ async def actual_cost(order: dict) -> dict:
         note="شامل إعادة الرسم" if covers > 1 else None)
     add("cover", "الغلاف (Comfy)", cover_gpu, "ثانية GPU", gpu_usd, note=f"{comfy_covers} صورة")
 
+    # Story objects drawn once as references (Comfy), failed takes included.
+    object_gpu, objects = 0.0, 0
+    async for o in db.object_sheets.find({"order_id": order_id}, {"_id": 0, "gpu_seconds": 1}):
+        object_gpu, objects = object_gpu + float(o.get("gpu_seconds") or 0), objects + 1
+    add("object_sheets", "صور مرجع الحاجات (Comfy)", object_gpu, "ثانية GPU", gpu_usd, note=f"{objects} صورة")
+
     # Keyframes and clips (shot engine); older orders drew one image per scene.
     shot_quality = quality.get("scene_image_generation", "high")
     keyframes: dict[str, int] = {}
     clip_seconds: dict[str, float] = {}
     comfy_keyframes = [0, 0.0]   # images, GPU seconds
     comfy_clips = [0.0, 0.0]     # video seconds, GPU seconds
+    end_frames_gpu = 0.0         # the shots' end pictures (Comfy)
+    face_fix_gpu = 0.0           # grown-ups' real faces edited into the pictures (Comfy FaceID)
     reviews = 0
     async for s in db.shot_assets.find({"order_id": order_id}, {"_id": 0, "keyframe_url": 1, "image_model": 1,
                                                                 "clip_seconds": 1, "clip_model": 1, "clip_url": 1,
@@ -97,17 +126,25 @@ async def actual_cost(order: dict) -> dict:
                                                                 "clip_calm_redo": 1, "paid_keyframes": 1,
                                                                 "paid_clip_seconds": 1, "comfy_clip_seconds": 1,
                                                                 "comfy_clip_model": 1, "keyframe_gpu_seconds": 1,
-                                                                "clip_gpu_seconds": 1}):
+                                                                "clip_gpu_seconds": 1, "paid_rescue_keyframes": 1,
+                                                                "rescue_model": 1, "end_frames_gpu_seconds": 1,
+                                                                "face_fix_gpu_seconds": 1}):
+        end_frames_gpu += float(s.get("end_frames_gpu_seconds") or 0)
+        face_fix_gpu += float(s.get("face_fix_gpu_seconds") or 0)
         # Every attempt sent is paid: the review's redos and the admin's
         # single-shot redos too. Shots made before the counters existed fall back
         # to what was kept (twice when the review sent it back).
         kr, cr = s.get("keyframe_review") or {}, s.get("clip_review") or {}
         if s.get("keyframe_url") or s.get("paid_keyframes"):
             drawn = s.get("paid_keyframes") or (2 if kr.get("redrawn") else 1)
-            if str(s.get("image_model") or "").startswith("comfy/") and s.get("keyframe_gpu_seconds"):
-                comfy_keyframes[0] += drawn
+            # A Comfy shot's GPT rescue takes are GPT's price; the rest is GPU time.
+            rescued = int(s.get("paid_rescue_keyframes") or 0)
+            if rescued:
+                keyframes[s.get("rescue_model")] = keyframes.get(s.get("rescue_model"), 0) + rescued
+            if s.get("keyframe_gpu_seconds"):
+                comfy_keyframes[0] += drawn - rescued
                 comfy_keyframes[1] += float(s["keyframe_gpu_seconds"])
-            else:
+            elif not rescued:
                 keyframes[s.get("image_model")] = keyframes.get(s.get("image_model"), 0) + drawn
         if s.get("paid_clip_seconds") or (s.get("clip_url") and s.get("clip_seconds")):
             paid = s.get("paid_clip_seconds") or float(s["clip_seconds"]) * (2 if s.get("clip_calm_redo") else 1)
@@ -134,6 +171,9 @@ async def actual_cost(order: dict) -> dict:
         add("keyframes", "صور اللقطات", n, "صورة", unit if unit is not None else story_pricing.IMAGE_MEDIUM, note=model)
     add("keyframes", "صور اللقطات (Comfy)", comfy_keyframes[1], "ثانية GPU", gpu_usd,
         note=f"comfy/keyframe_qwen21 — {comfy_keyframes[0]} صورة")
+    add("keyframes", "صور نهاية اللقطات (Comfy)", end_frames_gpu, "ثانية GPU", gpu_usd, note="آخر فريم لكل مقطع")
+    add("keyframes", "ملامح الكبار من صورهم (Comfy FaceID)", face_fix_gpu, "ثانية GPU", gpu_usd,
+        note="وش الأب/الأم من صورته في كل صورة")
     for model, seconds in clip_seconds.items():
         add("clips", "مقاطع الفيديو", seconds, "ثانية", await _price_by_model(model), note=model)
     add("clips", "مقاطع الفيديو (Comfy)", comfy_clips[1], "ثانية GPU", gpu_usd,

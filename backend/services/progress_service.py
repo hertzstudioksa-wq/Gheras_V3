@@ -32,6 +32,7 @@ STAGE_LABELS_AR = {
     "delivered": "جاهز",
     "failed": "تعذّر الإنشاء",
     "paused": "تأخير بسيط من جهتنا",
+    "review": "مراجعة الصور",
 }
 
 # Real-world seconds per unit, measured on the first full test order.
@@ -46,7 +47,6 @@ PLANNING_MESSAGES = [
     "نضبط كلام الراوي باللهجة المختارة 🎙️",
     "نراجع القصة لتناسب عمر {name} 💚",
 ]
-MAX_PREVIEWS = 16
 # How the parent sees the rest of the cast in the previews (sheet labels are English).
 CAST_AR = {"father": "شخصية الأب", "mother": "شخصية الأم", "sibling": "شخصية الأخ/الأخت",
            "grandparent": "شخصية الجد/الجدة", "friend": "شخصية الصديق", "teacher": "شخصية المعلّم",
@@ -217,9 +217,11 @@ async def _shot_progress(order: dict, now: datetime) -> dict | None:
                  for t, v in sheets.items() if t != "child"][:3]
     if cover and cover.get("image_url"):
         previews.append({"kind": "cover", "url": cover["image_url"], "label_ar": "الغلاف"})
-    previews += [{"kind": "scene", "url": rows[k]["keyframe_url"], "label_ar": f"المشهد {k[0]}"}
+    # Every finished picture, labelled by scene and shot: a cap of 16 previews cut the
+    # last of a one-minute story's twelve shots ("12 done", eleven pictures shown).
+    previews += [{"kind": "scene", "url": rows[k]["keyframe_url"], "label_ar": f"المشهد {k[0]} · لقطة {k[1]}"}
                  for k in planned if (rows.get(k) or {}).get("keyframe_url")]
-    return {"message": message, "remaining": remaining, "steps": steps, "previews": previews[:MAX_PREVIEWS],
+    return {"message": message, "remaining": remaining, "steps": steps, "previews": previews,
             "highlight": "character" if sheets_done and not kf_done else None}
 
 
@@ -243,6 +245,11 @@ async def compute_pipeline_progress(order: dict) -> dict:
                                   "ولا تحتاج إلى فعل أي شيء."}
         return {"stage": "failed", "stage_ar": STAGE_LABELS_AR["failed"], "percent": 0,
                 "message_ar": "تعذّر إكمال بعض الخطوات"}
+
+    if status == OrderStatus.PICTURES_REVIEW.value:
+        redrawing = (order.get("picture_review") or {}).get("state") == "redrawing"
+        return {"stage": "review", "stage_ar": STAGE_LABELS_AR["review"], "percent": 60, "review": True,
+                "message_ar": "نعيد رسم الصور التي اخترتها 🖌️" if redrawing else "صور القصة جاهزة — راجعها واعتمدها"}
 
     if status == OrderStatus.AWAITING_PAYMENT.value:
         return {"stage": "plan", "stage_ar": STAGE_LABELS_AR["plan"], "percent": 12,

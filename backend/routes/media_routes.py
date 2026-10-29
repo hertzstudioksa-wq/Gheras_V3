@@ -1,4 +1,5 @@
 """Media (assets) routes — Phase 6A + Final Assembly Phase 6B."""
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -181,7 +182,7 @@ async def admin_get_child_character(order_id: str):
 
 # ---------------- Shots (admin): see every shot, redo one ----------------
 _SHOT_FIELDS = ("scene_index", "shot_index", "narration_line", "shot_type", "characters", "keyframe_url",
-                "keyframe_review", "motion_prompt", "clip_url", "clip_state", "clip_error", "clip_review",
+                "keyframe_review", "end_keyframe_url", "end_frame_review", "motion_prompt", "clip_url", "clip_state", "clip_error", "clip_review",
                 "clip_calm_redo", "clip_prompt_used", "clip_seconds", "narration_seconds", "redo", "updated_at")
 
 
@@ -197,7 +198,8 @@ async def admin_order_shots(order_id: str):
 
 
 class ShotRedoIn(BaseModel):
-    target: str = Field("clip", pattern="^(clip|both)$")  # both = new start frame and new clip
+    # both = new start frame and new clip; still = a slow push-in on the start picture (no video model)
+    target: str = Field("clip", pattern="^(clip|both|still)$")
     motion_prompt: str | None = Field(None, max_length=1200)
     reassemble: bool = True
 
@@ -223,7 +225,10 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
         raise HTTPException(status_code=404, detail="اللقطة مش موجودة")
     if (row.get("redo") or {}).get("state") == "running":
         raise HTTPException(status_code=409, detail="اللقطة دي بتتعاد دلوقتي")
-    await ensure_available()
+    if payload.target == "still" and not row.get("keyframe_url"):
+        raise HTTPException(status_code=409, detail="اللقطة مالهاش صورة بداية")
+    if payload.target != "still":
+        await ensure_available()
     reset = {"clip_url": None, "clip_request_id": None, "clip_prompt_id": None, "clip_rescue": None,
              "clip_state": None, "clip_error": None, "clip_review": None,
              "clip_run_id": None, "redo": {"state": "running", "target": payload.target, "by": admin.get("email"),
@@ -231,7 +236,7 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
     if payload.target == "both":
         # A stale Comfy job id would hand back the old picture instead of a new one.
         reset.update({"keyframe_url": None, "keyframe_review": None, "keyframe_prompt_id": None,
-                      "keyframe_prompt_attempt": None})
+                      "keyframe_prompt_attempt": None, "end_keyframe_url": None, "end_frame_review": None})
     if payload.motion_prompt is not None and payload.motion_prompt.strip():
         reset["motion_prompt"] = payload.motion_prompt.strip()
         # The plan keeps the edit too, so a later full rerun uses it.
@@ -241,7 +246,7 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
     await db.shot_assets.update_one(key, {"$set": reset})
     await record_audit(entity_type="order", entity_id=order_id, action="shot.redo", actor_id=admin.get("id"),
                        actor_email=admin.get("email"), summary=f"إعادة اللقطة {scene_index}_{shot_index} "
-                       f"({'الصورة والمقطع' if payload.target == 'both' else 'المقطع'})",
+                       f"({ {'both': 'الصورة والمقطع', 'still': 'صورة ثابتة بزووم'}.get(payload.target, 'المقطع') })",
                        before={k: row.get(k) for k in ("keyframe_url", "clip_url", "motion_prompt")},
                        after={"target": payload.target, "motion_prompt": reset.get("motion_prompt")})
 
@@ -253,6 +258,22 @@ async def admin_redo_shot(order_id: str, scene_index: int, shot_index: int, payl
         state, error = "done", None
         try:
             plan = await db.production_plans.find_one({"id": order["production_plan_id"]}, {"_id": 0})
+            if payload.target == "still":
+                # Every video take of this shot broke: its checked picture with a slow push-in.
+                from services.video_assembly_service import push_in_clip
+                picture = (await shot_pipeline._fetch_source_bytes(row["keyframe_url"]))[0]
+                seconds = max(float(row.get("clip_seconds") or 0), float(row.get("narration_seconds") or 0) + 1.0, 5.0)
+                data = await asyncio.to_thread(push_in_clip, picture, seconds)
+                url = await shot_pipeline._store(order, "clip", data, "video/mp4", "mp4")
+                await db.shot_assets.update_one(key, {"$set": {
+                    "clip_url": url, "clip_raw_url": row.get("clip_url"), "clip_state": "completed",
+                    "clip_engine": "still", "clip_seconds": round(seconds, 2),
+                    "clip_review": {"ok": True, "problems": [], "still": True, "by": admin.get("email")}}})
+                if payload.reassemble:
+                    await run_final_assembly(order_id, str(uuid.uuid4()))
+                await db.shot_assets.update_one(key, {"$set": {"redo.state": "done", "redo.error": None,
+                                                               "redo.finished_at": _now()}})
+                return
             if payload.target == "both":
                 # Redraws only the shots without a start frame (this one), seeing the previous shot.
                 await shot_pipeline.execute_scene_keyframes(

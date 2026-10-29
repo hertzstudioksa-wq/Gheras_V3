@@ -9,7 +9,7 @@ const STEP_OF_STATUS = {
   draft: 0, pending: 0, in_review: 0, scenarios_generating: 0, scenarios_ready: 0, scenario_selected: 0,
   awaiting_payment: 1,
   ready_for_ai: 2, production_planning: 2, production_ready: 2,
-  production_approved: 3, assets_generating: 3, assets_ready: 3, assembling: 3, generating: 3, media_failed: 3,
+  production_approved: 3, assets_generating: 3, pictures_review: 3, assets_ready: 3, assembling: 3, generating: 3, media_failed: 3,
   delivered: 5, completed: 5,
 };
 

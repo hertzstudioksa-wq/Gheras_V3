@@ -29,7 +29,7 @@ from services.config_service import (
     get_pipeline_config,
     DEFAULT_MODELS,
 )
-from services import engine_config, house_style
+from services import engine_config, head_views, house_style, sheet_proportions
 from services.ai.image_client import generate_image as generate_provider_image
 from storage import put_object, APP_NAME
 
@@ -64,7 +64,7 @@ def _build_context(order: dict, plan: dict | None, outfit: str = "",
         "child_outfit":  outfit or "same as in the photo",
         "outfit_rule":   house_style.outfit_rule(outfit),
         # The parent's art style preset (admin-editable).
-        "style_text":    art_style.get("style_text") or house_style.STYLE,
+        "style_text":    art_style.get("style_text") or engine_config.DEFAULT_STYLE["style_text"],
         "sheet_rules":   art_style.get("sheet_rules") or house_style.SHEET_RULES,
     }
 
@@ -121,7 +121,7 @@ async def _fetch_source_bytes(source_image_url: str, owner_id: str | None = None
 
 
 async def _generate_character(source_bytes: bytes, prompt: str, provider: str, model_name: str,
-                              style_ref: bytes | None = None) -> dict[str, Any]:
+                              style_ref: bytes | None = None, quality: str = "high") -> dict[str, Any]:
     """Identity-preserving photo → cartoon character via the image adapter. Raises AIError."""
     image_bytes, mime, meta = await generate_provider_image(
         stage="child_character_i2i",
@@ -131,6 +131,7 @@ async def _generate_character(source_bytes: bytes, prompt: str, provider: str, m
         # The style preset's neutral reference image rides along so every character lands in that style.
         references=[source_bytes] + ([style_ref] if style_ref else []),
         size=house_style.SHEET_SIZE,
+        quality=quality,
     )
     return {"image_bytes": image_bytes, "mime_type": mime, "meta": meta}
 
@@ -203,7 +204,9 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
         logger.info(f"[child_character_i2i] disabled — skipping for order={order_id}")
         return {"ran": False, "skipped": True, "status": "skipped", "reason": "stage_disabled"}
 
-    source_image_url = ((order.get("data") or {}).get("child") or {}).get("image_url")
+    child = (order.get("data") or {}).get("child") or {}
+    source_image_url = child.get("image_url")
+    extra_urls = [u for u in child.get("extra_image_urls") or [] if u][:2]
     if not source_image_url:
         logger.info(f"[child_character_i2i] no child image_url — skipping for order={order_id}")
         return {"ran": False, "skipped": True, "status": "skipped", "reason": "no_source_image"}
@@ -211,6 +214,7 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
     existing = await get_asset(order_id)
     if not force and existing and existing.get("status") == "completed" and existing.get("generated_image_url") \
             and existing.get("source_image_url") == source_image_url \
+            and (existing.get("source_extra_urls") or []) == extra_urls \
             and existing.get("production_plan_id") == (plan or {}).get("id"):
         logger.info(f"[child_character_i2i] reusing the sheet drawn for this plan (order={order_id})")
         return {"ran": True, "skipped": False, "status": "completed", "reused": True, "asset": existing}
@@ -237,16 +241,20 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
 
     generated_url: str | None = None
     real_meta: dict[str, Any] = {}
+    views: dict[str, Any] = {}
     error: str | None = None
     src_tuple = await _fetch_source_bytes(source_image_url, owner_id=order["user_id"])
     if not src_tuple:
         error = "child photo could not be read from storage"
     else:
         try:
-            result = await _generate_character(src_tuple[0], prompt, provider, model_name,
-                                               await engine_config.style_reference_bytes(art_style))
-            generated_url = await _save_generated_png(order_id, order["user_id"], result["image_bytes"])
-            real_meta = result.get("meta") or {}
+            style_ref = await engine_config.style_reference_bytes(art_style)
+            result = await _generate_character(src_tuple[0], prompt, provider, model_name, style_ref)
+            sheet, fitted = await sheet_proportions.real_proportions(
+                result["image_bytes"], age=((order.get("data") or {}).get("child") or {}).get("age"), adult=False)
+            generated_url = await _save_generated_png(order_id, order["user_id"], sheet)
+            real_meta = {**(result.get("meta") or {}), "proportions": fitted}
+            views = {**head_views.NONE, "proportions_gpu_seconds": fitted.get("gpu_seconds") or 0}  # the heads are for grown-ups only (services/head_views.py)
         except Exception as e:  # noqa: BLE001 — recorded on the asset and surfaced to the orchestrator
             error = f"{type(e).__name__}: {e}"
             logger.warning(f"[child_character_i2i] generation failed order={order_id}: {error[:300]}")
@@ -255,7 +263,9 @@ async def run_child_character_generation(order: dict, plan: dict | None, force: 
         if generated_url:
             asset = await _upsert_asset(order_id, {
                 "source_image_url":    source_image_url,
+                "source_extra_urls":   extra_urls,
                 "generated_image_url": generated_url,
+                **views,
                 "provider":            provider,
                 "model_name":          model_name,
                 "prompt_used":         prompt,

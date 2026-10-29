@@ -167,7 +167,7 @@ ORDER_PHASES = {
     "intake": ["draft", "pending", "in_review"],
     "scenarios": ["scenarios_generating", "scenarios_ready", "scenario_selected", "awaiting_payment"],
     "planning": ["ready_for_ai", "production_planning", "production_ready", "production_approved"],
-    "media": ["assets_generating", "assets_ready", "assembling", "generating"],
+    "media": ["assets_generating", "pictures_review", "assets_ready", "assembling", "generating"],
     "delivered": ["delivered", "completed"],
     "failed": ["media_failed", "failed"],
 }
@@ -634,6 +634,49 @@ KNOWN_SETTINGS = {
         "description_ar": "كام صورة أو مقطع يتبعتوا لـ Comfy Cloud مع بعض لكل الطلبات. باقة Standard بتشغّل طلب "
                           "واحد بس؛ زوّده لو الباقة بتسمح بأكتر. التغيير بيسري في ثواني من غير restart.",
         "type": "int", "min": 1, "max": 8, "default": 1,
+    },
+    "video.logo": {
+        "label_ar": "لوجو غراس في الفيديو",
+        "description_ar": "اللوجو ستيكر بحرف أبيض وظل خفيف في الركن الشمال فوق، بحركة هادية طول الفيديو (بينزل "
+                          "ويظهر، بيطفو ويتنفّس بخفة، وبيختفي مع النهاية). بيتحط بعد فحص الجودة فمبيأثرش عليه.",
+        "type": "bool", "default": True,
+    },
+    "book.tashkeel": {
+        "label_ar": "تشكيل نص الكتاب",
+        "description_ar": "مقفول افتراضياً (قرار المالك: مش مهم ويوفّر فلوس). لو اتفتح: نداء واحد لموديل التخطيط بيشكّل "
+                          "كل صفحات الكتاب (~$0.03 للكتاب). الصوت مش بيتأثر بيه.",
+        "type": "bool", "default": False,
+    },
+    "review.parent_pictures": {
+        "label_ar": "ولي الأمر يراجع الصور قبل الفيديو",
+        "description_ar": "بعد ما كل صور اللقطات تترسم وتتراجع، الطلب بيستنى ولي الأمر: يشوف الصور ويرجّع اللي "
+                          "مش عاجباه تترسم تاني، ويعتمد، وبعدها بس بتتحرّك. الفيديو المرفوض أغلى بكتير من صورة.",
+        "type": "bool", "default": True,
+    },
+    "review.parent_redraws": {
+        "label_ar": "عدد الصور اللي ولي الأمر يقدر يرجّعها",
+        "description_ar": "إعادات رسم مجانية في مراجعة الصور، للطلب كله (كل صورة بتترسم من تاني بنفس المراجعات).",
+        "type": "int", "min": 0, "max": 12, "default": 3,
+    },
+    "review.auto_approve_hours": {
+        "label_ar": "اعتماد الصور تلقائياً بعد (ساعات)",
+        "description_ar": "لو ولي الأمر مراجعش الصور، بتتعتمد لوحدها بعد المدة دي والقصة بتكمل. 0 = يستنى ولي الأمر.",
+        "type": "int", "min": 0, "max": 168, "default": 24,
+    },
+    "comfy.face_id": {
+        "label_ar": "ملامح الكبار من صورهم في كل لقطة (FaceID)",
+        "description_ar": "بعد كل صورة بداية ونهاية فيها الأب أو الأم (أو الجد/الجدة/العم/الخالة) المرسوم من صورة، "
+                          "بيتعاد رسم راسه بس من بصمة وشه في صورته، بنفس الزاوية والإضاءة والستايل. ≈ سنت للوش. "
+                          "لو في اللقطة كبيرين من نفس النوع أو شخص مش معروف، اللقطة بتتساب زي ما اترسمت. "
+                          "مقفول افتراضياً: المالك فضّل وش Qwen المرسوم من الشيت.",
+        "type": "bool", "default": False,
+    },
+    "comfy.pin_last_frame": {
+        "label_ar": "تثبيت آخر فريم في كل مقطع",
+        "description_ar": "لكل لقطة بتترسم صورة نهاية (نفس صورة البداية بعد لحظة، بتتراجع زيها) وWan بيتحرك بين "
+                          "الصورتين بس: ميقدرش يخلّص المقطع بوش ملفوف للكاميرا أو بملامح تانية. ≈ سنتين زيادة للقطة. "
+                          "لو صورة النهاية اترفضت مرتين، المقطع بيتعمل من صورة البداية لوحدها زي الأول.",
+        "type": "bool", "default": True,
     },
     "comfy.kling_rescue": {
         "label_ar": "Kling كشبكة أمان لمقاطع Comfy",

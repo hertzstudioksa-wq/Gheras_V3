@@ -111,16 +111,34 @@ def test_template_order_and_numbering():
     text, refs = build(["child", "father", "dog"], "Lina hugs Bunbun while her father and the dog watch.")
     lines = text.split("\n")
     assert lines[0] == sp.COMFY_INTRO
-    assert lines[1].startswith("IDENTITY (most important): <image1> is Lina (keep two short braids exactly")
-    assert "<image2> is Omar (the child's father)," in lines[1]  # no empty "keep" for no key features
+    # people from a photo keep their sheet's face, not the plan's guess at it ("two short braids")
+    # a child's line never names facial hair and always says it has none (a close-up gave a boy stubble)
+    assert lines[1].startswith(f"IDENTITY (most important): <image1> is Lina ({sp.CHILD_PHOTO_FACE}; {sp.CHILD_FACE}), ")
+    assert "beard" not in lines[1].split("<image2>")[0].replace(sp.CHILD_FACE, "")
+    assert f"<image2> is Omar (the child's father) ({sp.FROM_PHOTO_FACE})," in lines[1]
+    assert "braids" not in lines[1]
     assert "<image3> is the child's dog (keep red collar, floppy ears exactly as in the reference)" in lines[1]
     assert "<image4> shows only the child's Bunbun" in lines[1]
     assert "previous shot" not in lines[1]
     assert numbering(text) == list(range(1, len(refs) + 1)) == [1, 2, 3, 4]
-    assert lines[2] == sp.COMFY_COPY and lines[3] == sp.COMFY_ONCE
-    assert lines[4].startswith("SCENE: a medium shot, with the characters large in the frame. Lina hugs Bunbun")
+    assert lines[2] == sp.COMFY_COPY
+    assert lines[3].startswith("The picture shows exactly 3 characters (Lina, Omar and the child's dog): each appears "
+                               "exactly once and nobody else is in it")
+    assert lines[4].startswith("SCENE: a medium shot, with the characters large in the frame. Lina (<image1>) hugs Bunbun")
     assert "Setting: a small garden behind the house." in lines[4]
     assert lines[-3:] == [sp.COMFY_STYLE, sp.COMFY_FRAME, sp.NO_TEXT]
+
+
+def test_scene_names_point_at_their_reference():
+    # One character apart from the others got a new, fourth child: the tag ties them to their sheet.
+    text, _ = build(["child", "father"], "Omar's hat is on the bench. Lina plays with the ball while Omar stands "
+                                         "alone by the gate, and Lina laughs.", toy=None, previous=None)
+    scene = next(line for line in text.splitlines() if line.startswith("SCENE"))
+    assert "Omar's hat" in scene and "Omar (<image2>) stands alone" in scene  # the owner's 's stays as written
+    assert "Lina (<image1>) plays" in scene and scene.count("<image1>") == 1  # first mention only
+    assert "exactly 2 characters (Lina and Omar)" in text
+    solo, _ = build(["dog"], "The dog sleeps.", toy=None, previous=None)
+    assert "exactly one character (the child's dog)" in solo and "(<image" not in solo.split("SCENE")[1]
 
 
 def test_cast_without_a_sheet_is_described():
@@ -132,7 +150,7 @@ def test_cast_without_a_sheet_is_described():
 
 def test_nobody_in_the_shot():
     text, refs = build([], "Wide view of the empty garden at dawn.", toy=None, previous=None)
-    assert sp.COMFY_NOBODY in text and sp.COMFY_ONCE not in text and sp.COMFY_COPY not in text
+    assert sp.COMFY_NOBODY in text and "exactly" not in text.split("SCENE")[0] and sp.COMFY_COPY not in text
     assert "with the main subject large in the frame" in text
     assert "<image1> shows the art style only" in text
 
@@ -147,7 +165,22 @@ def test_no_style_preset_or_face_words():
 
 # Words from earlier test stories must never be baked into the code.
 STORY_WORDS = ("horse", "saddle", "bridle", "sonic", "hedgehog", "police", "policeman", "yaman", "amr", "israa",
-               "costa rica", "beach", "sunset")
+               "costa rica", "beach", "sunset", "yazan", "esraa", "york", "mickey", "baraa", "scooter")  # Lina and Bunbun are this file's own test data
+# Names from the test families and stories, in either language.
+STORY_NAMES = ("sonic", "سونيك", "yaman", "يمان", "yazan", "يزن", "israa", "esraa", "إسراء", "york", "lina", "لينا",
+               "bunbun", "بونبون", "costa", "كوستاريكا", "mickey", "ميكي", "baraa", "براء")
+
+
+def test_no_story_names_in_the_planning_rules_or_the_new_modules():
+    from services import clip_review, production_service, tashkeel_service, toy_freeze
+
+    texts = {"planning rules": production_service.SYSTEM_MSG, "review": clip_review.SYSTEM,
+             "tashkeel": tashkeel_service.SYSTEM, "toy_freeze": Path(toy_freeze.__file__).read_text(encoding="utf-8")}
+    for where, text in texts.items():
+        for w in STORY_NAMES:
+            assert not re.search(rf"(?<!\w){re.escape(w)}(?!\w)", text.lower()), (where, w)
+    # the format examples of story_objects aren't the test story's tower
+    assert "tower" not in production_service.SYSTEM_MSG.split('"story_objects": [')[1].split("]")[0].lower()
 
 
 def test_no_story_words_in_the_comfy_code_or_prompts():
@@ -191,3 +224,107 @@ def test_comfy_fits_only_its_stages():
 def test_scene_line_article(shot_type, phrase):
     text, _ = build(["child"], shot_type=shot_type)
     assert phrase in text
+
+
+def test_identity_copies_the_face_not_the_expression():
+    assert "smile" not in sp.COMFY_COPY.lower()
+    assert "expressions" in sp.COMFY_COPY.lower() and "follow the scene" in sp.COMFY_COPY.lower()
+
+
+@pytest.mark.parametrize("raw,kept", [
+    ("Tightly curled dark brown hair, broad closed-mouth smile, round cheeks", "Tightly curled dark brown hair, round cheeks"),
+    (["red collar", "happy wagging tail", "floppy ears"], "red collar, floppy ears"),
+    ("Big laughing eyes; freckles", "freckles"),
+    ("", ""),
+])
+def test_permanent_features_drop_feelings(raw, kept):
+    assert sp._features({"key_features": raw}) == kept
+
+
+def test_plan_rules_film_around_physics_and_keep_the_camera_still():
+    from services.production_service import SYSTEM_MSG
+
+    assert "الكاميرا ثابتة دائماً" in SYSTEM_MSG and "اللحظة بعده مباشرة" in SYSTEM_MSG
+    assert "ممنوع تعبيرات أو مشاعر" in SYSTEM_MSG
+
+
+def test_gpt_names_point_at_their_reference_too():
+    sh = shot(["child", "father"], "Omar stands by the gate while Lina waves at him.")
+    notes = ["Lina's character sheet", "Omar (the child's father)'s character sheet"]
+    text = sp.keyframe_prompt(SCENE, sh, PROFILES, SHEETS, "Lina", notes, {"style_text": "s", "frame_rules": "f"},
+                              None, ["child", "father"])
+    assert text.startswith("Omar (reference image 2) stands by the gate while Lina (reference image 1) waves")
+    plain = sp.keyframe_prompt(SCENE, sh, PROFILES, SHEETS, "Lina", notes, {"style_text": "s", "frame_rules": "f"})
+    assert "(reference image" not in plain
+
+
+@pytest.mark.parametrize("problems,engine,attempt,expected", [
+    (["extra_person"], "qwen", 1, "gpt"),        # a wrong cast goes to GPT from the second take
+    (["role_swap"], "qwen", 1, "gpt"),
+    (["duplicate"], "gpt", 2, "gpt"),            # still wrong on GPT: one more GPT take
+    (["deformed"], "gpt", 3, None),              # out of takes: the least broken one
+    (["action_missing"], "qwen", 1, "qwen"),     # a soft flaw: one more Qwen take...
+    (["action_missing"], "qwen", 2, None),       # ...and no more
+    (["mood_mismatch"], "gpt", 2, None),         # a GPT take with a soft flaw is kept
+    (["action_missing"], "qwen", 2, None),
+    (["extra_person"], "qwen", 2, "gpt"),        # soft, then a wrong cast
+    (["noise"], "qwen", 1, "qwen"),              # static is a glitch: the same engine again
+    (["noise"], "qwen", 2, "qwen"),
+    (["noise", "extra_person"], "qwen", 1, "gpt"),
+])
+def test_the_next_take_after_a_flagged_keyframe(problems, engine, attempt, expected):
+    assert sp.next_take({"ok": False, "problems": problems}, engine, attempt) == expected
+
+
+@pytest.mark.parametrize("problems,engine,attempt,expected", [
+    (["camera_gaze"], "qwen", 1, "qwen"),            # owner: one more Qwen take...
+    (["camera_gaze"], "qwen", 2, "gpt"),             # ...then GPT
+    (["camera_gaze", "action_missing"], "qwen", 2, "gpt"),
+    (["camera_gaze"], "gpt", 2, None),               # GPT still looking: kept, never held
+    (["camera_gaze", "extra_person"], "qwen", 1, "gpt"),
+])
+def test_a_gaze_into_the_camera_gets_qwen_then_gpt(problems, engine, attempt, expected):
+    assert sp.next_take({"ok": False, "problems": problems}, engine, attempt) == expected
+
+
+def test_a_retake_after_a_gaze_says_so_first():
+    assert sp.redraw_note({"problems": ["camera_gaze"]}).startswith(sp.GAZE_REDO)
+    assert sp.redraw_note({"problems": ["action_missing"]}) == sp.REDRAW_NOTE
+    assert sp.flaw({"problems": ["camera_gaze"]}) > sp.flaw({"problems": ["action_missing"]})
+
+
+def test_the_video_model_is_told_who_is_who_and_to_keep_feet_and_colors():
+    # "Sami bounces on his toes" moved another child: the video model sees no names
+    cast = [{"name": "Lina", "where": "on the left", "looks": "girl, two braids, red top"},
+            {"name": "Sami", "where": "on the right", "looks": "boy, orange cap"}]
+    text = sp.wan_motion_prompt("Sami bounces while Lina waves at Sami's kite.", 2, cast_in_frame=cast)
+    assert text.startswith("Sami (the one on the right, boy, orange cap) bounces while Lina (the one on the left, "
+                           "girl, two braids, red top) waves at Sami's kite.")
+    assert "Feet stay on the ground" in text and "same shape, size and colors" in text
+    assert sp.wan_motion_prompt("Sami waves.", 2).startswith("Sami waves.")
+    kling = sp.motion_prompt("Sami waves.", [], {"motion_text": "m"}, ["Sami"], cast_in_frame=cast)
+    assert kling.startswith("Sami (the one on the right, boy, orange cap) waves.")
+
+
+def test_the_plan_rules_keep_legs_still_gaze_off_the_lens_and_owners_colors_apart():
+    from services import production_service as ps
+
+    for words in ("لا حركة للرجلين", "never leg work", "تعني في العدسة", "غرض واحد في story_objects للمجموعة"):
+        assert words in ps.SYSTEM_MSG, words
+    line = sp.objects_line([{"key": "k", "name": "the kids' kites", "look": "red for Lina, blue for Sami"}])
+    assert "keep each owner's own colors" in line
+
+
+@pytest.mark.parametrize("problems,engine,attempt,expected", [
+    (["wrong_stage"], "qwen", 1, "gpt"),     # Qwen drew the full bloom four times running
+    (["wrong_stage", "action_missing"], "qwen", 2, "gpt"),
+    (["wrong_stage"], "gpt", 2, None),       # GPT still wrong: the least broken take
+])
+def test_a_thing_at_the_wrong_stage_goes_to_gpt(problems, engine, attempt, expected):
+    assert sp.next_take({"ok": False, "problems": problems}, engine, attempt) == expected
+
+
+def test_a_partial_set_is_left_to_the_scenes_words():
+    full = {"key": "cans", "name": "the cans", "look": "red for Lina, green for Sami"}
+    assert sp.objects_line([{**full, "partial": True}]) == ""
+    assert "red for Lina" in sp.objects_line([full])

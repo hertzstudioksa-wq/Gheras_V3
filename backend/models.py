@@ -112,6 +112,9 @@ class ChildPayload(BaseModel):
     age: int = Field(ge=1, le=14)
     gender: Literal["male", "female"]
     image_url: str = Field(min_length=3)  # REQUIRED
+    # The face from more sides (three-quarter, side): the sheet sees the real face from
+    # every side and the scenes stop inventing a stock one.
+    extra_image_urls: List[str] = Field(default_factory=list, max_length=2)
     appearance_notes: Optional[str] = None
     hijab: Optional[bool] = False
 
@@ -121,6 +124,7 @@ class CharacterPayload(BaseModel):
     name: Optional[str] = None
     role: Literal["mentioned", "visible"] = "mentioned"
     image_url: Optional[str] = None
+    extra_image_urls: List[str] = Field(default_factory=list, max_length=2)
 
 
 class FavoriteItem(BaseModel):
@@ -268,6 +272,7 @@ class OrderStatus(str, Enum):
     PRODUCTION_READY = "production_ready"
     PRODUCTION_APPROVED = "production_approved"
     ASSETS_GENERATING = "assets_generating"
+    PICTURES_REVIEW = "pictures_review"  # pictures drawn, waiting for the parent (services/picture_review.py)
     ASSETS_READY = "assets_ready"
     ASSEMBLING = "assembling"
     DELIVERED = "delivered"
@@ -290,6 +295,7 @@ ORDER_STATUS_AR = {
     "production_ready": "خطة الإنتاج جاهزة",
     "production_approved": "تمت الموافقة على الخطة",
     "assets_generating": "جاري توليد الوسائط",
+    "pictures_review": "الصور جاهزة لمراجعتك",
     "assets_ready": "الوسائط جاهزة",
     "assembling": "جاري التجميع",
     "delivered": "تم التسليم",

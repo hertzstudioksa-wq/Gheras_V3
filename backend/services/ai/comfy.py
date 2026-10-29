@@ -58,9 +58,20 @@ PERMANENT_EXCEPTIONS = ("ValidationError",)
 WORKFLOWS = {
     "keyframe_qwen21": {"output_node": "461", "ints": {"seed"}, "refs_node": "459:474",
                         "prompt_input": ("459:474", "prompt")},
+    # The same at the sheet's portrait 1024x1536: a drawn sheet's head made the right
+    # size for the age (services/sheet_proportions.py).
+    "sheet_qwen21": {"output_node": "461", "ints": {"seed"}, "refs_node": "459:474",
+                     "prompt_input": ("459:474", "prompt")},
+    # A grown-up's real face edited into a finished shot picture (services/face_fix.py).
+    "face_id": {"output_node": "60", "ints": {"seed"}, "floats": {"denoise"}, "prompt_input": ("6", "text")},
     "clip_wan22": {"output_node": "108", "ints": {"seed", "duration_seconds"},
                    "prompt_input": ("129:93", "text"), "start_input": ("97", "image"),
                    "duration_input": ("129:161", "value")},
+    # The same clip pinned at both ends (WanFirstLastFrameToVideo): the shot's checked
+    # end picture is its last frame, so Wan can't end on a face turned to the camera.
+    "clip_wan22_flf": {"output_node": "108", "ints": {"seed", "duration_seconds"},
+                       "prompt_input": ("129:93", "text"), "start_input": ("97", "image"),
+                       "end_input": ("98", "image"), "duration_input": ("129:161", "value")},
 }
 _PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
 _REF_KEY = re.compile(r"images\.image_(\d+)$")
@@ -111,6 +122,10 @@ def _set_references(workflow: dict, target: str, names: list[str]) -> None:
 
 
 def _typed(workflow: str, key: str, value):
+    if key in WORKFLOWS[workflow].get("floats", ()):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise AIPermanentError(f"Comfy {workflow}: '{key}' must be a number, got {value!r}")
+        return float(value)
     if key in WORKFLOWS[workflow]["ints"]:
         if isinstance(value, bool) or not isinstance(value, int):
             raise AIPermanentError(f"Comfy {workflow}: '{key}' must be a whole number, got {value!r}")
@@ -463,7 +478,7 @@ async def download(filename: str, subfolder: str = "", *, kind: str = "output", 
 
 
 async def run(*, stage: str, workflow: str, fills: dict, refs: list[str] | None = None,
-              on_submitted=None, prompt_id: str | None = None,
+              on_submitted=None, prompt_id: str | None = None, queue_key: str = "",
               timeout: float = 900.0, poll_interval: float = 3.0) -> tuple[bytes, str, dict]:
     """Submit (or resume `prompt_id`), wait and download the first output file.
     `on_submitted(prompt_id)` runs before the wait, so the caller can save the id
@@ -472,8 +487,10 @@ async def run(*, stage: str, workflow: str, fills: dict, refs: list[str] | None 
     # Within an order, keyframes go before clips: a keyframe takes ~20 s against a
     # clip's ~110 s, and the scene pictures (the parent's previews, every clip's
     # start frame) waited behind clips for half an hour in the first real story.
+    # `queue_key` (scene.shot) then serves them in story order: the parent watched
+    # scene 4's picture arrive before scene 1's.
     rank = "1" if workflow.startswith("clip") else "0"
-    async with _gate.slot(f"{await order_priority(fake_providers.CURRENT_ORDER.get())}|{rank}"):
+    async with _gate.slot(f"{await order_priority(fake_providers.CURRENT_ORDER.get())}|{rank}|{queue_key}"):
         if not prompt_id:
             prompt_id = await submit(stage=stage, workflow=workflow, fills=fills, refs=refs)
             if on_submitted:

@@ -224,6 +224,22 @@ export function AdminMediaTab({ orderId }) {
     }
   };
 
+  // For a parent who asked us by phone: their pictures are approved and the story goes on.
+  const approvePictures = async () => {
+    if (!window.confirm("اعتماد صور القصة بدل ولي الأمر؟ بعدها تبدأ الصور تتحرّك.")) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/orders/${orderId}/pictures/approve`);
+      toast.success("اتعتمدت الصور والقصة بتكمل");
+      if (!pollRef.current) pollRef.current = setInterval(load, 4000);
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "فشل");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const retryJob = async (jobId) => {
     try {
       await api.post(`/admin/jobs/${jobId}/retry`);
@@ -327,6 +343,12 @@ export function AdminMediaTab({ orderId }) {
               <div className="w-2 h-2 rounded-full bg-[#87A96B] animate-pulse" />
               يعمل الآن
             </span>
+          )}
+          {status === "pictures_review" && (
+            <button onClick={approvePictures} disabled={busy} data-testid="admin-approve-pictures-btn"
+              className="rounded-full bg-[#E8F0E1] text-[#4F6B3B] px-3 py-1 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50">
+              <CheckCircle2 className="w-3 h-3" /> اعتماد الصور بدل ولي الأمر
+            </button>
           )}
         </div>
         <button

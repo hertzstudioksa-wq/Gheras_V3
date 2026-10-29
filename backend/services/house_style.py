@@ -24,6 +24,29 @@ STYLE = (
     "never big-head caricatures). Premium children's book animation look: clean elegant linework, soft simplified "
     "painterly shading, warm appealing colors, charming and hand-crafted."
 )
+# The owner's pick (2026-10-28): one middle style for children and adults. Next to the
+# cute big-eyed children, grown-ups drawn with their real features looked like they came
+# from another film; with natural eyes for everyone the father and the child read as one
+# picture in every place and angle tried. Its reference picture is the same made-up family
+# as the soft style's, redrawn (assets/styles/storybook_natural.png).
+# Its first wording said "child body proportions": the child's sheet came out four heads
+# tall with a big head that the owner called silly in the scenes. V1 stays to upgrade a
+# database that still holds it word for word (engine_config.seed_engine_config).
+STYLE_NATURAL_V1 = (
+    "One consistent 2D storybook illustration style for children and adults alike, like a modern animated film: "
+    "natural eye size and shape for everyone (never enlarged big cartoon eyes), real facial proportions simplified "
+    "into clean appealing shapes, clean outlines, soft painterly shading, warm appealing colors, no realistic skin "
+    "texture, pores or single hairs. Children keep soft childlike features (round cheeks, small noses, child body "
+    "proportions); adults keep their own real features."
+)
+STYLE_NATURAL = (
+    "One consistent 2D storybook illustration style for children and adults alike, like a modern animated film: "
+    "natural eye size and shape for everyone (never enlarged big cartoon eyes), real facial proportions simplified "
+    "into clean appealing shapes, clean outlines, soft painterly shading, warm appealing colors, no realistic skin "
+    "texture, pores or single hairs. Real body proportions for everyone's age: the head never enlarged (a child of "
+    "four to six is about five heads tall, a grown-up about seven and a half), no big-head, chibi or bobblehead look. "
+    "Children keep soft childlike features (round cheeks, small noses); adults keep their own real features."
+)
 FRAME_RULES = (
     "Full-bleed 16:9 cinematic frame filling the whole canvas edge to edge: no border, no white margin, "
     "no vignette, no text, no letters, no watermark."
@@ -84,6 +107,33 @@ def _costume_extras(outfit: str) -> str:
     return rest
 
 
+# A word printed on a shirt in the photo came out scrambled differently in every
+# frame of the clips (and the review retook them for it): the sheet keeps the
+# clothes and their colors, not the print.
+NO_PRINT = ("Leave out printed words, letters, numbers and logos on the clothes: the same garments in the same "
+            "colors, plain where the print was")
+
+
+def cast_keys(characters: list[dict]) -> list[str]:
+    """One key per character of the order, in its order: the type, and type_2,
+    type_3 for a second and third of the same type. Two friends were both
+    "friend": the plan, the shots and the sheets kept only one of them, so the
+    second boy had no photo reference."""
+    seen: dict[str, int] = {}
+    keys = []
+    for c in characters or []:
+        t = str(c.get("type") or "other").strip() or "other"
+        seen[t] = seen.get(t, 0) + 1
+        keys.append(t if seen[t] == 1 else f"{t}_{seen[t]}")
+    return keys
+
+
+def base_type(key: str) -> str:
+    """friend_2 → friend (what a label says)."""
+    head, _, tail = (key or "").rpartition("_")
+    return head if head and tail.isdigit() else key
+
+
 def outfit_rule(outfit: str | None) -> str:
     """Keep the photo's outfit (what makes a child recognisable to their parents)
     unless the story needs specific clothes. A costume worn through the story
@@ -96,15 +146,15 @@ def outfit_rule(outfit: str | None) -> str:
         if extras:
             return ("dress the character in the person's own everyday clothes from the photo, with the same colors "
                     "and details (casual instead of formal wear, no tie, no safety or sports gear), and add what they "
-                    f"wear through the whole story: {extras}. If the feet are bare, add simple shoes")
+                    f"wear through the whole story: {extras}. If the feet are bare, add simple shoes. {NO_PRINT}")
         # Parents upload holiday and sports photos: the person's own clothes carry
         # over, the gear of the moment (life jacket, harness, helmet) doesn't.
         return ("dress the character in the person's own everyday clothes from the photo, with the same colors and "
                 "details. If the photo shows formal or office wear (a suit, a blazer or a tie), draw simple casual "
                 "clothes in similar colors instead, with no tie. Leave out activity and safety gear such as life "
                 "jackets, harnesses, straps, helmets, goggles or ski wear, and anything the person is holding. If the "
-                "feet are bare, add simple shoes that match the outfit")
-    return f"dress the character in {o}"
+                f"feet are bare, add simple shoes that match the outfit. {NO_PRINT}")
+    return f"dress the character in {o}. {NO_PRINT}"
 
 
 # Photo → character rules for every sheet drawn from a real photo (parents upload
@@ -123,16 +173,56 @@ IDENTITY_RULES = (
 )
 
 
+# The style's cute face (big eyes, small nose) erased the father's likeness: a broad face
+# with heavy-lidded eyes and a strong nose came out as a generic cartoon dad, and a mirror
+# selfie's downward glance and frown were copied too. Side by side the owner chose real
+# proportions for grown-ups (2026-10-28); children keep the approved look.
+ADULT_TYPES = {"father", "mother", "grandfather", "grandmother", "uncle", "aunt", "teacher", "parent", "grandparent"}
+CUTE_FACE = ("simplified rounded shapes, big expressive eyes with simple highlights, small simplified noses, smooth "
+             "simplified skin with no realistic texture, soft cute storybook proportions (adults keep natural body "
+             "proportions, never big-head caricatures).")
+FACE_FORWARD = ("The sheet faces forward with the eyes looking straight ahead and a calm, friendly expression, "
+                "whatever the photo's angle, glance or mood.")
+ADULT_FACE = ("ADULTS keep their own real facial proportions: their own eye size and shape (never enlarged into big "
+              "cartoon eyes), their own nose size and shape, their own face width and length, jaw, forehead and "
+              "hairline — simplified only in line and skin, never cute or baby-faced; natural adult body proportions. "
+              f"{FACE_FORWARD}")
+
+
+# "Highly stylized ... more cartoonish than the photo" drew a father five heads tall
+# (owner: the head is big and silly), the style's own proportion words further down
+# notwithstanding: the proportions get their own line, with numbers.
+# "a full-size torso and long legs" drew a slim, long-legged father and a lanky boy
+# (owner: "why are they so tall?"): the build stays the person's own.
+PROPORTIONS = ("PROPORTIONS: real body proportions for the person's age, never a big-head cartoon figure: a grown-up "
+               "is about seven heads tall, a child of four to six about four and a half to five heads tall, each with "
+               "the person's own build (shoulders, chest, arms and legs as sturdy as in the photo, never slimmed). "
+               "The cartoon look is in the lines and the shading, never in the body.")
+
+
+def is_adult(kind: str | None) -> bool:
+    return base_type(kind or "") in ADULT_TYPES
+
+
+def adult_style(style_text: str) -> str:
+    if CUTE_FACE in style_text:
+        return style_text.replace(CUTE_FACE, "simplified rounded shapes and smooth simplified skin with no realistic "
+                                             f"texture. {ADULT_FACE}")
+    return f"{style_text} {ADULT_FACE}"
+
+
 def character_sheet_prompt(who: str, outfit: str | None = None, style_text: str | None = None,
-                           sheet_rules: str | None = None) -> str:
+                           sheet_rules: str | None = None, adult: bool = False) -> str:
     """Photo → cartoon character sheet (the owner's proven prompt, fixed: opaque
-    white instead of transparent, photo rules, photo outfit by default, one view)."""
+    white instead of transparent, photo rules, photo outfit by default, one view;
+    grown-ups keep their real face proportions)."""
+    style = adult_style(style_text or STYLE) if adult else (style_text or STYLE)
     return (
         f"Create a highly stylized 2D children's storybook cartoon character based on the uploaded photo of {who}, "
         "more cartoonish than the photo while keeping the person instantly recognizable to their own family. "
         "The first reference image is the photo (use it ONLY for identity). "
         f"{STYLE_REF_NOTE}\n\n{IDENTITY_RULES}\n\n{PHOTO_RULES}\n\nOUTFIT: {outfit_rule(outfit)}.\n\n"
-        f"STYLE: {style_text or STYLE}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
+        f"STYLE: {style}\n\n{PROPORTIONS}\n\nCOMPOSITION: {sheet_rules or SHEET_RULES}"
     )
 
 
@@ -214,7 +304,8 @@ DIALECTS: dict[str, dict] = {
         "writing": (
             "اكتب كل narration_line باللهجة المصرية العامية الطبيعية الموجّهة للأطفال (مثل: بيجروا، أوي، سوا، "
             "بصّ، قرّب، الأوضة، ماما، بابا)، جمل قصيرة دافئة. لا تخلط بالفصحى. ضع الشدّة والتشكيل على أي كلمة "
-            "يمكن أن تُنطق خطأ (مثل: بصّت، قرّبت، طفّت)."
+            "يمكن أن تُنطق خطأ (مثل: بصّت، قرّبت، طفّت)، والسكون على كلمة قد تُقرأ بشدّة ليست فيها "
+            "(مثل: يِنْزِل، يِطْلَع)."
         ),
         "tts_direction": "Read aloud in a warm, gentle Egyptian Arabic storyteller voice for young children:",
         "voices": {"male": "Algieba", "female": "Sulafat"},

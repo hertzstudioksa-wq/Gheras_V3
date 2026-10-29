@@ -36,12 +36,24 @@ def test_kling_lengths_unchanged():
     assert house_style.clip_seconds_for("fal-ai/kling-video/v2.5-turbo/pro/image-to-video", 6.0, 0.35) == 10
 
 
-def test_wan_motion_prompt_keeps_the_guards_without_elements():
+def test_wan_motion_prompt_is_short_action_first_and_still():
+    text = sp.wan_motion_prompt("Lina slowly lifts her hands to her face.", 2)
+    assert text.startswith("Lina slowly lifts her hands to her face.")
+    assert "@Element" not in text and "push-in" not in text
+    assert sp.WAN_STILL in text and "No wind" in text and "Exactly 2 people" in text
+    assert len(text.split()) < 80  # the Kling guards were ~120 words and buried the action
+    assert sp.wan_motion_prompt(None, 0).count("Nobody is in the frame.") == 1
+
+
+def test_wan_redo_notes_come_after_the_action():
+    text = sp.wan_motion_prompt("Omar nods.", 1, calm=True, outfit=True)
+    assert text.index("Omar nods.") < text.index(sp.CALM_NOTE) < text.index(sp.OUTFIT_REDO_NOTE) < text.index(sp.WAN_STILL)
+
+
+def test_kling_prompt_unchanged():
     style = engine_config.DEFAULT_STYLE
     text = sp.motion_prompt("Lina waters the flowers.", [], style, ["Lina", "Omar (the child's father)"])
-    assert "@Element" not in text and "Characters:" not in text
-    assert "Exactly 2 people in this shot" in text and sp.OUTFIT_LOCK in text
-    assert sp.PHYSICS in text and text.endswith(sp.NO_TEXT)
+    assert "Exactly 2 people in this shot" in text and sp.PHYSICS in text and text.endswith(sp.NO_TEXT)
 
 
 def test_wan_is_a_video_executor_for_the_video_stage_only():

@@ -5,6 +5,7 @@ One mega-JSON call that produces: production_plan + scene_plans + book_pages + c
 import os
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -50,13 +51,24 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
   },
   "characters": [
     {
-      "type": "child|mother|father|sibling|friend|teacher|grandparent|other",
+      "type": "child, or the character's key exactly as in the list of characters (mother, father, friend, friend_2...)",
       "name": "Arabic name if any",
       "name_en": "Transliterated name",
       "visual_description": "English detailed appearance (face, hair, body type, eyes, skin tone)",
       "clothing_style": "English clothing",
-      "key_features": "English 2-3 key memorable features",
+      "key_features": "English 2-3 permanent look features (hair, glasses, freckles, an accessory) — never an expression or a mood",
       "reference_image_url": null
+    }
+  ],
+  "story_objects": [
+    {
+      "key": "short_english_key (e.g. kite)",
+      "name_en": "English name as the shots say it (e.g. the red kite)",
+      "look": "English: what never changes — material, shape of its parts, exact colors, any special mark (e.g. a red diamond-shaped paper kite on thin wooden sticks with a long yellow tail of ribbon bows). No size, no arrangement, no state.",
+      "sheet_view": "English: how its reference picture shows it alone (e.g. the kite lying flat on the floor, its tail curled beside it); an object that changes in the story shows its parts loose and apart, not assembled",
+      "toy": "true for a toy with a face or a body (plush, doll, action figure, toy animal) — a famous character's toy keeps its famous design — else false",
+      "changes": "true when the object itself changes during the story (a seed that sprouts and flowers, a sandcastle being built, a cake being eaten), else false",
+      "owners": ["character keys when this one object is a set of the same thing, one each (the children's three bikes), else empty"]
     }
   ],
   "scenes": [
@@ -96,8 +108,9 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
           "narration_line": "جملة سرد واحدة قصيرة (باللهجة المطلوبة) تُقال أثناء هذه اللقطة بالضبط",
           "shot_type": "wide | medium | close-up | insert | over-the-shoulder | back view",
           "characters": ["child", "mother"],
-          "keyframe_prompt": "English: the FIRST frame of this shot — who is where, pose, facial expression, composition, background, lighting. Name characters (e.g. Sara, her mother) and keep their outfits from characters[]. No art-style words.",
-          "motion_prompt": "English: what visibly MOVES during the shot — ONE main character action (verb) and its expression change, gentle environment motion (light, curtains, leaves), plus one calm camera move (static, slow push-in or slight pan)."
+          "objects": ["keys of the story_objects seen in this shot"],
+          "keyframe_prompt": "English: the FIRST frame of this shot, at the very moment of narration_line — who is where, pose, where each character looks (at whom or what — never at the camera), the feeling on each face (tears, surprise, joy...), the size of each story object measured against a character's body, composition, background, lighting. Name characters (e.g. Sara, her mother) and keep their outfits from characters[]. No art-style words.",
+          "motion_prompt": "English: ONE small continuous movement of a named character that starts from the first frame (a face changing, a head turning, hands rising to the mouth, a hug, clapping), never leg work (walking, running, kicking off, pedalling, hopping). Nothing else: no camera move, no environment motion, no object moving by itself; a hand touching an object stays on it."
         }
       ]
     }
@@ -118,16 +131,34 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - narration_line: جملة واحدة كاملة قصيرة تصف ما يحدث في نفس اللقطة (لا تحكي حدثاً لا نراه). الحد الأقصى للكلمات في رسالة المستخدم.
 - narration_text للمشهد = سطور اللقطات متتالية (يمكن تركه فارغاً، سيُجمَع تلقائياً).
 - نوّع shot_type مثل السينما: لقطة واسعة تؤسس المكان، ثم متوسطة وقريبة على المشاعر، وinsert لغرض مهم. لا تكرر نفس النوع في لقطتين متتاليتين.
-- motion_prompt: حركة حقيقية واضحة للشخصيات (تمشي، تحضن، تلتفت، تبتسم، تمد يدها...) — ليس مجرد زووم على صورة ثابتة. لكن اللقطة ~5 ثوانٍ فقط، وموديل الفيديو يخطئ عندما تزدحم: يكرر شخصية أو يجعل جسماً يخترق شيئاً. لذلك:
+- motion_prompt: حركة حقيقية واضحة للشخصيات من الوسط لفوق أو في الوش (تلتفت، تبتسم، تحضن، تصفق، تميل لقدّام، تمد يدها...) — ليس مجرد زووم على صورة ثابتة. لكن اللقطة ~5 ثوانٍ فقط، وموديل الفيديو يخطئ عندما تزدحم: يكرر شخصية أو يجعل جسماً يخترق شيئاً. لذلك:
   - فعل رئيسي واحد لكل لقطة (أو فعلان بسيطان جداً لنفس الشخصية). ممنوع سلسلة أحداث مثل "يأخذ نفساً ثم يمسك يده ثم يعبر ثم يقفز والأم تصفق".
+  - لا حركة للرجلين: المشي والجري والزق بالرجل والبدّال والنط موديل الفيديو يرسمها رجلاً تتحرك في الهوا أو جسماً يرتفع عن الأرض. الحركة دي تظهر كنتيجة (الطفل على العجلة في نص الطريق) والحركة نفسها من الوسط لفوق (يميل لقدّام، يبتسم، يشد على الإيد)؛ والرجلين اللي على الأرض أو على حاجة تفضل ثابتة.
   - كل من سيظهر في اللقطة موجود في أول إطار. لا أحد يدخل الكادر، والكاميرا لا "تكشف" أشخاصاً أو مكاناً جديداً.
-  - الكاميرا ثابتة، أو push-in بطيء، أو pan خفيف فقط. ممنوع arc / orbit / follow / reveal / الدوران حول الشخصيات.
+  - الكاميرا ثابتة دائماً: لا push-in ولا pan ولا zoom (حركة الكاميرا بتمطّ الأشياء الثابتة وبتكبّرها). ممنوع arc / orbit / follow / reveal.
+  - اللقطة تتحرك من صورة واحدة ثابتة، وموديل الفيديو لا يستطيع إظهار الأحداث الفيزيائية: الأشياء التي تقع أو تنهار أو تنكسر أو تنسكب أو تُرمى أو تصطدم بتذوب أو تتمدد. لذلك أي حدث فيزيائي في السطر (وقوع، انهيار، كسر، انسكاب، رمي، اصطدام، قفز، طيران شيء): keyframe_prompt يصوّر اللحظة بعده مباشرة — النتيجة موجودة بالفعل في أول إطار (الأشياء على الأرض، البقعة موجودة) والشخصيات تتفاعل معها — وmotion_prompt حركة رد الفعل (وش بيتغيّر، إيدين على البق). السرد هو اللي يحكي السبب. لا تطلب أبداً في motion_prompt أن يقع أو ينكسر أو يتحرك شيء.
+  - لا حركة للبيئة في motion_prompt (رياح، ستائر، غبار، أوراق، ضوء يتراقص، شعر يتطاير)، ولا شيء يكبر أو يصغر أو يغيّر شكله.
   - تجنّب الحركات الصعبة فيزيائياً: القفز، التسلق، المشي على جسر حبال أو حافة ضيقة، المرور خلال شيء، تسليم شيء من يد ليد، الركض ممسكين بالأيدي. لو القصة فيها جسر أو مرتفع: الشخصيات واقفة عليه وتنظر للمنظر، أو لقطة قريبة على الوجه والمشاعر.
   - في over-the-shoulder و back view: الكاميرا ثابتة تماماً، والشخصية التي في المقدمة لا تتحرك من مكانها.
   - اللقطات المتوسطة والقريبة: شخصية أو اثنتان فقط. ثلاث شخصيات أو أكثر في لقطة واسعة فقط، وأربع شخصيات بحد أقصى في أي لقطة (الطفل وأهله أولاً).
-  - motion_prompt يُظهر بالضبط ما يقوله narration_line لنفس اللقطة.
+  - motion_prompt يُظهر ما يقوله narration_line لنفس اللقطة — والحدث الفيزيائي يُظهر رد الفعل عليه (القاعدة السابقة).
 - لا تطلب أي كلام مكتوب في keyframe_prompt أو motion_prompt (أسماء أماكن، كلمات على خريطة، لافتات، عناوين، أرقام): الموديلات بتكتبها غلط. الخريطة أو اللافتة تبان برسومات بس (جزيرة، بركان، شجر، علامة X).
-- keyframe_prompt: يصف أول إطار فقط. كل شخصية تظهر فيه يجب أن تكون في characters للقطة. لا تصف ملابس الشخصيات التي clothing_style لها "same as in the photo" (ملابسها تأتي من صورتها المرجعية).
+- keyframe_prompt: يصف أول إطار فقط، في لحظة narration_line نفسها، والمشاعر ظاهرة على الوجوه (دموع، دهشة، فرح): أول إطار هو اللي بيحدد شكل الشخصية طول اللقطة. كل شخصية تظهر فيه يجب أن تكون في characters للقطة. لا تصف ملابس الشخصيات التي clothing_style لها "same as in the photo" (ملابسها تأتي من صورتها المرجعية).
+- story_objects: الأغراض التي لها دور في القصة وتظهر في لقطتين أو أكثر (برج مكعبات، طائرة ورقية، كرة، كعكة، صندوق...) — 3 بحد أقصى. لعبة الطفل التي رفع الأهل صورتها ليست منها (لها صورتها)؛ أما اللعبة أو الشخصية المفضّلة بدون صورة فتدخل لو ظهرت في لقطتين أو أكثر. كل لقطة تُرسم وحدها، فالغرض الذي ليس له شكل ثابت مكتوب يتغيّر شكله من لقطة لأخرى. look: ما لا يتغيّر أبداً بتفاصيل محددة (الخامة، شكل الأجزاء، الألوان بالضبط، أي علامة مميزة)، بدون حجم ولا ترتيب ولا حالة. sheet_view: كيف يُرسم في صورته المرجعية وحده؛ لو الغرض يتغيّر في القصة (برج يُبنى ثم يقع، كعكة تُقطع) ارسم أجزاءه سائبة ومتفرقة فقط (بضع قطع على الأرض غير مركّبة)، لا أي شكل مركّب: الصورة تنسخ الترتيب الذي تراه في المرجع.
+- الشخصية المشهورة أو اللعبة التي لها وجه (سوبر هيرو، شخصية كرتون، دبدوب، عروسة، فيجر): لو الأهل وصفوها لعبة أو دمية، أو القصة واقعية والأهل لم يطلبوها بطلاً حياً: هي من story_objects و toy = true — look يصفها بشكلها المشهور بالضبط (نفس الوجه وشكل العيون وألوانها، الشعر، الملابس والألوان) مصنوعة كدميتها الرسمية من محلات اللعب (قماش فرو بخياطة، أو بلاستيك)؛ في keyframe_prompt تجلس مثل الدمية أو في يد أو حضن أحد، ولا تقف ولا تمشي وحدها. لو القصة خيالية وجعلتها بطلاً حياً مع الطفل (أو الأهل طلبوا ذلك): هي شخصية في characters (type = other) بوصفها المشهور، تتحرك وتتكلم عادي، وليست من story_objects.
+- نفس النوع من الأغراض عند أكثر من شخصية (عجل، سكوترات، طيارات ورق، كور): غرض واحد في story_objects للمجموعة، look يصف الموديل المشترك ولون كل واحد باسم صاحبه، وsheet_view يرسمهم جنب بعض. كل keyframe_prompt فيه حد منهم يقول لون اللي معاه. (صورة مرجع لغرض واحد خلّت الموديل يلوّن غرض كل الشخصيات بألوانه.)
+- الغرض الذي يتغيّر في القصة (بذرة تكبر وتطرح زهرة، قلعة رمل تُبنى، كعكة تُؤكل): changes = true، وlook يصف ما هو موجود من البداية ولا يتغير فقط — لا يذكر أبداً حالة لاحقة (الزهرة، البرعم، القلعة الكاملة)؛ وname_en يسمّيه بحالته الأولى (الشتلة الصغيرة، كومة الرمل) لا بما سيصير إليه؛ وكل keyframe_prompt يكتب حالته في تلك اللقطة بالضبط. (look ذكر حالة لاحقة للغرض فرُسمت من أول لقطة.)
+- مجموعة الأغراض لأكثر من صاحب: owners = keys أصحابها.
+- objects في كل لقطة: keys الأغراض من story_objects التي تظهر فيها، حتى لو صغيرة أو بعيدة في الخلفية. background_setting يصف المكان فقط ولا يذكر أي غرض من story_objects (الغرض يُذكر في اللقطات التي يظهر فيها).
+- الأحجام بالجسم: كلما ذكر keyframe_prompt غرضاً من story_objects اكتب حجمه بالنسبة لجسم شخصية في نفس اللقطة (حتى ركبة / وسط / كتف / ذقن / فوق رأس فلان وهو واقف أو جالس أو راكع)، لا "كبير" ولا "أطول منهم". لو القصة تقارن (أكبر، أطول، أكثر من الأول): الحجم الجديد أكبر بوضوح بنفس المقياس الذي كُتب به الأول، ورتّب اللقطة ليظهر الفرق (الشخصيات واقفة بجانبه لا جالسة).
+- النظرة: keyframe_prompt يحدد لكل شخصية إلى من أو إلى ماذا تنظر (إلى بعضهم، إلى الغرض، إلى الطفل). لا أحد ينظر إلى الكاميرا: الصور المرجعية مرسومة تنظر للأمام، ومن لم تُكتب نظرته ينظر للمشاهد. ولو الشخصيات ناحية الكاميرا (جاية علينا أو مصوّرة من قدّام) فـ"تنظر للأمام" تعني في العدسة: اكتبها نظرة لجنب الكادر أو لبعض أو لشيء في الصورة.
+- النظرة في الحركة: motion_prompt يكتب لكل شخصية إلى أين تبقى عيناها طوال اللقطة (تظل تنظر إلى الطفل / إلى اللعبة / إلى بعضهما)، ولا أحد يغمض عينيه ثم يفتحهما ولا يرفع رأسه بلا وجهة — موديل الفيديو حين يفتح العيون أو يرفع الرأس يوجّهها إلى الكاميرا. (في لقطة "يغمض عينيه بسعادة" التفت الأب والطفل للكاميرا في آخرها ثلاث مرات متتالية.)
+- نهاية الحركة: آخر فريم في كل مقطع يُرسم من motion_prompt (نفس صورة البداية بعد لحظة)، فاكتبه بحيث تكون نهايته صورة واضحة وقريبة من البداية: تغيير صغير يُرى (ابتسامة أوسع، يد على الكتف، رأس مائل نحو اللعبة)، لا انتقال لمكان آخر ولا وضعية جديدة كلياً.
+- الألعاب التي لها وجه (دمية، دبدوب، شخصية كرتون): موديل الفيديو يحرّكها مع حركة الناس كأنها حيّة. في لقطة فيها حركة كبيرة (تصفيق، هتاف، رفع الذراعين، قفز) تكون اللعبة في حضن أو ذراعي شخصية، أو على طرف الكادر بعيداً عنهم — لا في المنتصف بينهم.
+- اللعبة التي لها وجه لا تتحرك أبداً في اللقطة: motion_prompt لا يحضنها ولا يرفعها ولا يهزّها ولا يلوّح بها ولا يمشّيها، ولا يذكرها أصلاً. لو القصة فيها حضن أو مسك اللعبة: keyframe_prompt يرسم الحضن جاهزاً (اللعبة مضمومة للصدر) وmotion_prompt يحرّك الوجوه والرؤوس فقط (ابتسامة تكبر، عيون تُغمض، رأس يميل عليها) والأذرع التي تمسكها ثابتة.
+- وجه اللعبة لا يكون كبيراً في لقطة فيها حركة: لقطة متوسطة أو واسعة، واللعبة المحمولة مضمومة للصدر أو جانبية، والجالسة وحدها صغيرة على طرف الكادر؛ لا لقطة قريبة على اللعبة نفسها. (وجه كبير واضح هو ما يحرّكه موديل الفيديو.)
+- الأيدي: لو يد شخصية تلمس شيئاً في أول إطار تبقى ثابتة عليه طوال اللقطة، إلا لو كان السطر عن تحريك هذا الشيء نفسه — موديل الفيديو حين تبتعد اليد عن شيء يأخذه معها. سطر فيه وضع / تركيب / إغلاق / ترك شيء: أول إطار يكون الشيء في مكانه بالفعل والأيدي بعيدة عنه، وmotion_prompt رد فعل (ابتسامة، تصفيق، إشارة).
+- key_features لكل شخصية: صفات شكل دائمة فقط (الشعر، نظارة، نمش، إكسسوار) — ممنوع تعبيرات أو مشاعر (ابتسامة، تكشيرة، ضحكة): الصورة بتنسخها في كل لقطة حتى لو الشخصية بتعيّط.
 - اللقطات داخل المشهد الواحد في نفس المكان والإضاءة والملابس (استمرارية).
 - آخر لقطتين في القصة تختمان القصة بوضوح ودفء (لحظة الفرح/الطمأنينة بعد الحل).
 
@@ -146,7 +177,7 @@ SYSTEM_MSG = """أنت مدير إنتاج قصص أطفال عربية محتر
 - عدد scenes = target_scene_count بالضبط.
 - عدد book_pages = عدد scenes (1 لكل مشهد).
 - characters: الطفل إلزامي (type=child). أضف أي شخصية بارزة ذُكرت في بيانات الطلب.
-- characters_in_scene: استخدم type (child/mother/...) وليس name — سيتم ربطها داخلياً.
+- characters_in_scene و characters في كل لقطة: استخدم مفتاح الشخصية كما في قائمة الشخصيات (child, mother, friend, friend_2...) وليس name — سيتم ربطها داخلياً. شخصيتان من نفس النوع (صديقان، أخوان) لكل منهما مفتاحه، وكل من يظهر في اللقطة يُذكر بمفتاحه.
 - الشخصيات ذات role = mentioned تُذكر بالاسم في السرد فقط ولا تظهر بصرياً: لا تضعها في characters_in_scene ولا في characters أي لقطة، ولا تصفها في keyframe_prompt.
 - الطفل وأي شخصية لها reference_image_url (صورة حقيقية): اكتب clothing_style = "same as in the photo" — ملابس الصورة هي ما يجعل الأهل يتعرّفون على الشخصية. غيّرها فقط إذا احتاجت القصة ملابس معيّنة (بيجامة وقت النوم، ملابس سباحة، زي تنكري...) واكتب حينها الملابس الجديدة صراحةً.
 - أي زي أو إكسسوار تلبسه الشخصية في معظم القصة (كاب شرطة، عباءة بطل، بالطو دكتور، تاج، نظارة غطس...) يُكتب في clothing_style نفسه، مش في key_features بس: مثلاً "same as in the photo, plus a blue police cap with a gold badge and a silver whistle on a cord". الشيت المرجعي يُرسم منه، وموديل الفيديو يرجّع الشخصية لشكل الشيت — فالإكسسوار اللي مش في الشيت يختفي في نص اللقطة.
@@ -267,11 +298,12 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
 
     arc = ARC_TEMPLATES.get(target_scenes) or ARC_TEMPLATES[6]
 
+    keys = house_style.cast_keys(chars)
     chars_brief = "\n".join(
-        f"- {c.get('type')}{' (' + (c.get('name') or '') + ')' if c.get('name') else ''} — {c.get('role','mentioned')}"
+        f"- {key}{' (' + (c.get('name') or '') + ')' if c.get('name') else ''} — {c.get('role','mentioned')}"
         + (f"\n  reference_image_url: {c.get('image_url')}" if c.get("role") == "visible" and c.get("image_url") else "")
         + (f"\n  auto_visual_description: {c.get('visual_description_auto')}" if c.get("visual_description_auto") else "")
-        for c in chars
+        for key, c in zip(keys, chars)
     ) or "لا يوجد"
 
     fav_brief = "، ".join(
@@ -286,14 +318,18 @@ def _build_user_prompt(order: dict, scenario: dict, target_scenes: int) -> str:
     toy_name = ((pers.get("favorites") or {}).get("toy") or {}).get("name") or ""
     toy_block = ""
     if toy_desc or toy_url or toy_name:
-        lines = ["**لعبة/غرض مهم للطفل (مرفوع كصورة)**:"]
+        # Only a toy with a photo has its own reference; one named without a photo
+        # is a story object like any other (the plan once left a favourite plush seen in
+        # every shot out of story_objects because this header said "uploaded").
+        lines = ["**لعبة/غرض مهم للطفل (مرفوع كصورة)**:" if toy_url else "**لعبة الطفل المفضّلة (بدون صورة)**:"]
         if toy_name:
             lines.append(f"- الاسم: {toy_name}")
         if toy_url:
             lines.append(f"- image_url: {toy_url}")
         if toy_desc:
             lines.append(f"- الوصف البصري المستخرج: {toy_desc}")
-        lines.append("- يجب أن يظهر هذا الغرض في key_objects و visual_description للمشاهد المناسبة.")
+        lines.append("- يجب أن يظهر هذا الغرض في key_objects و visual_description للمشاهد المناسبة."
+                     + ("" if toy_url else " ولو ظهر في لقطتين أو أكثر فهو من story_objects بشكل ثابت."))
         toy_block = "\n".join(lines) + "\n"
 
     return f"""## بيانات الطلب
@@ -361,7 +397,7 @@ def _build_production_context(order: dict, scenario: dict, target_scenes: int) -
     arc = ARC_TEMPLATES.get(target_scenes) or ARC_TEMPLATES[6]
 
     chars_brief = "، ".join(
-        f"{c.get('type','')}: {c.get('name','')}" for c in chars if c.get("name")
+        f"{key}: {c.get('name','')}" for key, c in zip(house_style.cast_keys(chars), chars) if c.get("name")
     ) or "لا يوجد"
 
     fav_brief = "، ".join(
@@ -549,6 +585,7 @@ def _normalise_shots(raw) -> list[dict]:
         if not line:
             continue
         chars = sh.get("characters") or []
+        objects = sh.get("objects") or []
         shots.append({
             "shot_index": len(shots) + 1,
             "narration_line": line,
@@ -556,8 +593,52 @@ def _normalise_shots(raw) -> list[dict]:
             "characters": [str(c).strip() for c in chars if str(c).strip()] if isinstance(chars, list) else [],
             "keyframe_prompt": str(sh.get("keyframe_prompt") or "").strip(),
             "motion_prompt": str(sh.get("motion_prompt") or "").strip(),
+            "objects": [_object_key(o) for o in objects if _object_key(o)] if isinstance(objects, list) else [],
         })
     return shots
+
+
+MAX_STORY_OBJECTS = 3
+
+# Things worn. The sheet is drawn from clothing_style, so a helmet the plan put in
+# key_features only (a ride-on story) was on no sheet while the shots asked for it —
+# the way a cap missing from the sheet came off mid-shot.
+WEARABLES = ("helmet", "cap", "hat", "glasses", "sunglasses", "goggles", "backpack", "bag", "cape", "crown",
+             "tiara", "mask", "scarf", "headband", "apron", "badge", "vest", "jacket", "gloves", "costume",
+             "uniform", "bow tie", "whistle")
+_WORN = re.compile(r"\b(" + "|".join(re.escape(w) for w in WEARABLES) + r")s?\b", re.I)
+
+
+def worn_in_outfit(clothing: str, features) -> str:
+    """clothing_style plus every worn thing key_features names that it doesn't."""
+    clothing = str(clothing or "").strip()
+    text = ", ".join(map(str, features)) if isinstance(features, list) else str(features or "")
+    worn = [p.strip() for p in re.split(r"[;,]", text) if p.strip() and _WORN.search(p)]
+    missing = [w for w in worn if w.lower() not in clothing.lower()]
+    if not clothing or not missing:
+        return clothing
+    return f"{clothing.rstrip(' .')}, plus {' and '.join(missing)}"
+
+
+def _object_key(raw) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(raw or "").strip().lower()).strip("_")[:40]
+
+
+def _normalise_objects(raw) -> list[dict]:
+    """The plan's recurring story objects: a key, a name and a look that never changes."""
+    objects: list[dict] = []
+    for o in raw or []:
+        if not isinstance(o, dict):
+            continue
+        key, name, look = _object_key(o.get("key") or o.get("name_en")), str(o.get("name_en") or "").strip(),             str(o.get("look") or "").strip()
+        if key and name and look and key not in {x["key"] for x in objects}:
+            owners = o.get("owners") if isinstance(o.get("owners"), list) else []
+            objects.append({"key": key, "name_en": name[:80], "look": look[:400],
+                            "sheet_view": str(o.get("sheet_view") or "").strip()[:300],
+                            "toy": o.get("toy") is True or str(o.get("toy")).strip().lower() == "true",
+                            "changes": o.get("changes") is True or str(o.get("changes")).strip().lower() == "true",
+                            "owners": [str(k).strip() for k in owners if str(k).strip()][:6]})
+    return objects[:MAX_STORY_OBJECTS]
 
 
 def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
@@ -585,7 +666,7 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             "name": c.get("name"),
             "name_en": c.get("name_en"),
             "visual_description": c.get("visual_description", ""),
-            "clothing_style": c.get("clothing_style", ""),
+            "clothing_style": worn_in_outfit(c.get("clothing_style", ""), c.get("key_features", "")),
             "key_features": c.get("key_features", ""),
             "reference_image_url": c.get("reference_image_url"),
             "is_archived": False,
@@ -612,6 +693,9 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             "created_at": now,
         })
 
+    story_objects = _normalise_objects(payload.get("story_objects"))
+    known_objects = {o["key"] for o in story_objects}
+
     # scenes + book pages
     scenes: list[dict] = []
     words_total = 0
@@ -624,6 +708,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
             cpid = type_to_id.get(t)
             chars_in.append({"character_profile_id": cpid, "role_in_scene": t})
         shots = _normalise_shots(s.get("shots"))
+        for sh in shots:
+            sh["objects"] = [k for k in dict.fromkeys(sh["objects"]) if k in known_objects]
         narration = (" ".join(sh["narration_line"] for sh in shots) if shots
                      else str(s.get("narration_text") or "").strip())
         wc = len([w for w in narration.split() if w])
@@ -720,6 +806,8 @@ def build_docs(order: dict, payload: dict, run_id: str, source: str) -> dict:
         "style_guide": engine.get("style_guide") or dict(house_style.STYLE_GUIDE),
         "engine_trace": engine.get("trace"),
         "cover_prompt": plan_payload.get("cover_prompt"),
+        # Recurring objects with a fixed look; the shots list theirs under "objects".
+        "story_objects": story_objects,
         # Phase D.4 — story-level downstream generator fields
         "story_keywords":        plan_payload.get("story_keywords") or [],
         "story_music_prompt":    plan_payload.get("story_music_prompt") or "",

@@ -443,6 +443,7 @@ async def prompt_preview(order_id: str):
             image_provider, image_model = await shot_pipeline.keyframe_engine()
             on_comfy = image_provider == "comfy_image"
             toy = shot_pipeline.favourite_toy(order) if on_comfy else None
+            objects = shot_pipeline.story_objects(plan, toy)
             rows = []
             for sc in scenes:
                 for sh in sc.get("shots") or []:
@@ -453,7 +454,11 @@ async def prompt_preview(order_id: str):
                         notes.append(shot_pipeline.PREV_SHOT_NOTE)
                     elif previous == "scene":
                         notes.append(shot_pipeline.PREV_SCENE_NOTE)
-                    comfy_refs = shot_pipeline.comfy_references(sh, sc, sheets, toy, previous) if on_comfy else []
+                    in_shot = shot_pipeline.shot_objects(sh, objects, sc)
+                    # On Comfy every story object gets its reference before the keyframes.
+                    comfy_refs = shot_pipeline.comfy_references(sh, sc, sheets, toy, previous,
+                                                                [o for o in in_shot if not shot_pipeline.without_picture(o)]) \
+                        if on_comfy else []
                     mapping = [f"{sheets[t]['label']} is @Element{i + 1}" for i, t in enumerate(
                         shot_pipeline.by_likeness(sh.get("characters") or [], sheets)[:shot_pipeline.MAX_ELEMENTS])
                     ] if "/v3/" in model else []
@@ -462,14 +467,22 @@ async def prompt_preview(order_id: str):
                         "scene_index": sc["scene_index"], "shot_index": sh["shot_index"],
                         "narration_line": sh.get("narration_line"),
                         "keyframe_prompt": shot_pipeline.keyframe_prompt_comfy(sc, sh, profiles, sheets, child_name,
-                                                                               comfy_refs) if on_comfy else
-                        shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes, style),
+                                                                               comfy_refs, in_shot) if on_comfy else
+                        shot_pipeline.keyframe_prompt(sc, sh, profiles, sheets, child_name, notes, style, in_shot,
+                                                      shot_pipeline.by_likeness(sh.get("characters") or [], sheets)
+                                                      [:shot_pipeline.MAX_KEYFRAME_SHEETS]),
                         "keyframe_references": shot_pipeline.describe_refs(comfy_refs, sheets) if on_comfy else
                         [f"<image{i + 1}> {n}" for i, n in enumerate(notes)],
                         "keyframe_prompt_used": row.get("keyframe_prompt_used"),
-                        "motion_prompt": shot_pipeline.motion_prompt(
+                        "motion_prompt": shot_pipeline.wan_motion_prompt(
+                            sh.get("motion_prompt"), len(set(sh.get("characters") or [])),
+                            objects=[o["name"] for o in in_shot], toys=[o["name"] for o in in_shot if o.get("toy")],
+                            cast_in_frame=row.get("cast_in_frame"))
+                        if provider == "comfy_video" else shot_pipeline.motion_prompt(
                             sh.get("motion_prompt"), mapping, style,
-                            shot_pipeline.cast_labels(sh.get("characters") or [], sheets)),
+                            shot_pipeline.cast_labels(sh.get("characters") or [], sheets),
+                            [o["name"] for o in in_shot], [o["name"] for o in in_shot if o.get("toy")],
+                            row.get("cast_in_frame")),
                         "motion_prompt_used": row.get("clip_prompt_used"),
                         # Wan on Comfy runs at CFG 1: a negative prompt does nothing there.
                         "negative_prompt": None if provider == "comfy_video" else shot_pipeline.clip_negative(style),

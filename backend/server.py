@@ -186,6 +186,9 @@ async def on_startup():
     # Orders a restart interrupted are resumed once (PL-4).
     from services.recovery_service import recover_after_boot
     app.state.recovery = _asyncio.create_task(recover_after_boot())
+    # Pictures a parent never answered for are approved after a while (services/picture_review.py).
+    from services.picture_review import sweep_forever as review_sweep
+    app.state.picture_review = _asyncio.create_task(review_sweep())
     try:
         from services.preset_stacks_service import seed_default_presets
         n = await seed_default_presets()

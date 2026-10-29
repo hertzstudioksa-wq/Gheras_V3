@@ -4,6 +4,7 @@ import { api, API } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/gheras/Navbar";
 import ImageUploader from "../components/gheras/ImageUploader";
+import AngleUploads from "../components/gheras/AngleUploads";
 import { ageLabel, scenesLabel, topicsLabel } from "../lib/arabic";
 import {
   ChevronRight, ChevronLeft, Check, Sprout, User, Users, Sparkles, BookOpen,
@@ -70,9 +71,13 @@ const OUTPUT_TYPE_OPTIONS = [
   { v: "pdf",   l: "كتاب PDF فقط",          d: "كتاب مصوّر للقراءة معاً",              i: BookOpen },
 ];
 
+// More sides of the face help grown-ups only: the scenes draw adults from their face at
+// every angle, while a child's likeness comes from the sheet (backend services/head_views.py).
+const ADULT_TYPES = ["mother", "father", "teacher", "grandparent"];
+
 const blankData = () => ({
   goal: { category_id: "", subcategory_id: "", custom_subcategory: "", context: "" },
-  child: { name: "", age: 5, gender: "male", image_url: "", appearance_notes: "", hijab: false },
+  child: { name: "", age: 5, gender: "male", image_url: "", extra_image_urls: [], appearance_notes: "", hijab: false },
   characters: [],
   personalization: { favorites: {}, toy_image_url: "", custom_notes: "" },
   style: { type_id: "", tone_id: "", setting_id: "", language_id: "", voice_id: "", art_style: "" },
@@ -190,7 +195,7 @@ export default function StoryBuilder() {
     }
     setData((d) => ({
       ...d,
-      characters: [...d.characters, { type: "mother", name: "", role: "mentioned", image_url: "" }],
+      characters: [...d.characters, { type: "mother", name: "", role: "mentioned", image_url: "", extra_image_urls: [] }],
     }));
   };
   const updateChar = (idx, patch) =>
@@ -600,14 +605,24 @@ export default function StoryBuilder() {
 
                       {/* Lazy-reveal image uploader only when visible role */}
                       {c.role === "visible" ? (
-                        <ImageUploader
-                          value={c.image_url}
-                          onChange={(url) => updateChar(idx, { image_url: url })}
-                          scope="character"
-                          label="صورة الشخصية (اختياري — للمرجع)"
-                          size="sm"
-                          testId={`char-image-${idx}`}
-                        />
+                        <div>
+                          <ImageUploader
+                            value={c.image_url}
+                            onChange={(url) => updateChar(idx, { image_url: url })}
+                            scope="character"
+                            label="صورة الشخصية (اختياري — للمرجع)"
+                            size="sm"
+                            testId={`char-image-${idx}`}
+                          />
+                          {c.image_url && ADULT_TYPES.includes(c.type) && (
+                            <AngleUploads
+                              value={c.extra_image_urls}
+                              onChange={(urls) => updateChar(idx, { extra_image_urls: urls })}
+                              scope="character"
+                              testId={`char-angles-${idx}`}
+                            />
+                          )}
+                        </div>
                       ) : (
                         <button
                           type="button"

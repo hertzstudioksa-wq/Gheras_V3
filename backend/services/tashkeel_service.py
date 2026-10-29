@@ -21,7 +21,7 @@ _MARKS = re.compile(r"[ً-ْٰـ]")
 
 SYSTEM = """أنت مدقّق لغوي لكتب أطفال عربية. شكّل النصوص تشكيلاً كاملاً صحيحاً (حركات الإعراب والبنية والشدّة
 والتنوين) كما في كتب الأطفال المدرسية. لا تغيّر أي حرف ولا كلمة ولا ترتيب ولا علامات الترقيم، ولا تضف ولا تحذف شيئاً:
-أضف الحركات فقط. الأسماء الأجنبية (مثل سونيك) شكّلها بما يسهّل نطقها.
+أضف الحركات فقط. الأسماء الأجنبية (أسماء الشخصيات والأماكن) شكّلها بما يسهّل نطقها.
 أعد JSON فقط بالشكل: {"pages": ["النص الأول مشكولاً", "النص الثاني مشكولاً", ...]} بنفس عدد النصوص وترتيبها."""
 
 
@@ -81,7 +81,7 @@ async def vowelled_pages(book_assets: list[dict]) -> dict[str, str]:
         return result
     try:
         vowelled = await diacritize([(ba.get("page_text") or "").strip() for ba in missing])
-    except Exception as e:  # noqa: BLE001 — the book is still fine without vowels
+    except Exception as e:  # noqa: BLE001 — the book is still fine without vowels (owner: optional)
         logger.warning(f"[tashkeel] skipped: {type(e).__name__}: {e}")
         return result
     for ba, text in zip(missing, vowelled):

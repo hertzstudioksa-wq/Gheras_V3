@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Film, Loader2, Pencil, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Film, ImageIcon, Loader2, Pencil, RefreshCw, ShieldCheck } from "lucide-react";
 import { api, fileSrc } from "../../../lib/api";
 import { ConfirmAction, PageState } from "../../../components/admin/AdminKit";
 
@@ -9,9 +9,13 @@ import { ConfirmAction, PageState } from "../../../components/admin/AdminKit";
 // and clip) followed by a fresh video assembly.
 
 const PROBLEM_AR = {
-  duplicate: "شخصية متكررة", extra_person: "شخص زيادة", clipping: "جسم بيخترق حاجة",
+  duplicate: "شخصية متكررة", extra_person: "شخص زيادة", role_swap: "شخصية في مكان شخصية تانية",
+  clipping: "جسم بيخترق حاجة",
   vanishing: "شخصية بتختفي", text: "كتابة", deformed: "تشوّه",
   wrong_look: "شكل مش مطابق للشخصية", outfit_change: "اللبس أو الإكسسوار اتغيّر",
+  melting: "حاجة بتسيح أو بتتمدد", action_missing: "الحدث المطلوب ما حصلش", mood_mismatch: "التعبير عكس السطر",
+  noise: "صورة مشوّشة (ألوان عشوائية)", object_alive: "لعبة أو حاجة بتتحرك لوحدها",
+  camera_gaze: "حد باصص للكاميرا", floating: "حد بيطير أو رجله في الهوا",
 };
 
 function ReviewBadge({ label, review, redoneKey }) {
@@ -26,6 +30,23 @@ function ReviewBadge({ label, review, redoneKey }) {
       {review.ok ? <ShieldCheck className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
       {label}: {review.ok ? "سليم" : (review.problems || []).map((p) => PROBLEM_AR[p] || p).join("، ")}
       {redone ? " (اتعادت)" : ""}
+      {review.rescue ? " · اترسمت بـ GPT" : ""}
+    </span>
+  );
+}
+
+// The toy is checked in Wan's own clip: fine from the model (no paste), or alive in every
+// take and pasted from its start picture as the last resort.
+function ToyBadge({ review }) {
+  const check = review?.toy_check;
+  if (!check || !(check.checked || []).length) return null;
+  const frozen = (review.toy_freeze?.frozen || []).length > 0;
+  const alive = (check.alive || []).length > 0;
+  const text = frozen ? "اللعبة اتثبتت (آخر حل)" : alive ? "اللعبة بتتحرك لوحدها" : "اللعبة سليمة من الموديل";
+  return (
+    <span className={`text-[11px] rounded-full px-2 py-0.5 ${frozen || alive ? "bg-[#FCE6D4] text-[#B8612F]" : "bg-[#DEEBCF] text-[#3F5B2E]"}`}
+          title={Object.values(check.notes || {}).join(" · ")}>
+      {text}
     </span>
   );
 }
@@ -64,11 +85,28 @@ function ShotCard({ orderId, shot, busy, onDone }) {
       ) : (
         <div className="w-full aspect-video rounded-xl bg-[#F2E8DA] grid place-content-center text-xs text-[#8A9AB0]">لسه</div>
       )}
+      {(shot.keyframe_url && (shot.end_keyframe_url || shot.end_frame_review)) && (
+        // The clip runs between the start picture and this checked end picture.
+        <div className="flex items-center gap-2 text-[11px] font-body text-[#5A677D]">
+          <img src={fileSrc(shot.keyframe_url)} alt="" className="w-20 aspect-video object-cover rounded-lg" />
+          <span>←</span>
+          {shot.end_keyframe_url ? (
+            <img src={fileSrc(shot.end_keyframe_url)} alt="" className="w-20 aspect-video object-cover rounded-lg" />
+          ) : (
+            <span className="rounded-full px-2 py-0.5 bg-[#FCE6D4] text-[#B8612F]"
+                  title={(shot.end_frame_review?.problems || []).join("، ")}>
+              من غير آخر فريم
+            </span>
+          )}
+          <span>آخر فريم</span>
+        </div>
+      )}
       <p className="font-body text-sm text-[#2D3748]">{shot.narration_line}</p>
       <div className="flex flex-wrap gap-1">
         <ReviewBadge label="الصورة" review={shot.keyframe_review} redoneKey="redrawn" />
         <ReviewBadge label="المقطع" review={shot.clip_review} redoneKey="redone" />
         {shot.clip_calm_redo && <span className="text-[11px] rounded-full px-2 py-0.5 bg-[#F8F1E7] text-[#8B5A2B]">حركة أهدى</span>}
+        <ToyBadge review={shot.clip_review} />
         {shot.clip_rescue && (
           <span className="text-[11px] rounded-full px-2 py-0.5 bg-[#FCE6D4] text-[#B8612F]" title={shot.clip_rescue.reason || ""}>
             اتعمل بـ Kling بعد Wan
@@ -109,6 +147,13 @@ function ShotCard({ orderId, shot, busy, onDone }) {
                        confirmLabel="ابدأ" onConfirm={() => redo("both")}
                        className="inline-flex items-center gap-1 rounded-full bg-white border border-[#87A96B] text-[#4F6B3B] px-3 py-1.5 text-xs font-bold disabled:opacity-50">
           <RefreshCw className="w-3 h-3" /> صورة + مقطع
+        </ConfirmAction>
+        <ConfirmAction disabled={running || busy || !shot.keyframe_url} testId={`redo-still-${keyStr}`}
+                       title={`صورة ثابتة بزووم للقطة ${keyStr}`}
+                       description={`من غير موديل فيديو: زووم بطيء على صورة البداية (مجاناً) — للقطة اللي كل محاولات الفيديو فيها غلط${reassemble ? "، وبعدها الفيديو بيتجمّع من جديد" : ""}.`}
+                       confirmLabel="ابدأ" onConfirm={() => redo("still")}
+                       className="inline-flex items-center gap-1 rounded-full bg-white border border-[#E2D8C9] text-[#5A677D] px-3 py-1.5 text-xs font-bold disabled:opacity-50">
+          <ImageIcon className="w-3 h-3" /> صورة ثابتة
         </ConfirmAction>
         <label className="text-[11px] text-[#5A677D] inline-flex items-center gap-1 font-body">
           <input type="checkbox" checked={reassemble} onChange={(e) => setReassemble(e.target.checked)} />

@@ -2,7 +2,8 @@
 const SCENARIO_STATUSES = ["pending", "scenarios_generating", "scenarios_ready"];
 const PRODUCTION_STATUSES = [
   "scenario_selected", "awaiting_payment", "ready_for_ai", "production_planning", "production_ready",
-  "production_approved", "assets_generating", "assets_ready", "assembling", "delivered", "media_failed",
+  "production_approved", "assets_generating", "pictures_review", "assets_ready", "assembling", "delivered",
+  "media_failed",
 ];
 
 export function orderPath(o) {

@@ -65,12 +65,15 @@ async def generate_image(
     size: str = "1024x1024",
     raw_prompt: bool = False,
     quality: str | None = None,
+    engine: tuple[str, str] | None = None,
 ) -> Tuple[bytes, str, dict]:
     """`raw_prompt=True` sends `scene_prompt` as-is (the shot engine composes
-    its own prompt with the house style and frame rules)."""
+    its own prompt with the house style and frame rules). `engine` (provider,
+    model) draws with that model instead of the stage's (a keyframe rescue)."""
     full_prompt = (scene_prompt if raw_prompt else
                    _build_image_prompt(scene_prompt, style_guide or {}, character_note, prompt_augmentation))
-    provider, model_name, model_src = await resolve_model(stage, IMAGE_MODEL_PROVIDER, IMAGE_MODEL_NAME)
+    provider, model_name, model_src = ((*engine, "rescue") if engine else
+                                       await resolve_model(stage, IMAGE_MODEL_PROVIDER, IMAGE_MODEL_NAME))
     ref_bytes = [r["image_bytes"] for r in (references or []) if r.get("image_bytes")] if support_true_refs else []
     logger.info(
         f"[config] stage={stage} source={model_src} model={provider}/{model_name} "

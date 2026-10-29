@@ -22,11 +22,13 @@ from db import db
 from services import house_style
 
 CACHE_SECONDS = 10
-DEFAULT_STYLE_KEY = "storybook_soft"
+SOFT_STYLE_KEY = "storybook_soft"
+DEFAULT_STYLE_KEY = "storybook_natural"
+NATURAL_DEFAULT_MIGRATION = "style_natural_default"
 ASSET_PREFIX = "asset:"  # reference image shipped with the code (backend/assets/styles/)
 
-DEFAULT_STYLE = {
-    "key": DEFAULT_STYLE_KEY,
+SOFT_STYLE = {
+    "key": SOFT_STYLE_KEY,
     "name_ar": "ستوري بوك ناعم",
     "description_ar": "كرتون ثنائي الأبعاد ناعم بخطوط أنيقة وتظليل رسم يدوي وألوان دافئة.",
     "style_text": house_style.STYLE,
@@ -38,6 +40,18 @@ DEFAULT_STYLE = {
     "lighting": "soft warm storybook lighting",
     "reference_image": f"{ASSET_PREFIX}storybook_soft.png",
     "thumbnail_url": None,
+    "is_default": False,
+    "active": False,
+}
+# The owner's pick (2026-10-28): children and adults in one drawing (house_style.STYLE_NATURAL).
+DEFAULT_STYLE = {
+    **SOFT_STYLE,
+    "key": DEFAULT_STYLE_KEY,
+    "name_ar": "ستوري بوك طبيعي",
+    "description_ar": "رسم ستوري بوك واحد للكبار والصغار: عيون بحجم طبيعي، ملامح حقيقية مبسّطة، وتظليل رسم يدوي "
+                      "بألوان دافئة.",
+    "style_text": house_style.STYLE_NATURAL,
+    "reference_image": f"{ASSET_PREFIX}storybook_natural.png",
     "is_default": True,
     "active": True,
 }
@@ -76,9 +90,25 @@ async def _cached(key: str, loader):
 async def seed_engine_config() -> None:
     """Insert the approved defaults once (never overwrites admin edits)."""
     now = _now()
-    if not await db.style_presets.find_one({"key": DEFAULT_STYLE_KEY}, {"_id": 1}):
-        await db.style_presets.insert_one({**DEFAULT_STYLE, "id": str(uuid.uuid4()), "version": 1,
-                                           "created_at": now, "updated_at": now})
+    for preset in (SOFT_STYLE, DEFAULT_STYLE):
+        if not await db.style_presets.find_one({"key": preset["key"]}, {"_id": 1}):
+            await db.style_presets.insert_one({**preset, "is_default": False, "id": str(uuid.uuid4()), "version": 1,
+                                               "created_at": now, "updated_at": now})
+    # Once per database: the natural style becomes the default and the soft one leaves the
+    # parents' choices (with it, cute children stood next to real-featured grown-ups again).
+    # The admin may change either afterwards; a later boot never switches it back.
+    if not await db.migrations.find_one({"id": NATURAL_DEFAULT_MIGRATION}, {"_id": 1}):
+        await db.style_presets.update_many({"key": {"$ne": DEFAULT_STYLE_KEY}}, {"$set": {"is_default": False}})
+        await db.style_presets.update_one({"key": SOFT_STYLE_KEY}, {"$set": {"active": False, "updated_at": now}})
+        await db.style_presets.update_one({"key": DEFAULT_STYLE_KEY},
+                                          {"$set": {"is_default": True, "active": True, "updated_at": now}})
+        await db.migrations.update_one({"id": NATURAL_DEFAULT_MIGRATION},
+                                       {"$setOnInsert": {"id": NATURAL_DEFAULT_MIGRATION, "applied_at": now}},
+                                       upsert=True)
+    # The natural style's first wording drew children with big heads: a preset still
+    # holding it word for word gets the new one (an admin's own wording is left alone).
+    await db.style_presets.update_one({"key": DEFAULT_STYLE_KEY, "style_text": house_style.STYLE_NATURAL_V1},
+                                      {"$set": {"style_text": house_style.STYLE_NATURAL, "updated_at": now}})
     for key, d in house_style.DIALECTS.items():
         if not await db.dialect_profiles.find_one({"key": key}, {"_id": 1}):
             await db.dialect_profiles.insert_one({
@@ -127,7 +157,7 @@ async def style_reference_bytes(style: dict) -> bytes | None:
 
 def style_guide(style: dict) -> dict:
     """The plan's style_guide (feeds legacy prompt builders and the storyboard)."""
-    return {"art_direction": style.get("style_text") or house_style.STYLE,
+    return {"art_direction": style.get("style_text") or DEFAULT_STYLE["style_text"],
             "palette": style.get("palette") or "", "lighting": style.get("lighting") or "",
             "style_key": style.get("key"), "style_version": style.get("version")}
 
