@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from db import db
 from models import get_order_output_type
 from storage import APP_NAME, STORAGE_DIR, put_object
-from services import (clip_review, engine_config, engine_health, face_fix, head_views, house_style,
+from services import (clip_color, clip_review, engine_config, engine_health, face_fix, head_views, house_style,
                       pronunciation, toy_freeze)
 from services.ai import AIConfigError, AIError, AIPermanentError, comfy, fal
 from services.ai.image_client import WIDE, comfy_image, comfy_workflow
@@ -1823,6 +1823,16 @@ async def run_shot_clips(order: dict, plan: dict, run_id: str, scene_index: int 
                     raw_url = await _store(order, "clip_raw", data, "video/mp4", "mp4")
                     data, freeze_info = await toy_freeze.freeze_alive(data, toys)
                     review = {**review, "toy_freeze": freeze_info}
+                # Wan sometimes washes a clip out on the way between its pictures: its colors
+                # go back to theirs (services/clip_color.py), the faded clip kept for the admin.
+                pictures = [got for got in [await _fetch_source_bytes(u) for u in
+                                            (row.get("keyframe_url"), row.get("end_keyframe_url")) if u] if got]
+                if pictures:
+                    fixed, color = await asyncio.to_thread(clip_color.restore, data, pictures[0][0],
+                                                           pictures[1][0] if len(pictures) > 1 else None)
+                    if color.get("applied"):
+                        raw_url = raw_url or await _store(order, "clip_raw", data, "video/mp4", "mp4")
+                        data, review = fixed, {**review, "color_restored": color}
                 url = await _store(order, "clip", data, "video/mp4", "mp4")
                 await _save(row, {"clip_url": url, "clip_raw_url": raw_url, "clip_remote_url": remote,
                                   "clip_state": "completed",
