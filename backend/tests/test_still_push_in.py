@@ -86,3 +86,22 @@ def test_a_failing_logo_never_blocks_the_story(tmp_path):
     src = tmp_path / "broken.mp4"
     src.write_bytes(b"not a video")
     assert asyncio.run(vas._with_logo(str(tmp_path), str(src), 5.0)) == str(src)
+
+
+def test_a_shot_whose_takes_all_broke_can_be_a_still_push_in():
+    # a grown-up's hand reached in from nowhere in all five Wan takes of one shot (owner chose the still)
+    import io
+    import subprocess
+    import tempfile
+
+    from PIL import Image
+
+    from services.video_assembly_service import _ffmpeg_bin, push_in_clip
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1536, 864), (120, 160, 200)).save(buf, "PNG")
+    data = push_in_clip(buf.getvalue(), 5.0)
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        f.write(data)
+    info = subprocess.run([_ffmpeg_bin(), "-i", f.name], capture_output=True, text=True).stderr
+    assert "1280x720" in info and "Duration: 00:00:05" in info

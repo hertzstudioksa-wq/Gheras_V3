@@ -180,6 +180,29 @@ MAX_SLOWDOWN = 1.6
 STILL_CLIP_SECONDS = 1.5
 _PUSH_IN = ("scale=2560:1440,zoompan=z='min(1+0.0009*on,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
             ":d=1:s=1280x720:fps=24,setsar=1,format=yuv420p")
+# The same slow push-in on a picture (a shot with no clip): {frames} = the shot's length.
+_PICTURE_PUSH_IN = ("scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440,"
+                    "zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                    ":d={frames}:s=1280x720:fps=24,setsar=1,format=yuv420p")
+
+
+def push_in_clip(picture: bytes, seconds: float) -> bytes:
+    """A slow push-in on a checked picture, as a shot's clip: for a shot every video take
+    broke (a grown-up's hand reached in from nowhere in all five Wan takes of one shot),
+    nothing moves but the frame, and nothing is paid."""
+    with tempfile.TemporaryDirectory() as tmp:
+        img, out = os.path.join(tmp, "picture.png"), os.path.join(tmp, "still.mp4")
+        with open(img, "wb") as f:
+            f.write(picture)
+        frames = int(seconds * 24) + 1
+        res = subprocess.run([_ffmpeg_bin(), "-loglevel", "error", "-y", "-loop", "1", "-i", img, "-vf",
+                              _PICTURE_PUSH_IN.format(frames=frames), "-t", f"{seconds:.3f}", "-c:v", "libx264",
+                              "-preset", "medium", "-crf", "18", "-movflags", "+faststart", out],
+                             capture_output=True, text=True, timeout=180)
+        if res.returncode != 0:
+            raise RuntimeError(f"push-in failed: {res.stderr[-300:]}")
+        with open(out, "rb") as f:
+            return f.read()
 
 
 async def _still_seconds(path: str) -> float:
@@ -403,10 +426,7 @@ async def assemble_shot_video(order_id: str, plan: dict, cover_image_url: str | 
                 with open(img, "wb") as f:
                     f.write(kf)
                 frames = int(dur * 24) + 1
-                res = await _ffmpeg(["-loop", "1", "-i", img, "-vf",
-                                     f"scale=2560:1440:force_original_aspect_ratio=increase,crop=2560:1440,"
-                                     f"zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-                                     f":d={frames}:s=1280x720:fps=24,setsar=1,format=yuv420p",
+                res = await _ffmpeg(["-loop", "1", "-i", img, "-vf", _PICTURE_PUSH_IN.format(frames=frames),
                                      "-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "20", seg],
                                     timeout=180)
                 still_motion += 1

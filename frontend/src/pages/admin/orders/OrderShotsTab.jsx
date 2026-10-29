@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Film, Loader2, Pencil, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Film, ImageIcon, Loader2, Pencil, RefreshCw, ShieldCheck } from "lucide-react";
 import { api, fileSrc } from "../../../lib/api";
 import { ConfirmAction, PageState } from "../../../components/admin/AdminKit";
 
@@ -147,6 +147,13 @@ function ShotCard({ orderId, shot, busy, onDone }) {
                        confirmLabel="ابدأ" onConfirm={() => redo("both")}
                        className="inline-flex items-center gap-1 rounded-full bg-white border border-[#87A96B] text-[#4F6B3B] px-3 py-1.5 text-xs font-bold disabled:opacity-50">
           <RefreshCw className="w-3 h-3" /> صورة + مقطع
+        </ConfirmAction>
+        <ConfirmAction disabled={running || busy || !shot.keyframe_url} testId={`redo-still-${keyStr}`}
+                       title={`صورة ثابتة بزووم للقطة ${keyStr}`}
+                       description={`من غير موديل فيديو: زووم بطيء على صورة البداية (مجاناً) — للقطة اللي كل محاولات الفيديو فيها غلط${reassemble ? "، وبعدها الفيديو بيتجمّع من جديد" : ""}.`}
+                       confirmLabel="ابدأ" onConfirm={() => redo("still")}
+                       className="inline-flex items-center gap-1 rounded-full bg-white border border-[#E2D8C9] text-[#5A677D] px-3 py-1.5 text-xs font-bold disabled:opacity-50">
+          <ImageIcon className="w-3 h-3" /> صورة ثابتة
         </ConfirmAction>
         <label className="text-[11px] text-[#5A677D] inline-flex items-center gap-1 font-body">
           <input type="checkbox" checked={reassemble} onChange={(e) => setReassemble(e.target.checked)} />
